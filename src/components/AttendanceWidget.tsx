@@ -488,7 +488,7 @@ export default function AttendanceWidget() {
       {/* Clean Status Badge */}
       {isCheckedIn && (
         <Badge
-          className={`font-bold text-xs py-1 px-2.5 shadow-2xs gap-1.5 ${
+          className={`font-bold text-[11px] sm:text-xs py-1 px-2 sm:px-2.5 shadow-2xs gap-1 sm:gap-1.5 ${
             record.isOvernightShift
               ? "bg-indigo-50 text-indigo-800 border-indigo-300"
               : "bg-emerald-50 text-emerald-800 border-emerald-300"
@@ -500,7 +500,10 @@ export default function AttendanceWidget() {
           ) : (
             <Clock className="h-3.5 w-3.5 text-emerald-600" />
           )}
-          <span>In Shift ({record.login_time}{record.isOvernightShift ? " - Overnight" : ""})</span>
+          <span>
+            <span className="hidden sm:inline">In Shift </span>
+            ({record.login_time}{record.isOvernightShift ? " 🌙" : ""})
+          </span>
         </Badge>
       )}
 
@@ -510,9 +513,9 @@ export default function AttendanceWidget() {
           size="sm"
           onClick={openCheckInDialog}
           disabled={loading}
-          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-1.5 shadow-sm"
+          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-1 sm:gap-1.5 shadow-sm px-2.5 sm:px-3"
         >
-          <LogIn className="h-3.5 w-3.5" /> Check In
+          <LogIn className="h-3.5 w-3.5" /> <span className="hidden xs:inline">Check </span>In
         </Button>
       )}
 
@@ -522,16 +525,16 @@ export default function AttendanceWidget() {
           size="sm"
           onClick={openCheckOutDialog}
           disabled={loading}
-          className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs gap-1.5 shadow-sm"
+          className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs gap-1 sm:gap-1.5 shadow-sm px-2.5 sm:px-3"
         >
-          <LogOut className="h-3.5 w-3.5" /> Check Out
+          <LogOut className="h-3.5 w-3.5" /> <span className="hidden xs:inline">Check </span>Out
         </Button>
       )}
 
       {/* Shift Completed Indicator */}
       {isCheckedOut && (
-        <Badge variant="outline" className="text-xs font-bold text-slate-700 bg-slate-100 border-slate-300 py-1 px-2.5">
-          Shift Done ({record.status || "Present"} {record.total_hours ? `- ${parseFloat(record.total_hours).toFixed(1)} hrs` : ""})
+        <Badge variant="outline" className="text-[11px] sm:text-xs font-bold text-slate-700 bg-slate-100 border-slate-300 py-1 px-2 sm:px-2.5">
+          <span className="hidden sm:inline">Shift </span>Done {record.total_hours ? `(${parseFloat(record.total_hours).toFixed(1)}h)` : ""}
         </Badge>
       )}
     </div>

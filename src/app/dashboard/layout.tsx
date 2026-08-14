@@ -2,7 +2,7 @@ import { ReactNode } from "react";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import DashboardShell from "@/components/DashboardShell";
+import DashboardClientShell from "@/components/DashboardClientShell";
 
 export default async function DashboardLayout({
   children,
@@ -15,9 +15,15 @@ export default async function DashboardLayout({
     redirect("/login");
   }
 
+  const user = {
+    name: session.user.name,
+    email: session.user.email,
+    role: (session.user as any).role,
+  };
+
   return (
-    <DashboardShell user={session.user as any}>
+    <DashboardClientShell user={user}>
       {children}
-    </DashboardShell>
+    </DashboardClientShell>
   );
 }

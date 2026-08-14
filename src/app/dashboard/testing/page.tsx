@@ -1,8 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useSession } from "next-auth/react";
-import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -23,13 +21,16 @@ import {
   Clock,
   FileSpreadsheet,
   AlertCircle,
-  Link as LinkIcon,
-  ShieldAlert
+  Link as LinkIcon
 } from "lucide-react";
+
+import { useSession } from "next-auth/react";
+import Link from "next/link";
 
 export default function TestingQueuePage() {
   const { data: session } = useSession();
   const role = (session?.user as any)?.role;
+  const isTesterOrAdmin = role === "Tester" || role === "Admin";
 
   const [tasks, setTasks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,12 +44,12 @@ export default function TestingQueuePage() {
   const [submittingAudit, setSubmittingAudit] = useState(false);
 
   useEffect(() => {
-    if (role && role !== "Developer") {
+    if (isTesterOrAdmin) {
       fetchTestingQueue();
-    } else {
+    } else if (role) {
       setLoading(false);
     }
-  }, [role]);
+  }, [role, isTesterOrAdmin]);
 
   const fetchTestingQueue = async () => {
     try {
@@ -152,19 +153,19 @@ export default function TestingQueuePage() {
     }
   };
 
-  if (role === "Developer") {
+  if (!isTesterOrAdmin) {
     return (
-      <div className="rounded-2xl border border-slate-800 bg-slate-900 p-8 text-center space-y-4 max-w-xl mx-auto my-12 shadow-xl">
-        <div className="h-14 w-14 rounded-full bg-amber-500/10 text-amber-400 flex items-center justify-center mx-auto border border-amber-500/20">
-          <ShieldAlert className="h-7 w-7" />
+      <div className="p-12 text-center bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4 max-w-lg mx-auto mt-8">
+        <div className="h-16 w-16 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center mx-auto">
+          <ShieldCheck className="h-8 w-8" />
         </div>
-        <h2 className="text-xl font-bold text-slate-100">QA Testing Queue Access Restricted</h2>
-        <p className="text-slate-400 text-sm">
-          The QA Testing Queue is strictly reserved for QA Testers and Executive Management. Developers can review task verification statuses and test sheet audit feedback directly from the Daily Tasks board.
+        <h2 className="text-xl font-bold text-slate-900">QA Testing Queue Access Restricted</h2>
+        <p className="text-sm text-slate-500">
+          The QA Testing Verification Station is dedicated exclusively to team members with the <strong>Tester</strong> role.
         </p>
         <Link href="/dashboard/tasks">
-          <Button className="bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs gap-2 mt-2">
-            <CheckSquare className="h-4 w-4" /> Go to Daily Tasks Board
+          <Button className="bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs mt-2">
+            Return to Daily Tasks
           </Button>
         </Link>
       </div>
