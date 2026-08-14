@@ -96,24 +96,66 @@ export default function AttendancePage() {
       return;
     }
 
+    const userId = (session?.user as any)?.id;
+    const localNow = new Date().toLocaleTimeString("en-IN", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true,
+    });
+    const localDate = new Date().toISOString().split("T")[0];
+
     setActionLoading(true);
     setFeedback("");
+
+    // Save locally immediately
+    const queueKey = `unitglo_offline_queue_${userId || "default"}`;
+    const shiftKey = `unitglo_shift_state_${userId || "default"}`;
+
     try {
       const res = await fetch("/api/attendance/active", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({ action, offline_time: localNow }),
       });
       const data = await res.json();
 
       if (res.ok) {
         setFeedback(`✓ ${data.message}`);
+        localStorage.setItem(shiftKey, JSON.stringify({
+          user_id: userId,
+          date: localDate,
+          login_time: action === "check-in" ? localNow : "09:30:00 AM",
+          logout_time: action === "check-out" ? localNow : null,
+          status: "Present",
+        }));
         fetchAttendance();
       } else {
         setFeedback(`⚠️ Error: ${data.error}`);
       }
     } catch (err) {
-      setFeedback("An unexpected error occurred.");
+      // Offline fallback: Queue punch in localStorage
+      const queueRaw = localStorage.getItem(queueKey) || "[]";
+      let queue = [];
+      try { queue = JSON.parse(queueRaw); } catch (_) {}
+
+      queue.push({
+        action,
+        time: localNow,
+        date: localDate,
+        timestamp: Date.now(),
+      });
+      localStorage.setItem(queueKey, JSON.stringify(queue));
+
+      localStorage.setItem(shiftKey, JSON.stringify({
+        user_id: userId,
+        date: localDate,
+        login_time: action === "check-in" ? localNow : "09:30:00 AM",
+        logout_time: action === "check-out" ? localNow : null,
+        status: "Present",
+      }));
+
+      setFeedback(`📶 Offline Mode: ${action === "check-in" ? "Check-In" : "Check-Out"} saved locally at ${localNow}. Shift timer will continue running and auto-sync when internet reconnects.`);
     } finally {
       setActionLoading(false);
     }

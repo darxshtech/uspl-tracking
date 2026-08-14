@@ -61,9 +61,9 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { action, targetDate } = body; // "check-in" or "check-out"
+    const { action, targetDate, offline_time } = body; // "check-in" or "check-out"
     const todayIST = getCurrentISTDate();
-    const nowTime12 = getCurrentISTTime12();
+    const nowTime12 = offline_time || getCurrentISTTime12();
 
     // 2. Strict Current Date Enforcement: Punch only allowed for current date!
     if (targetDate && targetDate !== todayIST) {
@@ -117,7 +117,7 @@ export async function POST(req: Request) {
 
       return NextResponse.json({
         success: true,
-        message: `Checked IN successfully at ${nowTime12} (India Time IST)`,
+        message: `Checked IN successfully at ${nowTime12} (India Time IST)${offline_time ? ' [Synced from offline session]' : ''}`,
         login_time: nowTime12,
         date: todayIST,
       });
@@ -172,7 +172,7 @@ export async function POST(req: Request) {
           isHalfDay: true,
           totalHours: totalHours.toFixed(2),
           logout_time: nowTime12,
-          message: `Checked OUT at ${nowTime12}. Total: ${totalHours.toFixed(2)} hrs (Marked as Half Day).`,
+          message: `Checked OUT at ${nowTime12}. Total: ${totalHours.toFixed(2)} hrs (Marked as Half Day)${offline_time ? ' [Synced from offline session]' : ''}.`,
         });
       }
 
@@ -181,7 +181,7 @@ export async function POST(req: Request) {
         isHalfDay: false,
         totalHours: totalHours.toFixed(2),
         logout_time: nowTime12,
-        message: `Checked OUT successfully at ${nowTime12} (Total: ${totalHours.toFixed(2)} hrs).`,
+        message: `Checked OUT successfully at ${nowTime12} (Total: ${totalHours.toFixed(2)} hrs)${offline_time ? ' [Synced from offline session]' : ''}.`,
       });
     }
 
