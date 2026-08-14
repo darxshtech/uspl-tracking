@@ -34,7 +34,8 @@ import {
   Crown,
   Edit3,
   AlertTriangle,
-  FileText
+  FileText,
+  Link as LinkIcon
 } from "lucide-react";
 
 export default function DailyTasksPage() {
@@ -66,16 +67,22 @@ export default function DailyTasksPage() {
   const [activeChecklistTaskId, setActiveChecklistTaskId] = useState<number | null>(null);
   const [newChecklistText, setNewChecklistText] = useState("");
 
-  // Update Task Progress Modal state
+  // Update Task Progress Modal state (Status limited to Planning, In Progress, Completed)
   const [progressModalOpen, setProgressModalOpen] = useState(false);
   const [selectedTaskForProgress, setSelectedTaskForProgress] = useState<any>(null);
   const [progressPercentage, setProgressPercentage] = useState<number>(0);
-  const [hoursSpentToday, setHoursSpentToday] = useState<string>("2.0");
+  const [hoursSpentToday, setHoursSpentToday] = useState<number>(2.0);
   const [dailySummary, setDailySummary] = useState<string>("");
   const [blockers, setBlockers] = useState<string>("");
   const [progressStatus, setProgressStatus] = useState<string>("In Progress");
-  const [progressTaskLink, setProgressTaskLink] = useState<string>("");
   const [submittingProgress, setSubmittingProgress] = useState(false);
+
+  // Dedicated Send to Testing Modal state (Multiple preview links)
+  const [testingModalOpen, setTestingModalOpen] = useState(false);
+  const [selectedTaskForTesting, setSelectedTaskForTesting] = useState<any>(null);
+  const [taskLinks, setTaskLinks] = useState<string[]>([""]);
+  const [testingNotes, setTestingNotes] = useState<string>("");
+  const [submittingTesting, setSubmittingTesting] = useState(false);
 
   useEffect(() => {
     fetchTasks();
@@ -152,7 +159,6 @@ export default function DailyTasksPage() {
       if (res.ok) {
         setCreateModalOpen(false);
         fetchTasks();
-        // Reset form
         setTitle("");
         setDescription("");
         setProjectId("");
@@ -174,25 +180,24 @@ export default function DailyTasksPage() {
     }
   };
 
+  // Open Update Progress Modal
   const openProgressModal = (task: any) => {
     setSelectedTaskForProgress(task);
     setProgressPercentage(task.progress_percentage || 0);
-    setHoursSpentToday(task.hours_spent ? task.hours_spent.toString() : "2.0");
+    setHoursSpentToday(Math.max(0, parseFloat(task.hours_spent) || 2.0));
     setDailySummary(task.daily_summary || "");
     setBlockers(task.blockers || "");
-    setProgressStatus(task.status || "In Progress");
-    setProgressTaskLink(task.task_link || "");
+    
+    // Only allow Planning, In Progress, Completed
+    const validStatuses = ["Planning", "In Progress", "Completed"];
+    setProgressStatus(validStatuses.includes(task.status) ? task.status : "In Progress");
     setProgressModalOpen(true);
   };
 
+  // Save Progress
   const handleSaveProgress = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedTaskForProgress) return;
-
-    if (progressStatus === "Ready for Testing" && !progressTaskLink.trim()) {
-      alert("Please provide a Task Preview / PR Link before submitting for QA testing.");
-      return;
-    }
 
     setSubmittingProgress(true);
     try {
@@ -203,10 +208,9 @@ export default function DailyTasksPage() {
           id: selectedTaskForProgress.id,
           status: progressStatus,
           progress_percentage: progressPercentage,
-          hours_spent: parseFloat(hoursSpentToday) || 0,
+          hours_spent: Math.max(0, Number(hoursSpentToday) || 0),
           daily_summary: dailySummary.trim(),
           blockers: blockers.trim() || null,
-          task_link: progressTaskLink.trim() || undefined,
         }),
       });
 
@@ -223,6 +227,72 @@ export default function DailyTasksPage() {
       alert("An error occurred while updating task progress.");
     } finally {
       setSubmittingProgress(false);
+    }
+  };
+
+  // Open Dedicated Send to Testing Modal
+  const openSendToTestingModal = (task: any) => {
+    setSelectedTaskForTesting(task);
+    const existingLinks = Array.isArray(task.task_links) && task.task_links.length > 0
+      ? task.task_links
+      : task.task_link ? [task.task_link] : [""];
+    setTaskLinks(existingLinks);
+    setTestingNotes("");
+    setTestingModalOpen(true);
+  };
+
+  const handleAddLinkInput = () => {
+    setTaskLinks((prev) => [...prev, ""]);
+  };
+
+  const handleRemoveLinkInput = (index: number) => {
+    setTaskLinks((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleLinkChange = (index: number, val: string) => {
+    setTaskLinks((prev) => {
+      const next = [...prev];
+      next[index] = val;
+      return next;
+    });
+  };
+
+  const handleSendToTestingSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedTaskForTesting) return;
+
+    const validLinks = taskLinks.filter((l) => l && l.trim());
+    if (validLinks.length === 0) {
+      alert("Please provide at least one valid preview / PR link for the QA tester.");
+      return;
+    }
+
+    setSubmittingTesting(true);
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: selectedTaskForTesting.id,
+          action: "send_to_testing",
+          task_links: validLinks,
+          remarks: testingNotes.trim() || undefined,
+        }),
+      });
+
+      if (res.ok) {
+        setTestingModalOpen(false);
+        setSelectedTaskForTesting(null);
+        fetchTasks();
+      } else {
+        const data = await res.json();
+        alert(`Failed to submit for QA testing: ${data.error || "Unknown error"}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("An error occurred while submitting task to testing.");
+    } finally {
+      setSubmittingTesting(false);
     }
   };
 
@@ -294,9 +364,9 @@ export default function DailyTasksPage() {
       case "Testing":
         return <Badge className="bg-amber-600 text-white font-bold">Testing in Progress</Badge>;
       case "Changes Required":
-        return <Badge className="bg-red-600 text-white font-bold">Changes Required (QA Failed)</Badge>;
+        return <Badge className="bg-red-600 text-white font-bold">Changes Required (QA Issues)</Badge>;
       case "Tested (PASS)":
-        return <Badge className="bg-emerald-600 text-white font-bold">QA Passed (Ready for Demo)</Badge>;
+        return <Badge className="bg-emerald-600 text-white font-bold">QA Passed (Fully Fixed)</Badge>;
       case "Ready for Demo":
         return <Badge className="bg-indigo-600 text-white font-bold shadow-md animate-pulse">🚀 Ready for Demo (Alert Sent)</Badge>;
       case "Completed":
@@ -314,7 +384,6 @@ export default function DailyTasksPage() {
     const isCompleted = t.status === "Completed" || t.status === "Ready for Demo";
 
     if (activeTab === "today") {
-      // Tasks scheduled for today or carried over from earlier days that are not finished
       return taskDate <= todayStr || !isCompleted;
     }
     if (activeTab === "tomorrow") {
@@ -358,12 +427,12 @@ export default function DailyTasksPage() {
           </h1>
           <p className="text-slate-500 mt-1">
             {role === "Developer"
-              ? "Plan today's and tomorrow's daily tasks, log work progress (% done & hours spent), record blockers, and hand off to QA testing."
-              : "Track developer daily tasks, monitor progress percentage, review blockers, and manage QA testing releases."}
+              ? "Plan daily tasks, update progress (% done & hours spent), document blockers, and submit preview links for QA testing."
+              : "Track developer daily tasks, review blockers, monitor QA verification cycles, and manage client demo releases."}
           </p>
         </div>
 
-        {/* Create Task Button (Enabled for Developers, PM, CEO) */}
+        {/* Create Task Button */}
         <Dialog open={createModalOpen} onOpenChange={setCreateModalOpen}>
           <DialogTrigger render={<Button className="bg-sky-600 hover:bg-sky-700 text-white font-bold shadow-md flex items-center gap-2" />}>
             <Plus className="h-4 w-4" /> {role === "Developer" ? "Create Daily Task" : "Create & Assign Task"}
@@ -443,7 +512,7 @@ export default function DailyTasksPage() {
                 )}
               </div>
 
-              {/* Timeline Selection (Today vs Tomorrow) */}
+              {/* Timeline Selection */}
               <div className="space-y-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
                 <Label className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
                   <Calendar className="h-4 w-4 text-sky-500" /> When will you work on this task?
@@ -510,7 +579,7 @@ export default function DailyTasksPage() {
                 </p>
               </div>
 
-              {/* Subtasks / Checklist items */}
+              {/* Subtasks / Checklist */}
               <div className="space-y-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
                 <Label className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
                   <ListTodo className="h-4 w-4 text-sky-500" /> Add Checklist Sub-tasks (Optional)
@@ -654,13 +723,13 @@ export default function DailyTasksPage() {
         </button>
       </div>
 
-      {/* UPDATE TASK PROGRESS & BLOCKER MODAL */}
+      {/* UPDATE TASK PROGRESS MODAL (Status: Planning, In Progress, Completed) */}
       <Dialog open={progressModalOpen} onOpenChange={setProgressModalOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-lg font-bold text-slate-900">
               <Edit3 className="h-5 w-5 text-sky-500" />
-              Update Daily Task Progress & Status
+              Update Daily Task Progress
             </DialogTitle>
           </DialogHeader>
 
@@ -718,7 +787,7 @@ export default function DailyTasksPage() {
               </div>
             </div>
 
-            {/* Hours Spent & Status */}
+            {/* Hours Spent (Non-negative) & Status */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="hoursSpent" className="font-semibold text-slate-700 text-xs">
@@ -727,9 +796,13 @@ export default function DailyTasksPage() {
                 <Input
                   id="hoursSpent"
                   type="number"
+                  min="0"
                   step="0.5"
                   value={hoursSpentToday}
-                  onChange={(e) => setHoursSpentToday(e.target.value)}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value);
+                    setHoursSpentToday(isNaN(val) ? 0 : Math.max(0, val));
+                  }}
                   required
                 />
               </div>
@@ -744,14 +817,13 @@ export default function DailyTasksPage() {
                   <SelectContent>
                     <SelectItem value="In Progress">In Progress</SelectItem>
                     <SelectItem value="Planning">Planning</SelectItem>
-                    <SelectItem value="Ready for Testing">Ready for Testing (100% Done)</SelectItem>
                     <SelectItem value="Completed">Completed</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
 
-            {/* Work accomplished today */}
+            {/* Work Accomplished Today */}
             <div className="space-y-1.5">
               <Label htmlFor="dailySummary" className="font-semibold text-slate-700 text-xs">
                 Work Done / Accomplishments Today
@@ -766,7 +838,7 @@ export default function DailyTasksPage() {
               />
             </div>
 
-            {/* If NOT 100% done, why not done? (Blockers / Reasons / Remarks) */}
+            {/* Blockers Reason */}
             {progressPercentage < 100 && (
               <div className="space-y-1.5 p-3 rounded-xl bg-amber-50/80 border border-amber-200">
                 <Label htmlFor="blockers" className="font-bold text-amber-900 text-xs flex items-center gap-1">
@@ -786,33 +858,95 @@ export default function DailyTasksPage() {
               </div>
             )}
 
-            {/* If 100% done or Ready for Testing: Mandatory Task Preview Link */}
-            {(progressPercentage === 100 || progressStatus === "Ready for Testing") && (
-              <div className="space-y-1.5 p-3 rounded-xl bg-sky-50/80 border border-sky-200">
-                <Label htmlFor="progressLink" className="font-bold text-sky-900 text-xs flex items-center gap-1">
-                  <ExternalLink className="h-3.5 w-3.5 text-sky-600" />
-                  Task Preview / PR Link * (Mandatory for QA Testing)
-                </Label>
-                <Input
-                  id="progressLink"
-                  value={progressTaskLink}
-                  onChange={(e) => setProgressTaskLink(e.target.value)}
-                  placeholder="https://github.com/.../pull/15 or http://staging.unitglo.com"
-                  className="bg-white text-xs"
-                  required={progressStatus === "Ready for Testing"}
-                />
-                <p className="text-[10px] text-sky-700">
-                  Testers will use this preview link to test and verify your deliverables.
-                </p>
-              </div>
-            )}
-
             <Button
               type="submit"
               disabled={submittingProgress}
               className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 shadow-md"
             >
               {submittingProgress ? "Updating Task..." : "Save Progress & Sync Daily Log"}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* DEDICATED SEND TO TESTING MODAL (MULTIPLE PREVIEW LINKS) */}
+      <Dialog open={testingModalOpen} onOpenChange={setTestingModalOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg font-bold text-slate-900">
+              <Send className="h-5 w-5 text-amber-500" />
+              Hand Off Task to QA Testing
+            </DialogTitle>
+          </DialogHeader>
+
+          <form onSubmit={handleSendToTestingSubmit} className="space-y-4 pt-2">
+            <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-700 font-medium border border-slate-200 space-y-1">
+              <div>Task: <span className="font-bold text-slate-900">{selectedTaskForTesting?.title}</span></div>
+              <div className="text-slate-500">Project: {selectedTaskForTesting?.project_name || "N/A"}</div>
+            </div>
+
+            {/* Multiple Task Links */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                  <LinkIcon className="h-4 w-4 text-sky-500" />
+                  Task Preview & Deliverable Links * (PR / Staging / Figma)
+                </Label>
+                <button
+                  type="button"
+                  onClick={handleAddLinkInput}
+                  className="text-xs font-bold text-sky-600 hover:text-sky-800 flex items-center gap-1"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add Another Link
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                {taskLinks.map((link, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <Input
+                      value={link}
+                      onChange={(e) => handleLinkChange(idx, e.target.value)}
+                      placeholder={idx === 0 ? "https://github.com/.../pull/12 or http://staging.unitglo.com" : "Optional additional link (Figma, test API endpoint...)"}
+                      className="bg-white text-xs"
+                      required={idx === 0}
+                    />
+                    {taskLinks.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveLinkInput(idx)}
+                        className="text-red-500 hover:text-red-700 p-1.5"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-slate-500">
+                Testers will use these exact URLs on their QA dashboard during testing check-in.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="notes" className="font-semibold text-slate-700 text-xs">
+                Hand-off Notes for QA Tester (Optional)
+              </Label>
+              <Input
+                id="notes"
+                value={testingNotes}
+                onChange={(e) => setTestingNotes(e.target.value)}
+                placeholder="e.g. Please test with admin credentials, tested on Firefox"
+                className="text-xs"
+              />
+            </div>
+
+            <Button
+              type="submit"
+              disabled={submittingTesting}
+              className="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-2.5 shadow-md"
+            >
+              {submittingTesting ? "Handing Off to QA..." : "Submit to QA Testing Queue"}
             </Button>
           </form>
         </DialogContent>
@@ -825,7 +959,7 @@ export default function DailyTasksPage() {
             <TableRow>
               <TableHead className="font-bold">Task & Progress</TableHead>
               <TableHead className="font-bold">Project & Assigner</TableHead>
-              <TableHead className="font-bold">Schedule & Blockers</TableHead>
+              <TableHead className="font-bold">Schedule & QA Notes</TableHead>
               <TableHead className="font-bold">Status</TableHead>
               <TableHead className="font-bold text-right">Daily Actions</TableHead>
             </TableRow>
@@ -848,6 +982,10 @@ export default function DailyTasksPage() {
                 const taskDate = task.target_date ? task.target_date.split("T")[0] : todayStr;
                 const isToday = taskDate <= todayStr;
                 const pct = task.progress_percentage || (checklists.length > 0 ? checklistPct : 0);
+
+                const taskLinksList: string[] = Array.isArray(task.task_links) && task.task_links.length > 0
+                  ? task.task_links
+                  : task.task_link ? [task.task_link] : [];
 
                 return (
                   <TableRow key={task.id} className="hover:bg-slate-50/80 transition-colors">
@@ -917,7 +1055,6 @@ export default function DailyTasksPage() {
                               </div>
                             ))}
 
-                            {/* Add new checklist item input */}
                             <div className="flex items-center gap-1.5 pt-1">
                               <Input
                                 placeholder="New daily sub-task..."
@@ -969,38 +1106,56 @@ export default function DailyTasksPage() {
                         )}
                       </div>
 
-                      {/* Blocker details if task not 100% done */}
+                      {/* QA Issues Report */}
+                      {task.status === "Changes Required" && (
+                        <div className="p-2 rounded-md bg-red-50 border border-red-200 text-[11px] text-red-700 space-y-1">
+                          <div className="font-bold flex items-center gap-1">
+                            <AlertCircle className="h-3.5 w-3.5 text-red-600" />
+                            QA Found {task.issues_count || 1} Issue(s)
+                          </div>
+                          {task.test_sheet_link && (
+                            <a
+                              href={task.test_sheet_link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-red-800 font-bold underline hover:text-red-950"
+                            >
+                              <ExternalLink className="h-3 w-3" /> View QA Test Sheet
+                            </a>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Blockers */}
                       {task.blockers && (
-                        <div className="p-1.5 rounded-md bg-red-50 border border-red-200 text-[11px] text-red-700 font-medium">
+                        <div className="p-1.5 rounded-md bg-amber-50 border border-amber-200 text-[11px] text-amber-800 font-medium">
                           <span className="font-bold">⚠️ Blocker:</span> {task.blockers}
                         </div>
                       )}
 
-                      {task.daily_summary && (
-                        <p className="text-[11px] text-slate-600 italic max-w-xs truncate" title={task.daily_summary}>
-                          Done: {task.daily_summary}
-                        </p>
-                      )}
-
-                      {task.task_link && (
-                        <div>
-                          <a
-                            href={task.task_link}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-[11px] text-sky-600 hover:underline font-semibold"
-                          >
-                            <ExternalLink className="h-3 w-3" /> Preview / PR Link
-                          </a>
+                      {/* Multiple Deliverable Links */}
+                      {taskLinksList.length > 0 && (
+                        <div className="flex flex-wrap gap-1 pt-0.5">
+                          {taskLinksList.map((link, lIdx) => (
+                            <a
+                              key={lIdx}
+                              href={link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 hover:bg-sky-100 text-[10px] font-bold border border-sky-200"
+                            >
+                              <ExternalLink className="h-2.5 w-2.5" /> Link {lIdx + 1}
+                            </a>
+                          ))}
                         </div>
                       )}
                     </TableCell>
 
                     <TableCell className="align-top">{getStatusBadge(task.status)}</TableCell>
 
-                    {/* Developer & QA Action Buttons */}
+                    {/* Action Buttons */}
                     <TableCell className="align-top text-right space-y-1.5">
-                      {/* UPDATE TASK PROGRESS BUTTON */}
+                      {/* Update Progress Button */}
                       <div>
                         <Button
                           size="sm"
@@ -1011,7 +1166,7 @@ export default function DailyTasksPage() {
                         </Button>
                       </div>
 
-                      {/* 1. Start Plan */}
+                      {/* Start Plan */}
                       {(task.status === "Created" || task.status === "Assigned") && (
                         <Button
                           size="sm"
@@ -1022,7 +1177,7 @@ export default function DailyTasksPage() {
                         </Button>
                       )}
 
-                      {/* 2. Start Work */}
+                      {/* Start Work */}
                       {task.status === "Planning" && (
                         <Button
                           size="sm"
@@ -1033,18 +1188,18 @@ export default function DailyTasksPage() {
                         </Button>
                       )}
 
-                      {/* 3. Send for Testing */}
-                      {(task.status === "In Progress" || task.status === "Changes Required") && (
+                      {/* Dedicated SEND TO TESTING Button */}
+                      {(task.status === "In Progress" || task.status === "Changes Required" || task.status === "Completed") && (
                         <Button
                           size="sm"
-                          onClick={() => openProgressModal(task)}
+                          onClick={() => openSendToTestingModal(task)}
                           className="bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs gap-1.5 shadow-xs w-full justify-center"
                         >
-                          <Send className="h-3.5 w-3.5" /> Send for Testing
+                          <Send className="h-3.5 w-3.5" /> Send to Testing
                         </Button>
                       )}
 
-                      {/* 4. Tested (PASS) -> SUBMIT TO DEMO */}
+                      {/* Tested (PASS) -> Ready for Demo */}
                       {task.status === "Tested (PASS)" && (
                         <Button
                           size="sm"
@@ -1055,16 +1210,9 @@ export default function DailyTasksPage() {
                         </Button>
                       )}
 
-                      {/* 5. Ready for Demo Notice */}
                       {task.status === "Ready for Demo" && (
                         <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded-md border border-indigo-200 inline-block">
                           ✨ Demo Flagged (Alert Sent)
-                        </span>
-                      )}
-
-                      {task.status === "Completed" && (
-                        <span className="text-xs text-emerald-600 font-bold flex items-center justify-end gap-1">
-                          <CheckCircle2 className="h-4 w-4" /> Done
                         </span>
                       )}
                     </TableCell>

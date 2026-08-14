@@ -52,8 +52,18 @@ export async function GET() {
     });
 
     const formatted = rows.map((r: any) => {
+      let parsedLinks: string[] = [];
+      if (typeof r.task_links === "string") {
+        try { parsedLinks = JSON.parse(r.task_links); } catch (_) {}
+      } else if (Array.isArray(r.task_links)) {
+        parsedLinks = r.task_links;
+      } else if (r.task_link) {
+        parsedLinks = [r.task_link];
+      }
+
       return {
         ...r,
+        task_links: parsedLinks,
         checklists: checklistMap[r.id] || [],
       };
     });
@@ -184,8 +194,21 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ success: true, checklist_id, is_completed });
     }
 
-    // 2. Task lifecycle status updates & Task Progress Logging
-    const { id, status, remarks, task_link, progress_percentage, hours_spent, blockers, daily_summary } = body;
+    const { 
+      id, 
+      action,
+      status, 
+      remarks, 
+      task_link, 
+      task_links, 
+      progress_percentage, 
+      hours_spent, 
+      blockers, 
+      daily_summary,
+      issues_count,
+      test_sheet_link
+    } = body;
+
     if (!id) {
       return NextResponse.json({ error: "Task ID is required" }, { status: 400 });
     }
@@ -206,22 +229,114 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
     }
 
-    const newStatus = status || currentTask.status;
-
-    // Validate mandatory task link when submitting to testing
-    if (newStatus === "Ready for Testing" && !task_link && !currentTask.task_link) {
-      return NextResponse.json(
-        { error: "A task preview link or PR URL is strictly required before sending to testing." },
-        { status: 400 }
+    // 2. Action: Start Testing (Check-in by QA Tester)
+    if (action === "start_testing") {
+      await pool.query(
+        "UPDATE tasks SET status = 'Testing', testing_started_at = NOW() WHERE id = ?",
+        [id]
       );
+      return NextResponse.json({ success: true, id, status: "Testing" });
     }
 
-    // Update task record
+    // 3. Action: Finish Testing (Check-out by QA Tester with issue count and test sheet)
+    if (action === "finish_testing") {
+      const parsedIssuesCount = parseInt(issues_count) || 0;
+      const finalTestStatus = parsedIssuesCount > 0 ? "Changes Required" : "Tested (PASS)";
+
+      await pool.query(
+        `UPDATE tasks 
+         SET status = ?, 
+             testing_ended_at = NOW(), 
+             issues_count = ?, 
+             test_sheet_link = ?, 
+             remarks = IFNULL(?, remarks) 
+         WHERE id = ?`,
+        [finalTestStatus, parsedIssuesCount, test_sheet_link || null, remarks || null, id]
+      );
+
+      // Notify developer
+      if (currentTask.assigned_to) {
+        if (parsedIssuesCount > 0) {
+          // Send back to developer with issues
+          await pool.query(
+            `INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'warning')`,
+            [
+              currentTask.assigned_to,
+              `QA Reported ${parsedIssuesCount} Issue(s) on "${currentTask.title}"`,
+              `QA testing complete. ${parsedIssuesCount} issues found. Test Sheet: ${test_sheet_link || "Check dashboard"}. Notes: ${remarks || "Please fix and re-submit."}`
+            ]
+          );
+        } else {
+          // Fully fixed / passed QA
+          await pool.query(
+            `INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'success')`,
+            [
+              currentTask.assigned_to,
+              `QA Verification PASSED: "${currentTask.title}"`,
+              `All test cases passed cleanly with 0 issues. Task is ready for demo submission.`
+            ]
+          );
+        }
+      }
+
+      return NextResponse.json({ 
+        success: true, 
+        id, 
+        status: finalTestStatus, 
+        issues_count: parsedIssuesCount,
+        test_sheet_link 
+      });
+    }
+
+    // 4. Action: Send to Testing (Developer submitting preview links)
+    if (action === "send_to_testing") {
+      let finalLinksArray = task_links;
+      if (!finalLinksArray && task_link) finalLinksArray = [task_link];
+      if (!Array.isArray(finalLinksArray) || finalLinksArray.filter(l => l && l.trim()).length === 0) {
+        return NextResponse.json({ error: "At least one valid Task Preview or PR link is required." }, { status: 400 });
+      }
+
+      const linksCleaned = finalLinksArray.filter(l => l && l.trim());
+      const primaryLink = linksCleaned[0];
+      const linksJson = JSON.stringify(linksCleaned);
+
+      await pool.query(
+        `UPDATE tasks 
+         SET status = 'Ready for Testing', 
+             task_link = ?, 
+             task_links = ?, 
+             remarks = IFNULL(?, remarks),
+             progress_percentage = 100 
+         WHERE id = ?`,
+        [primaryLink, linksJson, remarks || null, id]
+      );
+
+      // Alert QA testers
+      await pool.query(
+        `INSERT INTO notifications (target_role, title, message, type) VALUES ('Tester', ?, ?, 'task_ready')`,
+        [
+          `QA Testing Required: ${currentTask.title || "Task"}`,
+          `${currentTask.assignee_name || "Developer"} submitted "${currentTask.title}" in project "${currentTask.project_name}" for QA verification. ${linksCleaned.length} preview links provided.`
+        ]
+      );
+
+      return NextResponse.json({ success: true, id, status: "Ready for Testing", task_links: linksCleaned });
+    }
+
+    // 5. Standard Progress / Lifecycle Status Update
+    const newStatus = status || currentTask.status;
+
+    let linksJson = undefined;
+    if (task_links && Array.isArray(task_links)) {
+      linksJson = JSON.stringify(task_links.filter(l => l && l.trim()));
+    }
+
     await pool.query(
       `UPDATE tasks 
        SET status = ?, 
            remarks = IFNULL(?, remarks), 
            task_link = IFNULL(?, task_link),
+           task_links = IFNULL(?, task_links),
            progress_percentage = IFNULL(?, progress_percentage),
            hours_spent = IFNULL(?, hours_spent),
            blockers = IFNULL(?, blockers),
@@ -231,6 +346,7 @@ export async function PATCH(req: Request) {
         newStatus, 
         remarks !== undefined ? remarks : null, 
         task_link !== undefined ? task_link : null,
+        linksJson !== undefined ? linksJson : null,
         progress_percentage !== undefined ? progress_percentage : null,
         hours_spent !== undefined ? hours_spent : null,
         blockers !== undefined ? blockers : null,
@@ -262,20 +378,7 @@ export async function PATCH(req: Request) {
       }
     }
 
-    const activeLink = task_link || currentTask.task_link || "";
-
-    // Notify on "Ready for Testing" -> Send to QA Testers
-    if (newStatus === "Ready for Testing" && currentTask.status !== "Ready for Testing") {
-      await pool.query(
-        `INSERT INTO notifications (target_role, title, message, type) VALUES ('Tester', ?, ?, 'task_ready')`,
-        [
-          `QA Testing Required: ${currentTask.title || "Task"}`,
-          `${currentTask.assignee_name || "Developer"} submitted "${currentTask.title}" in project "${currentTask.project_name}" for QA verification. Preview Link: ${activeLink || "Provided in dashboard"}`
-        ]
-      );
-    }
-
-    // Notify on "Ready for Demo" (SUBMIT TO DEMO) -> ALERT TO PM & CEO!
+    // Submit to Demo (Only allowed if QA passed / Tested (PASS)) -> Notify CEO & PM
     if (newStatus === "Ready for Demo" && currentTask.status !== "Ready for Demo") {
       const demoMsg = `Task "${currentTask.title}" in project "${currentTask.project_name}" (Dev: ${currentTask.assignee_name}) has PASSED QA testing and is now submitted for client/executive DEMO!`;
       await pool.query(
@@ -289,23 +392,10 @@ export async function PATCH(req: Request) {
       );
     }
 
-    // Notify on "Changes Required" (QA Rejection)
-    if (newStatus === "Changes Required" && currentTask.assigned_to) {
-      await pool.query(
-        `INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'warning')`,
-        [
-          currentTask.assigned_to,
-          `QA Failed: ${currentTask.title}`,
-          `QA reported issues on "${currentTask.title}". Remarks: ${remarks || "Changes required before re-testing."}`
-        ]
-      );
-    }
-
     return NextResponse.json({ 
       success: true, 
       id, 
       status: newStatus, 
-      task_link: activeLink,
       progress_percentage: progress_percentage ?? currentTask.progress_percentage,
       hours_spent: hours_spent ?? currentTask.hours_spent,
       blockers: blockers ?? currentTask.blockers,
@@ -338,4 +428,5 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+
 

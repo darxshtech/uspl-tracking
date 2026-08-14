@@ -2,16 +2,12 @@
 
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
-import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { 
   Clock, 
-  Plus, 
   Briefcase, 
   CheckSquare, 
   Calendar, 
@@ -28,7 +24,6 @@ export default function DailyWorkPage() {
 
   const [workLogs, setWorkLogs] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
-  const [tasks, setTasks] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -36,20 +31,9 @@ export default function DailyWorkPage() {
   const [filterEmployee, setFilterEmployee] = useState("ALL");
   const [filterProject, setFilterProject] = useState("ALL");
 
-  // Log Work Form Modal State
-  const [open, setOpen] = useState(false);
-  const [projectId, setProjectId] = useState("");
-  const [taskId, setTaskId] = useState("");
-  const [hoursWorked, setHoursWorked] = useState("8.0");
-  const [workDescription, setWorkDescription] = useState("");
-  const [status, setStatus] = useState("Completed");
-  const [remarks, setRemarks] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
   useEffect(() => {
     fetchWorkLogs();
     fetchProjects();
-    fetchTasks();
     if (isManager) fetchEmployees();
   }, [isManager, filterEmployee, filterProject]);
 
@@ -80,16 +64,6 @@ export default function DailyWorkPage() {
     }
   };
 
-  const fetchTasks = async () => {
-    try {
-      const res = await fetch("/api/tasks");
-      const data = await res.json();
-      if (Array.isArray(data)) setTasks(data);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
   const fetchEmployees = async () => {
     try {
       const res = await fetch("/api/employees");
@@ -97,41 +71,6 @@ export default function DailyWorkPage() {
       if (Array.isArray(data)) setEmployees(data);
     } catch (err) {
       console.error(err);
-    }
-  };
-
-  const handleLogWork = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-    try {
-      const res = await fetch("/api/work", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          project_id: projectId || null,
-          task_id: taskId || null,
-          hours_worked: parseFloat(hoursWorked),
-          work_description: workDescription,
-          status,
-          remarks,
-        }),
-      });
-
-      if (res.ok) {
-        setOpen(false);
-        fetchWorkLogs();
-        setWorkDescription("");
-        setRemarks("");
-        setHoursWorked("8.0");
-      } else {
-        const data = await res.json();
-        alert(`Failed to log work: ${data.error || "Unknown error"}`);
-      }
-    } catch (err) {
-      console.error(err);
-      alert("Failed to submit work log.");
-    } finally {
-      setSubmitting(false);
     }
   };
 
@@ -144,112 +83,14 @@ export default function DailyWorkPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-900 flex items-center gap-3">
             <Clock className="h-8 w-8 text-sky-500" />
-            Daily Work & Accomplishments Hub
+            Work Accomplishments & Audit Log
           </h1>
           <p className="text-slate-500 mt-1">
             {isManager
-              ? "Review company-wide daily work logs, task achievements, and developer hours."
-              : "Log daily work hours, project progress, and task deliverables."}
+              ? "Review company-wide daily work logs, task deliverables, and developer hours."
+              : "Audit history of daily work logged through Daily Tasks."}
           </p>
         </div>
-
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger render={<Button className="bg-sky-600 hover:bg-sky-700 text-white font-bold shadow-md flex items-center gap-2" />}>
-            <Plus className="h-4 w-4" /> Log Daily Work
-          </DialogTrigger>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle className="text-xl font-bold text-slate-900 flex items-center gap-2">
-                <Clock className="h-5 w-5 text-sky-500" /> Log Daily Accomplishments
-              </DialogTitle>
-            </DialogHeader>
-
-            <form onSubmit={handleLogWork} className="space-y-4 pt-3">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="font-semibold text-slate-700">Project</Label>
-                  <Select value={projectId} onValueChange={(val) => setProjectId(val || "")}>
-                    <SelectTrigger><SelectValue placeholder="Select Project" /></SelectTrigger>
-                    <SelectContent>
-                      {projects.map((p) => (
-                        <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label className="font-semibold text-slate-700">Related Task</Label>
-                  <Select value={taskId} onValueChange={(val) => setTaskId(val || "")}>
-                    <SelectTrigger><SelectValue placeholder="Select Task" /></SelectTrigger>
-                    <SelectContent>
-                      {tasks.map((t) => (
-                        <SelectItem key={t.id} value={t.id.toString()}>{t.title}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="hoursWorked" className="font-semibold text-slate-700">Hours Worked *</Label>
-                  <Input
-                    id="hoursWorked"
-                    type="number"
-                    step="0.5"
-                    value={hoursWorked}
-                    onChange={(e) => setHoursWorked(e.target.value)}
-                    required
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label className="font-semibold text-slate-700">Progress Status</Label>
-                  <Select value={status} onValueChange={(val) => setStatus(val || "Completed")}>
-                    <SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Completed">Completed</SelectItem>
-                      <SelectItem value="In Progress">In Progress</SelectItem>
-                      <SelectItem value="Blocked">Blocked</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="workDesc" className="font-semibold text-slate-700">Work Description & Deliverables *</Label>
-                <textarea
-                  id="workDesc"
-                  rows={3}
-                  value={workDescription}
-                  onChange={(e) => setWorkDescription(e.target.value)}
-                  placeholder="Summary of modules created, bugs fixed, PRs reviewed, or testing executed..."
-                  className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
-                  required
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="remarks" className="font-semibold text-slate-700">Blockers or Additional Remarks</Label>
-                <Input
-                  id="remarks"
-                  value={remarks}
-                  onChange={(e) => setRemarks(e.target.value)}
-                  placeholder="Optional notes or dependencies..."
-                />
-              </div>
-
-              <Button
-                type="submit"
-                disabled={submitting}
-                className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 mt-2"
-              >
-                {submitting ? "Saving Work Log..." : "Submit Daily Work Log"}
-              </Button>
-            </form>
-          </DialogContent>
-        </Dialog>
       </div>
 
       {/* Manager Filter Bar */}
@@ -309,9 +150,9 @@ export default function DailyWorkPage() {
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={6} className="text-center py-8">Loading daily work logs...</TableCell></TableRow>
+              <TableRow><TableCell colSpan={6} className="text-center py-8">Loading work records...</TableCell></TableRow>
             ) : workLogs.length === 0 ? (
-              <TableRow><TableCell colSpan={6} className="text-center text-slate-500 py-10">No daily work logs recorded.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={6} className="text-center text-slate-500 py-10">No work logs recorded.</TableCell></TableRow>
             ) : (
               workLogs.map((log) => (
                 <TableRow key={log.id} className="hover:bg-slate-50/80 transition-colors">

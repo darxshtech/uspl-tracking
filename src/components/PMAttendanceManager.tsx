@@ -608,9 +608,13 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
                   <Input
                     id="editHours"
                     type="number"
+                    min="0"
                     step="0.1"
                     value={editHours}
-                    onChange={(e) => setEditHours(e.target.value)}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value);
+                      setEditHours(isNaN(val) ? "" : Math.max(0, val).toString());
+                    }}
                     placeholder="e.g. 9.0"
                   />
                 </div>
