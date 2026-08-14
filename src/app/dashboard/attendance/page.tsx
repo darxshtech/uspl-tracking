@@ -407,54 +407,37 @@ export default function AttendancePage() {
         </>
       )}
 
-      {/* Individual Attendance Detail Modal */}
+      {/* Individual Attendance Detail Modal with Month-Wise Calendar */}
       <Dialog open={!!selectedRecord} onOpenChange={(open) => !open && setSelectedRecord(null)}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-lg font-bold text-slate-900">
-              <Eye className="h-5 w-5 text-sky-500" /> Shift Verification Details
+            <DialogTitle className="flex items-center gap-2 text-xl font-bold text-slate-900">
+              <Eye className="h-5 w-5 text-sky-500" /> Employee Month-Wise Attendance Calendar
             </DialogTitle>
           </DialogHeader>
 
           {selectedRecord && (
             <div className="space-y-4 pt-2">
-              <div className="rounded-xl bg-slate-50 p-4 border border-slate-200 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-500 uppercase">Employee</span>
-                  <span className="text-sm font-black text-slate-900">{selectedRecord.employee_name || "Employee"}</span>
+              <div className="rounded-xl bg-slate-50 p-4 border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs font-bold text-slate-500 uppercase">Employee Details</div>
+                  <h4 className="text-lg font-black text-slate-900">{selectedRecord.employee_name || "Employee"}</h4>
+                  <Badge variant="outline" className="text-[10px] mt-0.5">{selectedRecord.employee_role || "Developer"}</Badge>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-500 uppercase">Shift Date</span>
-                  <span className="text-sm font-semibold text-slate-800">{new Date(selectedRecord.date).toLocaleDateString()}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-500 uppercase">Status</span>
-                  <Badge className={
-                    selectedRecord.status === "Present" ? "bg-emerald-500 text-white" :
-                    selectedRecord.status === "Half Day" ? "bg-amber-500 text-white" :
-                    selectedRecord.status === "Leave" ? "bg-sky-500 text-white" : "bg-red-500 text-white"
-                  }>
-                    {selectedRecord.status}
-                  </Badge>
+                <div className="text-right">
+                  <span className="text-xs font-bold text-slate-500 uppercase">Selected Date</span>
+                  <div className="text-sm font-black text-sky-600">{new Date(selectedRecord.date).toLocaleDateString()}</div>
+                  <span className="text-xs font-mono text-slate-500">{selectedRecord.login_time || "--"} &rarr; {selectedRecord.logout_time || "--"} ({parseFloat(selectedRecord.total_hours || 0).toFixed(1)} hrs)</span>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="p-3 rounded-xl border border-slate-200 bg-white">
-                  <span className="text-[11px] font-bold text-slate-500 uppercase">Check-In Time</span>
-                  <div className="font-mono text-sm font-bold text-slate-900 mt-1">{selectedRecord.login_time || "Not Recorded"}</div>
-                </div>
-
-                <div className="p-3 rounded-xl border border-slate-200 bg-white">
-                  <span className="text-[11px] font-bold text-slate-500 uppercase">Check-Out Time</span>
-                  <div className="font-mono text-sm font-bold text-slate-900 mt-1">{selectedRecord.logout_time || "Not Recorded"}</div>
-                </div>
-              </div>
-
-              <div className="p-4 rounded-xl border border-sky-200 bg-sky-50/60 flex items-center justify-between">
-                <span className="text-xs font-bold text-sky-800 uppercase">Total Shift Duration</span>
-                <span className="text-xl font-black text-sky-900">{parseFloat(selectedRecord.total_hours || 0).toFixed(2)} Hours</span>
-              </div>
+              {/* Month-Wise Calendar Grid for the Employee */}
+              <AttendanceCalendarView
+                initialEmployeeId={selectedRecord.user_id ? selectedRecord.user_id.toString() : "ALL"}
+                canAddHoliday={canManageHolidays}
+                hideEmployeeSelect={true}
+                employees={employees}
+              />
             </div>
           )}
         </DialogContent>

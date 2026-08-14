@@ -25,6 +25,7 @@ import {
   Sparkles,
   UserCheck
 } from "lucide-react";
+import AttendanceCalendarView from "@/components/AttendanceCalendarView";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -514,17 +515,17 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
         </div>
       </div>
 
-      {/* Detailed Employee Timesheet View Modal */}
+      {/* Detailed Employee Timesheet View Modal with Month-wise Calendar */}
       <Dialog open={!!viewingEmployee} onOpenChange={(open) => !open && setViewingEmployee(null)}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-xl font-bold text-slate-900">
-              <Eye className="h-5 w-5 text-sky-500" /> Employee Attendance Breakdown
+              <Eye className="h-5 w-5 text-sky-500" /> Employee Attendance & Calendar Breakdown
             </DialogTitle>
           </DialogHeader>
 
           {viewingEmployee && (
-            <div className="space-y-4 pt-2">
+            <div className="space-y-5 pt-2">
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div>
                   <h4 className="text-lg font-bold text-slate-900">{viewingEmployee.employee_name}</h4>
@@ -532,43 +533,19 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
                 </div>
                 <div className="text-right">
                   <div className="text-xs font-bold text-slate-500 uppercase">{monthLabel} {selectedYear}</div>
-                  <div className="text-base font-black text-sky-600">{records.filter(r => r.user_id === viewingEmployee.user_id).reduce((a, c) => a + (parseFloat(c.total_hours) || 0), 0).toFixed(1)} Total Hrs</div>
+                  <div className="text-base font-black text-sky-600">
+                    {records.filter(r => r.user_id === viewingEmployee.user_id).reduce((a, c) => a + (parseFloat(c.total_hours) || 0), 0).toFixed(1)} Total Hours Logged
+                  </div>
                 </div>
               </div>
 
-              {/* Itemized Day Records for this Employee */}
-              <div className="rounded-xl border border-slate-200 overflow-hidden">
-                <Table>
-                  <TableHeader className="bg-slate-50">
-                    <TableRow>
-                      <TableHead className="font-bold text-xs">Date</TableHead>
-                      <TableHead className="font-bold text-xs">Check-In</TableHead>
-                      <TableHead className="font-bold text-xs">Check-Out</TableHead>
-                      <TableHead className="font-bold text-xs">Hours</TableHead>
-                      <TableHead className="font-bold text-xs">Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {records.filter(r => r.user_id === viewingEmployee.user_id).map((rec) => (
-                      <TableRow key={rec.id} className="hover:bg-slate-50">
-                        <TableCell className="text-xs font-semibold">{new Date(rec.date).toLocaleDateString()}</TableCell>
-                        <TableCell className="text-xs font-mono">{rec.login_time || "--:--"}</TableCell>
-                        <TableCell className="text-xs font-mono">{rec.logout_time || "--:--"}</TableCell>
-                        <TableCell className="text-xs font-bold">{parseFloat(rec.total_hours || 0).toFixed(2)}h</TableCell>
-                        <TableCell>
-                          <Badge className={
-                            rec.status === "Present" ? "bg-emerald-500 text-white text-[10px]" :
-                            rec.status === "Half Day" ? "bg-amber-500 text-white text-[10px]" :
-                            rec.status === "Leave" ? "bg-sky-500 text-white text-[10px]" : "bg-red-500 text-white text-[10px]"
-                          }>
-                            {rec.status}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+              {/* Month-Wise Interactive Calendar Grid for Employee */}
+              <AttendanceCalendarView
+                initialEmployeeId={viewingEmployee.user_id ? viewingEmployee.user_id.toString() : "ALL"}
+                canAddHoliday={true}
+                hideEmployeeSelect={true}
+                employees={employees}
+              />
             </div>
           )}
         </DialogContent>

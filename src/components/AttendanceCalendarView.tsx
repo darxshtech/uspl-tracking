@@ -32,15 +32,23 @@ export default function AttendanceCalendarView({
   canAddHoliday = false,
   employees = [],
   initialEmployeeId = "ALL",
+  hideEmployeeSelect = false,
+  hideHolidayAdd = false,
 }: {
   canAddHoliday?: boolean;
   employees?: any[];
   initialEmployeeId?: string;
+  hideEmployeeSelect?: boolean;
+  hideHolidayAdd?: boolean;
 }) {
   const [mounted, setMounted] = useState(false);
   const [currentYear, setCurrentYear] = useState(2026);
   const [currentMonth, setCurrentMonth] = useState(7); // August (0-indexed)
   const [selectedEmployeeId, setSelectedEmployeeId] = useState(initialEmployeeId);
+
+  useEffect(() => {
+    setSelectedEmployeeId(initialEmployeeId);
+  }, [initialEmployeeId]);
 
   const [holidays, setHolidays] = useState<any[]>([]);
   const [attendanceRecords, setAttendanceRecords] = useState<any[]>([]);
@@ -242,7 +250,7 @@ export default function AttendanceCalendarView({
 
         <div className="flex flex-wrap items-center gap-3">
           {/* Employee Selector for Managers */}
-          {canAddHoliday && employees.length > 0 && (
+          {!hideEmployeeSelect && canAddHoliday && employees.length > 0 && (
             <div className="min-w-[180px]">
               <Select value={selectedEmployeeId} onValueChange={(val) => setSelectedEmployeeId(val || "ALL")}>
                 <SelectTrigger className="h-9 text-xs">
@@ -261,7 +269,7 @@ export default function AttendanceCalendarView({
           )}
 
           {/* Add Upcoming Holiday Button (PM & CEO) */}
-          {canAddHoliday && (
+          {!hideHolidayAdd && canAddHoliday && (
             <Dialog open={holidayOpen} onOpenChange={setHolidayOpen}>
               <DialogTrigger render={<Button className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs gap-1.5 shadow-md h-9" />}>
                 <Plus className="h-4 w-4" /> Add Upcoming Holiday
