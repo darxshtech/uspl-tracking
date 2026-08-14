@@ -11,7 +11,11 @@ export async function GET() {
     const role = (session.user as any).role;
     const userId = (session.user as any).id;
     
-    let query = "SELECT * FROM projects p";
+    let query = `
+      SELECT p.*, u.name AS creator_name, u.role AS creator_role 
+      FROM projects p 
+      LEFT JOIN users u ON p.created_by = u.id
+    `;
     let params: any[] = [];
     
     // Developer and Tester should only see assigned projects
@@ -70,6 +74,10 @@ export async function POST(req: Request) {
   }
 
   try {
+    const creatorId = (session.user as any).id;
+    const creatorName = session.user?.name || "Management";
+    const creatorRole = (session.user as any).role;
+
     const body = await req.json();
     const { name, description, start_date, target_date, status, documentation_url, attachments, members } = body;
 
@@ -82,8 +90,8 @@ export async function POST(req: Request) {
       const attachmentsJson = attachments ? JSON.stringify(attachments) : JSON.stringify([]);
 
       const [result]: any = await connection.query(
-        `INSERT INTO projects (name, description, start_date, target_date, status, documentation_url, attachments) 
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO projects (name, description, start_date, target_date, status, documentation_url, attachments, created_by) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           name,
           description || null,
@@ -92,6 +100,7 @@ export async function POST(req: Request) {
           status || "Planning",
           documentation_url || null,
           attachmentsJson,
+          creatorId,
         ]
       );
 
@@ -111,8 +120,8 @@ export async function POST(req: Request) {
              VALUES (?, ?, ?, 'info')`,
             [
               memberId,
-              `Assigned to Project: ${name}`,
-              `You have been added to project "${name}". You can now access its specifications, documentation, and tasks.`,
+              `New Project Assigned: ${name}`,
+              `${creatorName} (${creatorRole}) assigned you to project "${name}". You can now access specifications, documentation, and create daily tasks.`,
             ]
           );
         }
@@ -121,7 +130,7 @@ export async function POST(req: Request) {
       await connection.commit();
       connection.release();
 
-      return NextResponse.json({ id: projectId, name, description, documentation_url, attachments }, { status: 201 });
+      return NextResponse.json({ id: projectId, name, description, documentation_url, attachments, created_by: creatorId }, { status: 201 });
     } catch (err) {
       await connection.rollback();
       connection.release();

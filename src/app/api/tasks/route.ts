@@ -14,10 +14,15 @@ export async function GET() {
     let query = `
       SELECT t.*, 
         p.name as project_name, 
+        p.created_by as project_created_by,
+        pu.name as project_creator_name,
+        pu.role as project_creator_role,
         u1.name as assignee_name, 
-        u2.name as creator_name
+        u2.name as creator_name,
+        u2.role as creator_role
       FROM tasks t
       LEFT JOIN projects p ON t.project_id = p.id
+      LEFT JOIN users pu ON p.created_by = pu.id
       LEFT JOIN users u1 ON t.assigned_to = u1.id
       LEFT JOIN users u2 ON t.created_by = u2.id
     `;
@@ -64,6 +69,9 @@ export async function POST(req: Request) {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
 
   try {
+    const role = (session.user as any).role;
+    const currentUserId = (session.user as any).id;
+    const currentUserName = session.user?.name || "User";
     const body = await req.json();
 
     // 1. Sub-task / Checklist item creation
@@ -81,31 +89,79 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, id: result.insertId, task_id, item_text, is_completed: false });
     }
 
-    // 2. Main Task creation (CEO & PM)
-    if (!["CEO", "PM"].includes((session.user as any).role)) {
-      return NextResponse.json({ error: "Only CEO and PM can create tasks" }, { status: 403 });
+    // 2. Main Task creation (Developers, PM, CEO, Tester)
+    const { title, description, project_id, assigned_to, priority, due_date, target_date, timeline, checklists } = body;
+
+    if (!title || !project_id) {
+      return NextResponse.json({ error: "Task title and project are required" }, { status: 400 });
     }
 
-    const { title, description, project_id, assigned_to, priority, due_date } = body;
-    const created_by = (session.user as any).id;
+    // Calculate target date for Today vs Tomorrow
+    const now = new Date();
+    const todayStr = now.toISOString().split("T")[0];
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().split("T")[0];
 
-    if (!title || !project_id || !assigned_to) {
-      return NextResponse.json({ error: "Title, project, and assignee are required" }, { status: 400 });
+    let taskTargetDate = target_date || todayStr;
+    if (timeline === "tomorrow") {
+      taskTargetDate = tomorrowStr;
+    } else if (timeline === "today") {
+      taskTargetDate = todayStr;
+    }
+
+    let finalAssignee = assigned_to;
+    if (role === "Developer" && !finalAssignee) {
+      finalAssignee = currentUserId; // Developer creates tasks for themselves
+    }
+
+    if (!finalAssignee) {
+      return NextResponse.json({ error: "Assignee is required" }, { status: 400 });
     }
 
     const [result]: any = await pool.query(
-      `INSERT INTO tasks (title, description, project_id, created_by, assigned_to, priority, due_date, status) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'Assigned')`,
-      [title, description, project_id, created_by, assigned_to, priority || "Medium", due_date || null]
+      `INSERT INTO tasks (title, description, project_id, created_by, assigned_to, priority, due_date, target_date, status) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        title,
+        description || null,
+        project_id,
+        currentUserId,
+        finalAssignee,
+        priority || "Medium",
+        due_date || taskTargetDate,
+        taskTargetDate,
+        role === "Developer" ? "In Progress" : "Assigned",
+      ]
     );
 
-    // Notify assigned developer
-    await pool.query(
-      `INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'task_assigned')`,
-      [assigned_to, "New Task Assigned", `You were assigned development task: "${title}". Start planning to begin.`]
-    );
+    const taskId = result.insertId;
 
-    return NextResponse.json({ id: result.insertId, title, status: "Assigned" }, { status: 201 });
+    // Insert subtasks / checklists if provided
+    if (checklists && Array.isArray(checklists) && checklists.length > 0) {
+      for (const item of checklists) {
+        if (typeof item === "string" && item.trim()) {
+          await pool.query(
+            "INSERT INTO task_checklists (task_id, item_text, is_completed) VALUES (?, ?, false)",
+            [taskId, item.trim()]
+          );
+        }
+      }
+    }
+
+    // Notify assigned developer if created by someone else
+    if (finalAssignee !== currentUserId) {
+      await pool.query(
+        `INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'task_assigned')`,
+        [
+          finalAssignee,
+          `New Task Assigned by ${currentUserName} (${role})`,
+          `Task "${title}" has been assigned to you. Scheduled for: ${taskTargetDate}.`
+        ]
+      );
+    }
+
+    return NextResponse.json({ id: taskId, title, status: role === "Developer" ? "In Progress" : "Assigned", target_date: taskTargetDate }, { status: 201 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -128,13 +184,13 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ success: true, checklist_id, is_completed });
     }
 
-    // 2. Task lifecycle status updates
-    const { id, status, remarks } = body;
+    // 2. Task lifecycle status updates & Task Link Submission
+    const { id, status, remarks, task_link } = body;
     if (!id || !status) {
       return NextResponse.json({ error: "Task ID and status are required" }, { status: 400 });
     }
 
-    // Retrieve current task details for informative notifications
+    // Retrieve current task details
     const [taskRows]: any = await pool.query(
       `SELECT t.*, p.name as project_name, u.name as assignee_name 
        FROM tasks t 
@@ -145,38 +201,44 @@ export async function PATCH(req: Request) {
     );
     const currentTask = taskRows[0] || {};
 
+    // Validate mandatory task link when submitting to testing
+    if (status === "Ready for Testing" && !task_link && !currentTask.task_link) {
+      return NextResponse.json(
+        { error: "A task preview link or PR URL is strictly required before sending to testing." },
+        { status: 400 }
+      );
+    }
+
     await pool.query(
-      "UPDATE tasks SET status = ?, remarks = IFNULL(?, remarks) WHERE id = ?",
-      [status, remarks || null, id]
+      `UPDATE tasks 
+       SET status = ?, remarks = IFNULL(?, remarks), task_link = IFNULL(?, task_link) 
+       WHERE id = ?`,
+      [status, remarks || null, task_link || null, id]
     );
 
-    // Notify on "Ready for Testing"
+    const activeLink = task_link || currentTask.task_link || "";
+
+    // Notify on "Ready for Testing" -> Send to QA Testers
     if (status === "Ready for Testing") {
       await pool.query(
         `INSERT INTO notifications (target_role, title, message, type) VALUES ('Tester', ?, ?, 'task_ready')`,
         [
           `QA Testing Required: ${currentTask.title || "Task"}`,
-          `${currentTask.assignee_name || "Developer"} has submitted "${currentTask.title}" in project "${currentTask.project_name}" for verification.`
+          `${currentTask.assignee_name || "Developer"} submitted "${currentTask.title}" in project "${currentTask.project_name}" for QA verification. Preview Link: ${activeLink || "Provided in dashboard"}`
         ]
       );
     }
 
     // Notify on "Ready for Demo" (SUBMIT TO DEMO) -> ALERT TO PM & CEO!
     if (status === "Ready for Demo") {
-      // Alert CEO
+      const demoMsg = `Task "${currentTask.title}" in project "${currentTask.project_name}" (Dev: ${currentTask.assignee_name}) has PASSED QA testing and is now submitted for client/executive DEMO!`;
       await pool.query(
-        `INSERT INTO notifications (target_role, title, message, type) VALUES ('CEO', ?, ?, 'demo_ready')`,
+        `INSERT INTO notifications (target_role, title, message, type) VALUES ('CEO', ?, ?, 'demo_ready'), ('PM', ?, ?, 'demo_ready')`,
         [
           `🚀 Demo Ready: ${currentTask.title || "Feature"}`,
-          `Task "${currentTask.title}" in project "${currentTask.project_name}" has PASSED QA testing and is now submitted for client/executive DEMO!`
-        ]
-      );
-      // Alert PM
-      await pool.query(
-        `INSERT INTO notifications (target_role, title, message, type) VALUES ('PM', ?, ?, 'demo_ready')`,
-        [
+          demoMsg,
           `🚀 Demo Ready: ${currentTask.title || "Feature"}`,
-          `Task "${currentTask.title}" in project "${currentTask.project_name}" has PASSED QA testing and is now submitted for client/executive DEMO!`
+          demoMsg,
         ]
       );
     }
@@ -193,7 +255,7 @@ export async function PATCH(req: Request) {
       );
     }
 
-    return NextResponse.json({ success: true, id, status });
+    return NextResponse.json({ success: true, id, status, task_link: activeLink });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

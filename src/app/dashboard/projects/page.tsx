@@ -448,8 +448,12 @@ export default function ProjectsPage() {
                   <TableCell>
                     <div className="font-bold text-slate-900">{proj.name}</div>
                     {proj.description && (
-                      <p className="text-xs text-slate-500 max-w-sm line-clamp-1">{proj.description}</p>
+                      <p className="text-xs text-slate-500 max-w-sm line-clamp-1 mt-0.5">{proj.description}</p>
                     )}
+                    <div className="text-[11px] text-sky-700 font-semibold mt-1 flex items-center gap-1">
+                      <UserCheck className="h-3 w-3 text-sky-500" />
+                      <span>Assigned By: <strong>{proj.creator_name || "Management"} ({proj.creator_role || "PM"})</strong></span>
+                    </div>
                   </TableCell>
 
                   <TableCell>

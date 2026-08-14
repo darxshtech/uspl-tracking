@@ -7,7 +7,16 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { CheckCircle2, XCircle, ShieldCheck, Rocket, AlertTriangle } from "lucide-react";
+import { 
+  CheckCircle2, 
+  XCircle, 
+  ShieldCheck, 
+  Rocket, 
+  AlertTriangle, 
+  ExternalLink, 
+  UserCheck, 
+  Briefcase 
+} from "lucide-react";
 
 export default function TestingQueuePage() {
   const [tasks, setTasks] = useState<any[]>([]);
@@ -101,11 +110,12 @@ export default function TestingQueuePage() {
             QA Verification & Demo Release Queue
           </h1>
           <p className="text-slate-500 mt-1">
-            Audit submitted tasks, record PASS/FAIL testing observations, and trigger Demo Ready alerts to PM & CEO.
+            Audit submitted tasks via developer test links, verify deliverables, and trigger Demo Ready alerts to PM & CEO.
           </p>
         </div>
       </div>
 
+      {/* QA Verification Modal */}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -119,9 +129,25 @@ export default function TestingQueuePage() {
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleTestSubmit} className="space-y-4 pt-2">
-            <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-700 font-medium border border-slate-200">
-              Task: <span className="font-bold text-slate-900">{selectedTask?.title}</span>
-              <div className="text-slate-500 mt-0.5">Project: {selectedTask?.project_name || "N/A"}</div>
+            <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-700 font-medium border border-slate-200 space-y-1">
+              <div>Task: <span className="font-bold text-slate-900">{selectedTask?.title}</span></div>
+              <div className="text-slate-600">Project: <strong>{selectedTask?.project_name || "N/A"}</strong></div>
+              <div className="text-slate-600">
+                Assigned by: <strong>{selectedTask?.project_creator_name || selectedTask?.creator_name || "Management"} ({selectedTask?.project_creator_role || selectedTask?.creator_role || "PM"})</strong>
+              </div>
+              <div className="text-slate-600">Developer: <strong>{selectedTask?.assignee_name || "N/A"}</strong></div>
+              {selectedTask?.task_link && (
+                <div className="pt-1">
+                  <a
+                    href={selectedTask.task_link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-sky-600 font-bold hover:underline"
+                  >
+                    <ExternalLink className="h-3 w-3" /> Open Test / PR Link
+                  </a>
+                </div>
+              )}
             </div>
 
             <div className="space-y-1.5">
@@ -171,8 +197,8 @@ export default function TestingQueuePage() {
         <Table>
           <TableHeader className="bg-slate-50">
             <TableRow>
-              <TableHead className="font-bold">Task Title</TableHead>
-              <TableHead className="font-bold">Project</TableHead>
+              <TableHead className="font-bold">Task & Test Link</TableHead>
+              <TableHead className="font-bold">Project & Assigner</TableHead>
               <TableHead className="font-bold">Developer</TableHead>
               <TableHead className="font-bold">Current QA Status</TableHead>
               <TableHead className="font-bold text-right">Audit & Demo Actions</TableHead>
@@ -186,10 +212,43 @@ export default function TestingQueuePage() {
             ) : (
               tasks.map((task) => (
                 <TableRow key={task.id} className="hover:bg-slate-50/80 transition-colors">
-                  <TableCell className="font-bold text-slate-900 text-sm">{task.title}</TableCell>
-                  <TableCell className="text-slate-600 text-xs font-semibold">{task.project_name || "N/A"}</TableCell>
-                  <TableCell className="text-slate-600 text-xs font-semibold">{task.assignee_name || "N/A"}</TableCell>
-                  <TableCell>
+                  <TableCell className="align-top">
+                    <div className="font-bold text-slate-900 text-sm">{task.title}</div>
+                    {task.description && <p className="text-xs text-slate-500 line-clamp-1 mt-0.5">{task.description}</p>}
+                    {task.task_link ? (
+                      <div className="mt-1">
+                        <a
+                          href={task.task_link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-sky-50 text-sky-700 hover:bg-sky-100 text-[11px] font-bold border border-sky-200 transition-colors"
+                        >
+                          <ExternalLink className="h-3 w-3" /> Test Link: {task.task_link}
+                        </a>
+                      </div>
+                    ) : (
+                      <span className="text-[10px] text-amber-600 font-semibold mt-1 inline-block">No link provided</span>
+                    )}
+                  </TableCell>
+
+                  <TableCell className="align-top">
+                    <div className="font-bold text-slate-900 text-xs">{task.project_name || "N/A"}</div>
+                    <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1">
+                      <UserCheck className="h-3 w-3 text-sky-500" />
+                      <span>
+                        Assigned By:{" "}
+                        <strong>
+                          {task.project_creator_name || task.creator_name || "Management"} ({task.project_creator_role || task.creator_role || "PM"})
+                        </strong>
+                      </span>
+                    </div>
+                  </TableCell>
+
+                  <TableCell className="align-top text-slate-700 text-xs font-semibold">
+                    {task.assignee_name || "N/A"}
+                  </TableCell>
+
+                  <TableCell className="align-top">
                     {task.status === "Ready for Testing" && (
                       <Badge className="bg-amber-500 text-white font-bold animate-pulse">Ready for QA</Badge>
                     )}
@@ -209,7 +268,8 @@ export default function TestingQueuePage() {
                       <Badge variant="outline">{task.status}</Badge>
                     )}
                   </TableCell>
-                  <TableCell className="text-right space-x-2">
+
+                  <TableCell className="align-top text-right space-x-2">
                     {task.status === "Ready for Testing" && (
                       <>
                         <Button
