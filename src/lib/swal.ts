@@ -1,4 +1,5 @@
 import Swal, { SweetAlertOptions } from "sweetalert2";
+import { playBellChime } from "./audio";
 
 // Base custom styled Swal instance matching Unitglo theme
 const CustomSwal = Swal.mixin({
@@ -30,6 +31,7 @@ export const Toast = Swal.mixin({
 });
 
 export const showSuccess = (title: string, text?: string) => {
+  playBellChime();
   return CustomSwal.fire({
     icon: "success",
     title,
@@ -40,6 +42,7 @@ export const showSuccess = (title: string, text?: string) => {
 };
 
 export const showError = (title: string, text?: string) => {
+  playBellChime();
   return CustomSwal.fire({
     icon: "error",
     title,
@@ -49,6 +52,7 @@ export const showError = (title: string, text?: string) => {
 };
 
 export const showWarning = (title: string, text?: string) => {
+  playBellChime();
   return CustomSwal.fire({
     icon: "warning",
     title,
@@ -58,6 +62,7 @@ export const showWarning = (title: string, text?: string) => {
 };
 
 export const showInfo = (title: string, text?: string) => {
+  playBellChime();
   return CustomSwal.fire({
     icon: "info",
     title,
@@ -67,6 +72,7 @@ export const showInfo = (title: string, text?: string) => {
 };
 
 export const showToast = (title: string, icon: "success" | "error" | "warning" | "info" = "success") => {
+  playBellChime();
   return Toast.fire({
     icon,
     title,

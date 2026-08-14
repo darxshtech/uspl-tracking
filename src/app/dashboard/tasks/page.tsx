@@ -64,6 +64,8 @@ export default function DailyTasksPage() {
   const [customDate, setCustomDate] = useState("");
   const [initialChecklists, setInitialChecklists] = useState<string[]>([]);
   const [newChecklistInput, setNewChecklistInput] = useState("");
+  const [assignToAll, setAssignToAll] = useState(false);
+  const [isMockTask, setIsMockTask] = useState(false);
 
   // Sub-task creation in table
   const [activeChecklistTaskId, setActiveChecklistTaskId] = useState<number | null>(null);
@@ -156,9 +158,12 @@ export default function DailyTasksPage() {
           timeline,
           target_date: timeline === "custom" ? customDate : undefined,
           checklists: initialChecklists,
+          assign_to_all: assignToAll,
+          is_mock_task: isMockTask,
         }),
       });
 
+      const data = await res.json();
       if (res.ok) {
         setCreateModalOpen(false);
         fetchTasks();
@@ -172,9 +177,10 @@ export default function DailyTasksPage() {
         setCustomDate("");
         setInitialChecklists([]);
         setNewChecklistInput("");
-        showToast("Task created successfully!");
+        setAssignToAll(false);
+        setIsMockTask(false);
+        showToast(data.message || "Task created successfully!");
       } else {
-        const data = await res.json();
         showError("Failed to Create Task", data.error || "Unknown error");
       }
     } catch (err) {
@@ -504,17 +510,26 @@ export default function DailyTasksPage() {
 
                 {canManageAllTasks ? (
                   <div className="space-y-1.5">
-                    <Label className="font-semibold text-slate-700">Assign Developer *</Label>
-                    <Select value={assignedTo} onValueChange={(val) => setAssignedTo(val || "")}>
-                      <SelectTrigger><SelectValue placeholder="Select Developer" /></SelectTrigger>
-                      <SelectContent>
-                        {employees
-                          .filter((e) => e.role === "Developer" || e.role === "Tester")
-                          .map((e) => (
-                            <SelectItem key={e.id} value={e.id.toString()}>{e.name} ({e.role})</SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
+                    <Label className="font-semibold text-slate-700">
+                      {assignToAll ? "Assignee Target" : "Assign Developer *"}
+                    </Label>
+                    {assignToAll ? (
+                      <div className="flex items-center gap-2 h-9 px-3 rounded-lg bg-sky-50 border border-sky-200 text-xs font-bold text-sky-900">
+                        <Sparkles className="h-3.5 w-3.5 text-sky-600 animate-pulse" />
+                        <span>All Available Employees ({employees.length} Members)</span>
+                      </div>
+                    ) : (
+                      <Select value={assignedTo} onValueChange={(val) => setAssignedTo(val || "")}>
+                        <SelectTrigger><SelectValue placeholder="Select Developer" /></SelectTrigger>
+                        <SelectContent>
+                          {employees
+                            .filter((e) => e.role === "Developer" || e.role === "Tester")
+                            .map((e) => (
+                              <SelectItem key={e.id} value={e.id.toString()}>{e.name} ({e.role})</SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-1.5">
@@ -531,6 +546,51 @@ export default function DailyTasksPage() {
                   </div>
                 )}
               </div>
+
+              {/* Special Mass Mock / Broadcast Assignment for CEO, PM, Admin */}
+              {canManageAllTasks && (
+                <div className="p-3 rounded-xl border border-sky-200 bg-gradient-to-r from-sky-50/90 via-indigo-50/60 to-purple-50/70 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="h-4 w-4 text-sky-600" />
+                      <div>
+                        <span className="text-xs font-bold text-slate-900 block">
+                          Assign to Everyone ({employees.length} Employees)
+                        </span>
+                        <span className="text-[10px] text-slate-500">
+                          Special Executive/PM Action: Creates an individual copy for each active team member.
+                        </span>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={assignToAll}
+                        onChange={(e) => setAssignToAll(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-sky-600"></div>
+                    </label>
+                  </div>
+
+                  {assignToAll && (
+                    <div className="pt-2 border-t border-sky-100/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 animate-fade-in">
+                      <p className="text-[11px] text-sky-900 font-medium">
+                        🔔 Instant Alert: Every employee will hear an alert chime and get notified upon creation.
+                      </p>
+                      <label className="flex items-center gap-1.5 text-xs font-bold text-purple-900 cursor-pointer bg-white/70 px-2 py-1 rounded-md border border-purple-200">
+                        <input
+                          type="checkbox"
+                          checked={isMockTask}
+                          onChange={(e) => setIsMockTask(e.target.checked)}
+                          className="rounded border-slate-300 text-purple-600 h-3.5 w-3.5"
+                        />
+                        <span>⚡ Mark as Mock / Drill Task</span>
+                      </label>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Timeline Selection */}
               <div className="space-y-2 p-3 bg-slate-50 rounded-xl border border-slate-200">

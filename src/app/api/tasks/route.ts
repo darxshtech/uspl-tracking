@@ -107,7 +107,20 @@ export async function POST(req: Request) {
     }
 
     // 2. Main Task creation (Developers, PM, CEO, Tester)
-    const { title, description, project_id, assigned_to, priority, due_date, target_date, timeline, checklists, assigned_by_type } = body;
+    const { 
+      title, 
+      description, 
+      project_id, 
+      assigned_to, 
+      priority, 
+      due_date, 
+      target_date, 
+      timeline, 
+      checklists, 
+      assigned_by_type,
+      assign_to_all,
+      is_mock_task
+    } = body;
 
     if (!title || !project_id) {
       return NextResponse.json({ error: "Task title and project are required" }, { status: 400 });
@@ -127,6 +140,68 @@ export async function POST(req: Request) {
       taskTargetDate = todayStr;
     }
 
+    const finalAssignedByType = assigned_by_type || (role === "Developer" ? "Self Tested" : role);
+    const isExecutiveOrAdmin = ["Admin", "CEO", "PM"].includes(role);
+
+    // MASS / MOCK TASK ASSIGNMENT TO ALL EMPLOYEES
+    if (assign_to_all && isExecutiveOrAdmin) {
+      const [allEmployees]: any = await pool.query(
+        "SELECT id, name, email FROM users WHERE is_active = 1"
+      );
+
+      let createdCount = 0;
+      for (const emp of allEmployees) {
+        const [result]: any = await pool.query(
+          `INSERT INTO tasks (title, description, project_id, created_by, assigned_to, priority, due_date, target_date, status, assigned_by_type) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Assigned', ?)`,
+          [
+            title,
+            description || null,
+            project_id,
+            currentUserId,
+            emp.id,
+            priority || "Medium",
+            due_date || taskTargetDate,
+            taskTargetDate,
+            finalAssignedByType
+          ]
+        );
+
+        const taskId = result.insertId;
+
+        // Insert subtasks / checklists for this employee's task copy
+        if (checklists && Array.isArray(checklists) && checklists.length > 0) {
+          for (const item of checklists) {
+            if (typeof item === "string" && item.trim()) {
+              await pool.query(
+                "INSERT INTO task_checklists (task_id, item_text, is_completed) VALUES (?, ?, false)",
+                [taskId, item.trim()]
+              );
+            }
+          }
+        }
+
+        // Notify employee
+        await pool.query(
+          `INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'task_assigned')`,
+          [
+            emp.id,
+            `${is_mock_task ? "⚡ Mock Task Broadcast" : "Task Assigned"} by ${currentUserName} (${role})`,
+            `Task "${title}" has been assigned to you. Scheduled for: ${taskTargetDate}.`
+          ]
+        );
+
+        createdCount++;
+      }
+
+      return NextResponse.json({
+        success: true,
+        count: createdCount,
+        message: `Task successfully assigned to all ${createdCount} employees.`
+      }, { status: 201 });
+    }
+
+    // SINGLE TASK CREATION
     let finalAssignee = assigned_to;
     if (role === "Developer" && !finalAssignee) {
       finalAssignee = currentUserId; // Developer creates tasks for themselves
@@ -135,8 +210,6 @@ export async function POST(req: Request) {
     if (!finalAssignee) {
       return NextResponse.json({ error: "Assignee is required" }, { status: 400 });
     }
-
-    const finalAssignedByType = assigned_by_type || (role === "Developer" ? "Self Tested" : role);
 
     const [result]: any = await pool.query(
       `INSERT INTO tasks (title, description, project_id, created_by, assigned_to, priority, due_date, target_date, status, assigned_by_type) 
