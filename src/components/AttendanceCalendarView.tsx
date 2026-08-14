@@ -37,9 +37,9 @@ export default function AttendanceCalendarView({
   employees?: any[];
   initialEmployeeId?: string;
 }) {
-  const today = new Date();
-  const [currentYear, setCurrentYear] = useState(today.getFullYear());
-  const [currentMonth, setCurrentMonth] = useState(today.getMonth()); // 0-indexed
+  const [mounted, setMounted] = useState(false);
+  const [currentYear, setCurrentYear] = useState(2026);
+  const [currentMonth, setCurrentMonth] = useState(7); // August (0-indexed)
   const [selectedEmployeeId, setSelectedEmployeeId] = useState(initialEmployeeId);
 
   const [holidays, setHolidays] = useState<any[]>([]);
@@ -54,12 +54,23 @@ export default function AttendanceCalendarView({
   const [submittingHoliday, setSubmittingHoliday] = useState(false);
 
   useEffect(() => {
-    fetchHolidays();
-  }, [currentYear]);
+    const d = new Date();
+    setCurrentYear(d.getFullYear());
+    setCurrentMonth(d.getMonth());
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
-    fetchAttendance();
-  }, [currentYear, currentMonth, selectedEmployeeId]);
+    if (mounted) {
+      fetchHolidays();
+    }
+  }, [currentYear, mounted]);
+
+  useEffect(() => {
+    if (mounted) {
+      fetchAttendance();
+    }
+  }, [currentYear, currentMonth, selectedEmployeeId, mounted]);
 
   const fetchHolidays = async () => {
     try {
@@ -184,6 +195,8 @@ export default function AttendanceCalendarView({
       return aDate === dStr;
     });
 
+    const todayStr = mounted ? new Date().toISOString().split("T")[0] : "";
+
     calendarCells.push({
       isCurrentMonth: true,
       dayNumber: day,
@@ -191,7 +204,7 @@ export default function AttendanceCalendarView({
       isSunday,
       holiday,
       attendance: dayAttendance,
-      isToday: dStr === today.toISOString().split("T")[0],
+      isToday: Boolean(todayStr && dStr === todayStr),
     });
   }
 

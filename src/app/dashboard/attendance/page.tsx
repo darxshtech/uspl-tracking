@@ -27,6 +27,7 @@ export default function AttendancePage() {
   const isPM = role === "PM";
   const canManageHolidays = isCEO || isPM;
 
+  const [mounted, setMounted] = useState(false);
   const [viewMode, setViewMode] = useState<"table" | "calendar">("table");
   const [attendance, setAttendance] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
@@ -37,6 +38,7 @@ export default function AttendancePage() {
   const [currentISTDate, setCurrentISTDate] = useState("");
 
   useEffect(() => {
+    setMounted(true);
     fetchAttendance();
     if (isPM || isCEO) {
       fetchEmployees();
@@ -141,7 +143,9 @@ export default function AttendancePage() {
 
           <div className="flex items-center gap-2 bg-slate-900 text-white px-3.5 py-1.5 rounded-xl text-xs font-mono font-semibold shadow-xs">
             <Clock className="h-4 w-4 text-sky-400" />
-            <span>IST: {currentISTTime || new Date().toLocaleTimeString()}</span>
+            <span suppressHydrationWarning>
+              IST: {mounted ? (currentISTTime || new Date().toLocaleTimeString()) : "12:00:00 PM"}
+            </span>
           </div>
         </div>
       </div>

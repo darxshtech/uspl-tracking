@@ -87,7 +87,7 @@ export default function NotificationBell() {
                     <span>{n.title}</span>
                   </div>
                   <p className="text-slate-600 text-[11px] leading-relaxed">{n.message}</p>
-                  <span className="text-[9px] text-slate-400 mt-1 block">
+                  <span suppressHydrationWarning className="text-[9px] text-slate-400 mt-1 block">
                     {new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
                 </div>
