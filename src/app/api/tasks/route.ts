@@ -39,17 +39,23 @@ export async function GET() {
 
     const [rows]: any = await pool.query(query, params);
 
-    // Fetch checklists
-    const [checklistRows]: any = await pool.query("SELECT * FROM task_checklists ORDER BY id ASC");
+    // Safely Fetch checklists if table exists
     const checklistMap: Record<number, any[]> = {};
-    checklistRows.forEach((c: any) => {
-      if (!checklistMap[c.task_id]) checklistMap[c.task_id] = [];
-      checklistMap[c.task_id].push({
-        id: c.id,
-        item_text: c.item_text,
-        is_completed: Boolean(c.is_completed),
-      });
-    });
+    try {
+      const [checklistRows]: any = await pool.query("SELECT * FROM task_checklists ORDER BY id ASC");
+      if (Array.isArray(checklistRows)) {
+        checklistRows.forEach((c: any) => {
+          if (!checklistMap[c.task_id]) checklistMap[c.task_id] = [];
+          checklistMap[c.task_id].push({
+            id: c.id,
+            item_text: c.item_text,
+            is_completed: Boolean(c.is_completed),
+          });
+        });
+      }
+    } catch (_) {
+      // Table may not exist yet, fallback gracefully
+    }
 
     const formatted = rows.map((r: any) => {
       let parsedLinks: string[] = [];
@@ -70,6 +76,7 @@ export async function GET() {
 
     return NextResponse.json(formatted);
   } catch (error: any) {
+    console.error("GET /api/tasks error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

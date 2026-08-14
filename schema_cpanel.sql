@@ -149,7 +149,19 @@ CREATE TABLE IF NOT EXISTS `accomplishments` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
--- 9. Initial Seed Users
+-- 9. Table: task_checklists
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `task_checklists` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `task_id` INT NOT NULL,
+  `item_text` VARCHAR(500) NOT NULL,
+  `is_completed` TINYINT(1) NOT NULL DEFAULT 0,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (`task_id`) REFERENCES `tasks`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+-- 10. Initial Seed Users
 -- Passwords:
 -- Admin: AdminPassword123!
 -- CEO/PM/Dev/Tester: password123
