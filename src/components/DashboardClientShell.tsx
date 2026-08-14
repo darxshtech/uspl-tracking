@@ -30,6 +30,7 @@ interface DashboardClientShellProps {
     name?: string | null;
     email?: string | null;
     role?: string;
+    avatar_url?: string | null;
   };
 }
 
@@ -131,11 +132,19 @@ export default function DashboardClientShell({ children, user }: DashboardClient
           <Link
             href="/dashboard/profile"
             onClick={() => setMobileOpen(false)}
-            className="flex items-center gap-2.5 truncate"
+            className="flex items-center gap-2.5 truncate hover:opacity-85 transition-opacity"
           >
-            <div className="h-9 w-9 rounded-full bg-sky-500/20 border border-sky-400/30 flex items-center justify-center text-sky-400 font-bold text-sm shrink-0">
-              {user.name ? user.name.charAt(0).toUpperCase() : "U"}
-            </div>
+            {user.avatar_url ? (
+              <img
+                src={user.avatar_url}
+                alt={user.name || "User"}
+                className="h-9 w-9 rounded-full object-cover border border-sky-400/40 shrink-0"
+              />
+            ) : (
+              <div className="h-9 w-9 rounded-full bg-sky-500/20 border border-sky-400/30 flex items-center justify-center text-sky-400 font-bold text-sm shrink-0">
+                {user.name ? user.name.charAt(0).toUpperCase() : "U"}
+              </div>
+            )}
             <div className="truncate">
               <p className="font-bold text-xs text-slate-100 truncate">{user.name}</p>
               <span className="inline-block text-[10px] font-semibold text-sky-400 uppercase tracking-wider">
@@ -206,9 +215,17 @@ export default function DashboardClientShell({ children, user }: DashboardClient
           {!isCollapsed ? (
             <>
               <Link href="/dashboard/profile" className="flex items-center gap-2.5 truncate hover:opacity-85 transition-opacity">
-                <div className="h-8 w-8 rounded-full bg-sky-500/20 border border-sky-400/30 flex items-center justify-center text-sky-400 font-bold text-xs shrink-0">
-                  {user.name ? user.name.charAt(0).toUpperCase() : "U"}
-                </div>
+                {user.avatar_url ? (
+                  <img
+                    src={user.avatar_url}
+                    alt={user.name || "User"}
+                    className="h-8 w-8 rounded-full object-cover border border-sky-400/40 shrink-0"
+                  />
+                ) : (
+                  <div className="h-8 w-8 rounded-full bg-sky-500/20 border border-sky-400/30 flex items-center justify-center text-sky-400 font-bold text-xs shrink-0">
+                    {user.name ? user.name.charAt(0).toUpperCase() : "U"}
+                  </div>
+                )}
                 <div className="truncate text-xs">
                   <p className="font-bold text-slate-100 truncate">{user.name}</p>
                   <span className="inline-block text-[10px] font-semibold text-sky-400">
@@ -274,12 +291,23 @@ export default function DashboardClientShell({ children, user }: DashboardClient
             {/* Profile Avatar Pill */}
             <Link
               href="/dashboard/profile"
-              className="hidden md:flex items-center gap-2 py-1 px-2.5 rounded-full bg-slate-100 hover:bg-slate-200 transition-colors text-xs font-semibold text-slate-700"
+              className="hidden md:flex items-center gap-2.5 py-1 px-3 rounded-full bg-slate-100/90 hover:bg-slate-200/90 border border-slate-200 transition-colors text-xs font-semibold text-slate-800 shadow-xs"
             >
-              <div className="w-5 h-5 rounded-full bg-sky-500 text-white flex items-center justify-center font-bold text-[10px]">
-                {user.name ? user.name.charAt(0).toUpperCase() : "U"}
+              {user.avatar_url ? (
+                <img
+                  src={user.avatar_url}
+                  alt={user.name || "User"}
+                  className="w-6 h-6 rounded-full object-cover border border-sky-400/40 shrink-0"
+                />
+              ) : (
+                <div className="w-6 h-6 rounded-full bg-sky-600 text-white flex items-center justify-center font-bold text-[10px] shadow-xs shrink-0">
+                  {user.name ? user.name.charAt(0).toUpperCase() : "U"}
+                </div>
+              )}
+              <div className="flex flex-col text-left leading-tight">
+                <span className="truncate max-w-[130px] font-bold text-slate-900">{user.name}</span>
+                <span className="text-[9px] text-slate-500 font-semibold">{getRoleDisplayName(role)}</span>
               </div>
-              <span className="truncate max-w-[100px]">{user.name}</span>
             </Link>
           </div>
         </header>
