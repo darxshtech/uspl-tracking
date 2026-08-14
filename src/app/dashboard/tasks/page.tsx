@@ -58,6 +58,7 @@ export default function DailyTasksPage() {
   const [projectId, setProjectId] = useState("");
   const [assignedTo, setAssignedTo] = useState("");
   const [priority, setPriority] = useState("Medium");
+  const [assignedByType, setAssignedByType] = useState<"PM" | "CEO" | "Tester" | "Self Tested">("Self Tested");
   const [timeline, setTimeline] = useState<"today" | "tomorrow" | "custom">("today");
   const [customDate, setCustomDate] = useState("");
   const [initialChecklists, setInitialChecklists] = useState<string[]>([]);
@@ -150,6 +151,7 @@ export default function DailyTasksPage() {
           project_id: projectId,
           assigned_to: canManageAllTasks ? (assignedTo || currentUserId) : currentUserId,
           priority,
+          assigned_by_type: assignedByType,
           timeline,
           target_date: timeline === "custom" ? customDate : undefined,
           checklists: initialChecklists,
@@ -164,6 +166,7 @@ export default function DailyTasksPage() {
         setProjectId("");
         setAssignedTo("");
         setPriority("Medium");
+        setAssignedByType("Self Tested");
         setTimeline("today");
         setCustomDate("");
         setInitialChecklists([]);
@@ -390,16 +393,16 @@ export default function DailyTasksPage() {
       return taskDate > todayStr;
     }
     if (activeTab === "assigned_pm") {
-      return t.creator_role === "PM" || t.project_creator_role === "PM";
+      return t.assigned_by_type === "PM" || t.creator_role === "PM" || t.project_creator_role === "PM";
     }
     if (activeTab === "assigned_ceo") {
-      return t.creator_role === "CEO" || t.project_creator_role === "CEO";
+      return t.assigned_by_type === "CEO" || t.creator_role === "CEO" || t.project_creator_role === "CEO";
     }
     if (activeTab === "from_tester") {
-      return t.status === "Changes Required" || t.creator_role === "Tester";
+      return t.assigned_by_type === "Tester" || t.status === "Changes Required" || t.creator_role === "Tester";
     }
     if (activeTab === "self_created") {
-      return t.created_by === currentUserId;
+      return t.assigned_by_type === "Self Tested" || t.created_by === currentUserId;
     }
     return true;
   });
@@ -411,10 +414,10 @@ export default function DailyTasksPage() {
   }).length;
 
   const countTomorrow = tasks.filter((t) => (t.target_date ? t.target_date.split("T")[0] : todayStr) > todayStr).length;
-  const countPM = tasks.filter((t) => t.creator_role === "PM" || t.project_creator_role === "PM").length;
-  const countCEO = tasks.filter((t) => t.creator_role === "CEO" || t.project_creator_role === "CEO").length;
-  const countTester = tasks.filter((t) => t.status === "Changes Required" || t.creator_role === "Tester").length;
-  const countSelf = tasks.filter((t) => t.created_by === currentUserId).length;
+  const countPM = tasks.filter((t) => t.assigned_by_type === "PM" || t.creator_role === "PM" || t.project_creator_role === "PM").length;
+  const countCEO = tasks.filter((t) => t.assigned_by_type === "CEO" || t.creator_role === "CEO" || t.project_creator_role === "CEO").length;
+  const countTester = tasks.filter((t) => t.assigned_by_type === "Tester" || t.status === "Changes Required" || t.creator_role === "Tester").length;
+  const countSelf = tasks.filter((t) => t.assigned_by_type === "Self Tested" || t.created_by === currentUserId).length;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -467,7 +470,7 @@ export default function DailyTasksPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div className="space-y-1.5">
                   <Label className="font-semibold text-slate-700">Project *</Label>
                   <Select value={projectId} onValueChange={(val) => setProjectId(val || "")}>
@@ -478,6 +481,19 @@ export default function DailyTasksPage() {
                           {p.name} {p.creator_name ? `(By: ${p.creator_name})` : ""}
                         </SelectItem>
                       ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="font-semibold text-slate-700">Task Assigned By *</Label>
+                  <Select value={assignedByType} onValueChange={(val: any) => setAssignedByType(val || "Self Tested")}>
+                    <SelectTrigger><SelectValue placeholder="Assigned By" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="PM">📋 PM (Project Manager)</SelectItem>
+                      <SelectItem value="CEO">👑 CEO (Executive)</SelectItem>
+                      <SelectItem value="Tester">🧪 Tester (QA Bug Fix)</SelectItem>
+                      <SelectItem value="Self Tested">✍️ Self Tested (Developer)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1077,9 +1093,9 @@ export default function DailyTasksPage() {
                       </div>
                     </TableCell>
 
-                    <TableCell className="align-top">
+                    <TableCell className="align-top space-y-1">
                       <div className="font-bold text-slate-900 text-xs">{task.project_name || "N/A"}</div>
-                      <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1">
+                      <div className="text-[11px] text-slate-500 flex items-center gap-1">
                         <UserCheck className="h-3 w-3 text-sky-500" />
                         <span>
                           Assigned By:{" "}
@@ -1087,6 +1103,28 @@ export default function DailyTasksPage() {
                             {task.project_creator_name || task.creator_name || "Management"} ({task.project_creator_role || task.creator_role || "PM"})
                           </strong>
                         </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 pt-0.5">
+                        {task.assigned_by_type === "CEO" && (
+                          <Badge className="bg-purple-100 text-purple-800 border-purple-300 font-bold text-[10px] py-0 px-1.5">
+                            👑 CEO Assigned
+                          </Badge>
+                        )}
+                        {task.assigned_by_type === "PM" && (
+                          <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300 font-bold text-[10px] py-0 px-1.5">
+                            📋 PM Assigned
+                          </Badge>
+                        )}
+                        {task.assigned_by_type === "Tester" && (
+                          <Badge className="bg-red-100 text-red-800 border-red-300 font-bold text-[10px] py-0 px-1.5">
+                            🧪 Tester Bug Fix
+                          </Badge>
+                        )}
+                        {(!task.assigned_by_type || task.assigned_by_type === "Self Tested") && (
+                          <Badge className="bg-slate-100 text-slate-700 border-slate-300 font-bold text-[10px] py-0 px-1.5">
+                            ✍️ Self Tested
+                          </Badge>
+                        )}
                       </div>
                       <div className="text-[11px] text-slate-500">
                         Dev: <span className="font-medium text-slate-700">{task.assignee_name || "Unassigned"}</span>

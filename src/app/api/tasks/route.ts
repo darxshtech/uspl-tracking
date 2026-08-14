@@ -100,7 +100,7 @@ export async function POST(req: Request) {
     }
 
     // 2. Main Task creation (Developers, PM, CEO, Tester)
-    const { title, description, project_id, assigned_to, priority, due_date, target_date, timeline, checklists } = body;
+    const { title, description, project_id, assigned_to, priority, due_date, target_date, timeline, checklists, assigned_by_type } = body;
 
     if (!title || !project_id) {
       return NextResponse.json({ error: "Task title and project are required" }, { status: 400 });
@@ -129,9 +129,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Assignee is required" }, { status: 400 });
     }
 
+    const finalAssignedByType = assigned_by_type || (role === "Developer" ? "Self Tested" : role);
+
     const [result]: any = await pool.query(
-      `INSERT INTO tasks (title, description, project_id, created_by, assigned_to, priority, due_date, target_date, status) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (title, description, project_id, created_by, assigned_to, priority, due_date, target_date, status, assigned_by_type) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         title,
         description || null,
@@ -142,6 +144,7 @@ export async function POST(req: Request) {
         due_date || taskTargetDate,
         taskTargetDate,
         role === "Developer" ? "In Progress" : "Assigned",
+        finalAssignedByType
       ]
     );
 
