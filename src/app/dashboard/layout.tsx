@@ -34,9 +34,9 @@ export default async function DashboardLayout({
     { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ["CEO", "PM", "Developer", "Tester"] },
     { name: "Employees", href: "/dashboard/employees", icon: Users, roles: ["CEO", "PM"] },
     { name: "Projects", href: "/dashboard/projects", icon: Briefcase, roles: ["CEO", "PM", "Developer", "Tester"] },
-    { name: "Tasks", href: "/dashboard/tasks", icon: CheckSquare, roles: ["CEO", "PM", "Developer"] },
+    { name: "Daily Tasks", href: "/dashboard/tasks", icon: CheckSquare, roles: ["CEO", "PM", "Developer", "Tester"] },
     { name: "Testing Queue", href: "/dashboard/testing", icon: Activity, roles: ["CEO", "PM", "Developer", "Tester"] },
-    { name: "Daily Work", href: "/dashboard/work", icon: Clock, roles: ["CEO", "PM", "Developer", "Tester"] },
+    { name: "Work Accomplishments", href: "/dashboard/work", icon: Clock, roles: ["CEO", "PM", "Developer", "Tester"] },
     { name: "Attendance", href: "/dashboard/attendance", icon: CalendarDays, roles: ["CEO", "PM", "Developer", "Tester"] },
     { name: "Profile & Tenure", href: "/dashboard/profile", icon: Users, roles: ["CEO", "PM", "Developer", "Tester"] },
   ];

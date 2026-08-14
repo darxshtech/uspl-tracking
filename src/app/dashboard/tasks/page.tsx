@@ -31,10 +31,13 @@ import {
   SunMedium, 
   Flame, 
   Trash2,
-  Crown
+  Crown,
+  Edit3,
+  AlertTriangle,
+  FileText
 } from "lucide-react";
 
-export default function TasksPage() {
+export default function DailyTasksPage() {
   const { data: session } = useSession();
   const role = (session?.user as any)?.role;
   const currentUserId = (session?.user as any)?.id;
@@ -63,12 +66,16 @@ export default function TasksPage() {
   const [activeChecklistTaskId, setActiveChecklistTaskId] = useState<number | null>(null);
   const [newChecklistText, setNewChecklistText] = useState("");
 
-  // Send for Testing Modal state
-  const [testingModalOpen, setTestingModalOpen] = useState(false);
-  const [selectedTaskForTesting, setSelectedTaskForTesting] = useState<any>(null);
-  const [taskLink, setTaskLink] = useState("");
-  const [testingRemarks, setTestingRemarks] = useState("");
-  const [submittingTesting, setSubmittingTesting] = useState(false);
+  // Update Task Progress Modal state
+  const [progressModalOpen, setProgressModalOpen] = useState(false);
+  const [selectedTaskForProgress, setSelectedTaskForProgress] = useState<any>(null);
+  const [progressPercentage, setProgressPercentage] = useState<number>(0);
+  const [hoursSpentToday, setHoursSpentToday] = useState<string>("2.0");
+  const [dailySummary, setDailySummary] = useState<string>("");
+  const [blockers, setBlockers] = useState<string>("");
+  const [progressStatus, setProgressStatus] = useState<string>("In Progress");
+  const [progressTaskLink, setProgressTaskLink] = useState<string>("");
+  const [submittingProgress, setSubmittingProgress] = useState(false);
 
   useEffect(() => {
     fetchTasks();
@@ -167,6 +174,58 @@ export default function TasksPage() {
     }
   };
 
+  const openProgressModal = (task: any) => {
+    setSelectedTaskForProgress(task);
+    setProgressPercentage(task.progress_percentage || 0);
+    setHoursSpentToday(task.hours_spent ? task.hours_spent.toString() : "2.0");
+    setDailySummary(task.daily_summary || "");
+    setBlockers(task.blockers || "");
+    setProgressStatus(task.status || "In Progress");
+    setProgressTaskLink(task.task_link || "");
+    setProgressModalOpen(true);
+  };
+
+  const handleSaveProgress = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedTaskForProgress) return;
+
+    if (progressStatus === "Ready for Testing" && !progressTaskLink.trim()) {
+      alert("Please provide a Task Preview / PR Link before submitting for QA testing.");
+      return;
+    }
+
+    setSubmittingProgress(true);
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: selectedTaskForProgress.id,
+          status: progressStatus,
+          progress_percentage: progressPercentage,
+          hours_spent: parseFloat(hoursSpentToday) || 0,
+          daily_summary: dailySummary.trim(),
+          blockers: blockers.trim() || null,
+          task_link: progressTaskLink.trim() || undefined,
+        }),
+      });
+
+      if (res.ok) {
+        setProgressModalOpen(false);
+        setSelectedTaskForProgress(null);
+        fetchTasks();
+      } else {
+        const data = await res.json();
+        alert(`Failed to update task progress: ${data.error || "Unknown error"}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("An error occurred while updating task progress.");
+    } finally {
+      setSubmittingProgress(false);
+    }
+  };
+
   const updateStatus = async (taskId: number, newStatus: string) => {
     try {
       const res = await fetch("/api/tasks", {
@@ -181,52 +240,6 @@ export default function TasksPage() {
       }
     } catch (err) {
       console.error(err);
-    }
-  };
-
-  const openSendForTestingModal = (task: any) => {
-    setSelectedTaskForTesting(task);
-    setTaskLink(task.task_link || "");
-    setTestingRemarks("");
-    setTestingModalOpen(true);
-  };
-
-  const handleSendToTestingSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedTaskForTesting) return;
-    if (!taskLink.trim()) {
-      alert("Please provide a preview or PR link for the QA tester.");
-      return;
-    }
-
-    setSubmittingTesting(true);
-    try {
-      const res = await fetch("/api/tasks", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: selectedTaskForTesting.id,
-          status: "Ready for Testing",
-          task_link: taskLink.trim(),
-          remarks: testingRemarks.trim() || undefined,
-        }),
-      });
-
-      if (res.ok) {
-        setTestingModalOpen(false);
-        setSelectedTaskForTesting(null);
-        setTaskLink("");
-        setTestingRemarks("");
-        fetchTasks();
-      } else {
-        const data = await res.json();
-        alert(`Failed to submit for testing: ${data.error || "Unknown error"}`);
-      }
-    } catch (err) {
-      console.error(err);
-      alert("An error occurred while submitting task to testing.");
-    } finally {
-      setSubmittingTesting(false);
     }
   };
 
@@ -341,12 +354,12 @@ export default function TasksPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-900 flex items-center gap-3">
             <CheckSquare className="h-8 w-8 text-sky-500" />
-            Task Hub & Daily Work Plan
+            Daily Tasks Hub & Progress Management
           </h1>
           <p className="text-slate-500 mt-1">
             {role === "Developer"
-              ? "Plan today's and tomorrow's daily tasks on assigned projects, complete checklist sub-tasks, and hand off to QA testing."
-              : "Track developer task execution, assign initiatives, and monitor QA testing and demo handoffs."}
+              ? "Plan today's and tomorrow's daily tasks, log work progress (% done & hours spent), record blockers, and hand off to QA testing."
+              : "Track developer daily tasks, monitor progress percentage, review blockers, and manage QA testing releases."}
           </p>
         </div>
 
@@ -641,57 +654,165 @@ export default function TasksPage() {
         </button>
       </div>
 
-      {/* Mandatory Send For Testing Modal */}
-      <Dialog open={testingModalOpen} onOpenChange={setTestingModalOpen}>
-        <DialogContent className="max-w-md">
+      {/* UPDATE TASK PROGRESS & BLOCKER MODAL */}
+      <Dialog open={progressModalOpen} onOpenChange={setProgressModalOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-lg font-bold text-slate-900">
-              <Send className="h-5 w-5 text-amber-500" />
-              Hand Off Task to QA Testing
+              <Edit3 className="h-5 w-5 text-sky-500" />
+              Update Daily Task Progress & Status
             </DialogTitle>
           </DialogHeader>
 
-          <form onSubmit={handleSendToTestingSubmit} className="space-y-4 pt-2">
-            <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-700 font-medium border border-slate-200">
-              Task: <span className="font-bold text-slate-900">{selectedTaskForTesting?.title}</span>
-              <div className="text-slate-500 mt-0.5">Project: {selectedTaskForTesting?.project_name || "N/A"}</div>
+          <form onSubmit={handleSaveProgress} className="space-y-4 pt-2">
+            <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-700 font-medium border border-slate-200 space-y-1">
+              <div>Task: <span className="font-bold text-slate-900">{selectedTaskForProgress?.title}</span></div>
+              <div className="text-slate-500">Project: {selectedTaskForProgress?.project_name || "N/A"}</div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="taskLink" className="font-semibold text-slate-900 flex items-center gap-1">
-                <ExternalLink className="h-3.5 w-3.5 text-sky-500" />
-                Task Preview / PR Link * (Mandatory)
-              </Label>
-              <Input
-                id="taskLink"
-                value={taskLink}
-                onChange={(e) => setTaskLink(e.target.value)}
-                placeholder="https://github.com/.../pull/12 or http://staging.unitglo.com/test"
-                required
+            {/* Progress Percentage Control */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="font-bold text-slate-800 text-xs">
+                  Completion Progress: <span className="text-sky-600 text-sm font-black">{progressPercentage}%</span>
+                </Label>
+                <div className="flex gap-1">
+                  {[0, 25, 50, 75, 100].map((pct) => (
+                    <button
+                      key={pct}
+                      type="button"
+                      onClick={() => setProgressPercentage(pct)}
+                      className={`px-2 py-0.5 text-[10px] font-bold rounded border transition-all ${
+                        progressPercentage === pct
+                          ? "bg-sky-600 text-white border-sky-600"
+                          : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                      }`}
+                    >
+                      {pct}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <input
+                type="range"
+                min="0"
+                max="100"
+                step="5"
+                value={progressPercentage}
+                onChange={(e) => setProgressPercentage(parseInt(e.target.value))}
+                className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-sky-600"
               />
-              <p className="text-[11px] text-slate-500">
-                Testers will use this exact link on their QA dashboard to review and test your feature.
-              </p>
+
+              <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden border border-slate-200">
+                <div
+                  className={`h-full transition-all duration-300 ${
+                    progressPercentage === 100
+                      ? "bg-emerald-500"
+                      : progressPercentage >= 50
+                      ? "bg-sky-500"
+                      : "bg-amber-500"
+                  }`}
+                  style={{ width: `${progressPercentage}%` }}
+                />
+              </div>
             </div>
 
+            {/* Hours Spent & Status */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="hoursSpent" className="font-semibold text-slate-700 text-xs">
+                  Hours Spent Today *
+                </Label>
+                <Input
+                  id="hoursSpent"
+                  type="number"
+                  step="0.5"
+                  value={hoursSpentToday}
+                  onChange={(e) => setHoursSpentToday(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="font-semibold text-slate-700 text-xs">Task Status</Label>
+                <Select 
+                  value={progressStatus} 
+                  onValueChange={(val) => setProgressStatus(val || "In Progress")}
+                >
+                  <SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="In Progress">In Progress</SelectItem>
+                    <SelectItem value="Planning">Planning</SelectItem>
+                    <SelectItem value="Ready for Testing">Ready for Testing (100% Done)</SelectItem>
+                    <SelectItem value="Completed">Completed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Work accomplished today */}
             <div className="space-y-1.5">
-              <Label htmlFor="testingRemarks" className="font-semibold text-slate-700">
-                Notes for QA Tester (Optional)
+              <Label htmlFor="dailySummary" className="font-semibold text-slate-700 text-xs">
+                Work Done / Accomplishments Today
               </Label>
-              <Input
-                id="testingRemarks"
-                value={testingRemarks}
-                onChange={(e) => setTestingRemarks(e.target.value)}
-                placeholder="e.g. Test with test user account, checked on Chrome & Firefox"
+              <textarea
+                id="dailySummary"
+                rows={2}
+                value={dailySummary}
+                onChange={(e) => setDailySummary(e.target.value)}
+                placeholder="Modules built, functions implemented, APIs integrated..."
+                className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500"
               />
             </div>
+
+            {/* If NOT 100% done, why not done? (Blockers / Reasons / Remarks) */}
+            {progressPercentage < 100 && (
+              <div className="space-y-1.5 p-3 rounded-xl bg-amber-50/80 border border-amber-200">
+                <Label htmlFor="blockers" className="font-bold text-amber-900 text-xs flex items-center gap-1">
+                  <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+                  Why is this task not 100% done? (Blockers & Reasons)
+                </Label>
+                <Input
+                  id="blockers"
+                  value={blockers}
+                  onChange={(e) => setBlockers(e.target.value)}
+                  placeholder="e.g. Waiting for 3rd-party API credentials / complex db schema rework..."
+                  className="bg-white text-xs"
+                />
+                <p className="text-[10px] text-amber-700">
+                  Management and team will see this blocker note on the daily dashboard.
+                </p>
+              </div>
+            )}
+
+            {/* If 100% done or Ready for Testing: Mandatory Task Preview Link */}
+            {(progressPercentage === 100 || progressStatus === "Ready for Testing") && (
+              <div className="space-y-1.5 p-3 rounded-xl bg-sky-50/80 border border-sky-200">
+                <Label htmlFor="progressLink" className="font-bold text-sky-900 text-xs flex items-center gap-1">
+                  <ExternalLink className="h-3.5 w-3.5 text-sky-600" />
+                  Task Preview / PR Link * (Mandatory for QA Testing)
+                </Label>
+                <Input
+                  id="progressLink"
+                  value={progressTaskLink}
+                  onChange={(e) => setProgressTaskLink(e.target.value)}
+                  placeholder="https://github.com/.../pull/15 or http://staging.unitglo.com"
+                  className="bg-white text-xs"
+                  required={progressStatus === "Ready for Testing"}
+                />
+                <p className="text-[10px] text-sky-700">
+                  Testers will use this preview link to test and verify your deliverables.
+                </p>
+              </div>
+            )}
 
             <Button
               type="submit"
-              disabled={submittingTesting}
-              className="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-2.5 shadow-md"
+              disabled={submittingProgress}
+              className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 shadow-md"
             >
-              {submittingTesting ? "Sending to QA..." : "Submit to QA Tester"}
+              {submittingProgress ? "Updating Task..." : "Save Progress & Sync Daily Log"}
             </Button>
           </form>
         </DialogContent>
@@ -702,30 +823,31 @@ export default function TasksPage() {
         <Table>
           <TableHeader className="bg-slate-50">
             <TableRow>
-              <TableHead className="font-bold">Task & Checklist</TableHead>
+              <TableHead className="font-bold">Task & Progress</TableHead>
               <TableHead className="font-bold">Project & Assigner</TableHead>
-              <TableHead className="font-bold">Schedule & Link</TableHead>
+              <TableHead className="font-bold">Schedule & Blockers</TableHead>
               <TableHead className="font-bold">Status</TableHead>
-              <TableHead className="font-bold text-right">Developer Actions</TableHead>
+              <TableHead className="font-bold text-right">Daily Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={5} className="text-center py-8">Loading tasks...</TableCell></TableRow>
+              <TableRow><TableCell colSpan={5} className="text-center py-8">Loading daily tasks...</TableCell></TableRow>
             ) : filteredTasks.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={5} className="text-center text-slate-500 py-10">
-                  No tasks found in this section.
+                  No daily tasks found in this section.
                 </TableCell>
               </TableRow>
             ) : (
               filteredTasks.map((task) => {
                 const checklists: any[] = task.checklists || [];
                 const completedChecklists = checklists.filter((c) => c.is_completed).length;
-                const progressPct = checklists.length > 0 ? Math.round((completedChecklists / checklists.length) * 100) : 0;
+                const checklistPct = checklists.length > 0 ? Math.round((completedChecklists / checklists.length) * 100) : 0;
                 const isChecklistOpen = activeChecklistTaskId === task.id;
                 const taskDate = task.target_date ? task.target_date.split("T")[0] : todayStr;
                 const isToday = taskDate <= todayStr;
+                const pct = task.progress_percentage || (checklists.length > 0 ? checklistPct : 0);
 
                 return (
                   <TableRow key={task.id} className="hover:bg-slate-50/80 transition-colors">
@@ -736,6 +858,30 @@ export default function TasksPage() {
                       </div>
                       {task.description && <p className="text-xs text-slate-500 mt-0.5">{task.description}</p>}
 
+                      {/* Visual Progress Bar */}
+                      <div className="mt-2 space-y-1">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="font-bold text-slate-700">Progress: {pct}% Done</span>
+                          {task.hours_spent > 0 && (
+                            <span className="text-slate-500 font-semibold flex items-center gap-1">
+                              <Clock className="h-3 w-3 text-sky-500" /> {task.hours_spent} hrs logged
+                            </span>
+                          )}
+                        </div>
+                        <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden border border-slate-200">
+                          <div
+                            className={`h-full transition-all duration-300 ${
+                              pct === 100
+                                ? "bg-emerald-500"
+                                : pct >= 50
+                                ? "bg-sky-500"
+                                : "bg-amber-500"
+                            }`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </div>
+
                       {/* Sub-tasks / Daily Checklist Section */}
                       <div className="mt-2.5 space-y-1.5">
                         <div className="flex items-center gap-2">
@@ -745,7 +891,7 @@ export default function TasksPage() {
                             className="inline-flex items-center gap-1 text-xs font-bold text-slate-700 hover:text-sky-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200"
                           >
                             <ListTodo className="h-3 w-3 text-sky-500" />
-                            {checklists.length > 0 ? `${completedChecklists}/${checklists.length} Done (${progressPct}%)` : "+ Add Sub-tasks"}
+                            {checklists.length > 0 ? `${completedChecklists}/${checklists.length} Checklist Items` : "+ Add Sub-tasks"}
                           </button>
                         </div>
 
@@ -810,7 +956,7 @@ export default function TasksPage() {
                       </div>
                     </TableCell>
 
-                    <TableCell className="align-top space-y-1">
+                    <TableCell className="align-top space-y-1.5">
                       <div>
                         {isToday ? (
                           <Badge className="bg-amber-50 text-amber-800 border-amber-300 font-bold text-[10px] gap-1">
@@ -822,6 +968,19 @@ export default function TasksPage() {
                           </Badge>
                         )}
                       </div>
+
+                      {/* Blocker details if task not 100% done */}
+                      {task.blockers && (
+                        <div className="p-1.5 rounded-md bg-red-50 border border-red-200 text-[11px] text-red-700 font-medium">
+                          <span className="font-bold">⚠️ Blocker:</span> {task.blockers}
+                        </div>
+                      )}
+
+                      {task.daily_summary && (
+                        <p className="text-[11px] text-slate-600 italic max-w-xs truncate" title={task.daily_summary}>
+                          Done: {task.daily_summary}
+                        </p>
+                      )}
 
                       {task.task_link && (
                         <div>
@@ -835,24 +994,29 @@ export default function TasksPage() {
                           </a>
                         </div>
                       )}
-
-                      {task.remarks && (
-                        <p className="text-[11px] text-slate-500 italic max-w-xs truncate" title={task.remarks}>
-                          Note: {task.remarks}
-                        </p>
-                      )}
                     </TableCell>
 
                     <TableCell className="align-top">{getStatusBadge(task.status)}</TableCell>
 
                     {/* Developer & QA Action Buttons */}
-                    <TableCell className="align-top text-right space-y-1">
+                    <TableCell className="align-top text-right space-y-1.5">
+                      {/* UPDATE TASK PROGRESS BUTTON */}
+                      <div>
+                        <Button
+                          size="sm"
+                          onClick={() => openProgressModal(task)}
+                          className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs gap-1.5 shadow-xs w-full justify-center"
+                        >
+                          <Edit3 className="h-3.5 w-3.5 text-sky-400" /> Update Progress
+                        </Button>
+                      </div>
+
                       {/* 1. Start Plan */}
                       {(task.status === "Created" || task.status === "Assigned") && (
                         <Button
                           size="sm"
                           onClick={() => updateStatus(task.id, "Planning")}
-                          className="bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs gap-1.5 shadow-xs"
+                          className="bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs gap-1.5 shadow-xs w-full justify-center"
                         >
                           <Sparkles className="h-3.5 w-3.5" /> Start Plan
                         </Button>
@@ -863,18 +1027,18 @@ export default function TasksPage() {
                         <Button
                           size="sm"
                           onClick={() => updateStatus(task.id, "In Progress")}
-                          className="bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs gap-1.5 shadow-xs"
+                          className="bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs gap-1.5 shadow-xs w-full justify-center"
                         >
                           <Play className="h-3.5 w-3.5" /> Start Work
                         </Button>
                       )}
 
-                      {/* 3. Send for Testing (Opens link modal) */}
+                      {/* 3. Send for Testing */}
                       {(task.status === "In Progress" || task.status === "Changes Required") && (
                         <Button
                           size="sm"
-                          onClick={() => openSendForTestingModal(task)}
-                          className="bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs gap-1.5 shadow-xs"
+                          onClick={() => openProgressModal(task)}
+                          className="bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs gap-1.5 shadow-xs w-full justify-center"
                         >
                           <Send className="h-3.5 w-3.5" /> Send for Testing
                         </Button>
@@ -885,7 +1049,7 @@ export default function TasksPage() {
                         <Button
                           size="sm"
                           onClick={() => updateStatus(task.id, "Ready for Demo")}
-                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs gap-1.5 shadow-md animate-bounce"
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs gap-1.5 shadow-md animate-bounce w-full justify-center"
                         >
                           <Rocket className="h-3.5 w-3.5" /> Submit to Demo
                         </Button>

@@ -184,11 +184,13 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ success: true, checklist_id, is_completed });
     }
 
-    // 2. Task lifecycle status updates & Task Link Submission
-    const { id, status, remarks, task_link } = body;
-    if (!id || !status) {
-      return NextResponse.json({ error: "Task ID and status are required" }, { status: 400 });
+    // 2. Task lifecycle status updates & Task Progress Logging
+    const { id, status, remarks, task_link, progress_percentage, hours_spent, blockers, daily_summary } = body;
+    if (!id) {
+      return NextResponse.json({ error: "Task ID is required" }, { status: 400 });
     }
+
+    const currentUserId = (session.user as any).id;
 
     // Retrieve current task details
     const [taskRows]: any = await pool.query(
@@ -199,27 +201,71 @@ export async function PATCH(req: Request) {
        WHERE t.id = ?`,
       [id]
     );
-    const currentTask = taskRows[0] || {};
+    const currentTask = taskRows[0];
+    if (!currentTask) {
+      return NextResponse.json({ error: "Task not found" }, { status: 404 });
+    }
+
+    const newStatus = status || currentTask.status;
 
     // Validate mandatory task link when submitting to testing
-    if (status === "Ready for Testing" && !task_link && !currentTask.task_link) {
+    if (newStatus === "Ready for Testing" && !task_link && !currentTask.task_link) {
       return NextResponse.json(
         { error: "A task preview link or PR URL is strictly required before sending to testing." },
         { status: 400 }
       );
     }
 
+    // Update task record
     await pool.query(
       `UPDATE tasks 
-       SET status = ?, remarks = IFNULL(?, remarks), task_link = IFNULL(?, task_link) 
+       SET status = ?, 
+           remarks = IFNULL(?, remarks), 
+           task_link = IFNULL(?, task_link),
+           progress_percentage = IFNULL(?, progress_percentage),
+           hours_spent = IFNULL(?, hours_spent),
+           blockers = IFNULL(?, blockers),
+           daily_summary = IFNULL(?, daily_summary)
        WHERE id = ?`,
-      [status, remarks || null, task_link || null, id]
+      [
+        newStatus, 
+        remarks !== undefined ? remarks : null, 
+        task_link !== undefined ? task_link : null,
+        progress_percentage !== undefined ? progress_percentage : null,
+        hours_spent !== undefined ? hours_spent : null,
+        blockers !== undefined ? blockers : null,
+        daily_summary !== undefined ? daily_summary : null,
+        id
+      ]
     );
+
+    // Auto-record into daily_work table if hours or work summary logged
+    if ((hours_spent && parseFloat(hours_spent) > 0) || daily_summary) {
+      try {
+        const todayStr = new Date().toISOString().split("T")[0];
+        await pool.query(
+          `INSERT INTO daily_work (user_id, project_id, task_id, date, hours_worked, work_description, status, remarks)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            currentUserId,
+            currentTask.project_id || null,
+            id,
+            todayStr,
+            parseFloat(hours_spent) || 1.0,
+            daily_summary || `Worked on ${currentTask.title} (${progress_percentage || 0}% done)`,
+            newStatus,
+            blockers || remarks || null
+          ]
+        );
+      } catch (logErr) {
+        console.error("Failed to auto-sync to daily_work log:", logErr);
+      }
+    }
 
     const activeLink = task_link || currentTask.task_link || "";
 
     // Notify on "Ready for Testing" -> Send to QA Testers
-    if (status === "Ready for Testing") {
+    if (newStatus === "Ready for Testing" && currentTask.status !== "Ready for Testing") {
       await pool.query(
         `INSERT INTO notifications (target_role, title, message, type) VALUES ('Tester', ?, ?, 'task_ready')`,
         [
@@ -230,7 +276,7 @@ export async function PATCH(req: Request) {
     }
 
     // Notify on "Ready for Demo" (SUBMIT TO DEMO) -> ALERT TO PM & CEO!
-    if (status === "Ready for Demo") {
+    if (newStatus === "Ready for Demo" && currentTask.status !== "Ready for Demo") {
       const demoMsg = `Task "${currentTask.title}" in project "${currentTask.project_name}" (Dev: ${currentTask.assignee_name}) has PASSED QA testing and is now submitted for client/executive DEMO!`;
       await pool.query(
         `INSERT INTO notifications (target_role, title, message, type) VALUES ('CEO', ?, ?, 'demo_ready'), ('PM', ?, ?, 'demo_ready')`,
@@ -244,7 +290,7 @@ export async function PATCH(req: Request) {
     }
 
     // Notify on "Changes Required" (QA Rejection)
-    if (status === "Changes Required" && currentTask.assigned_to) {
+    if (newStatus === "Changes Required" && currentTask.assigned_to) {
       await pool.query(
         `INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'warning')`,
         [
@@ -255,7 +301,16 @@ export async function PATCH(req: Request) {
       );
     }
 
-    return NextResponse.json({ success: true, id, status, task_link: activeLink });
+    return NextResponse.json({ 
+      success: true, 
+      id, 
+      status: newStatus, 
+      task_link: activeLink,
+      progress_percentage: progress_percentage ?? currentTask.progress_percentage,
+      hours_spent: hours_spent ?? currentTask.hours_spent,
+      blockers: blockers ?? currentTask.blockers,
+      daily_summary: daily_summary ?? currentTask.daily_summary
+    });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

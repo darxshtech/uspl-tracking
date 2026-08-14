@@ -203,7 +203,18 @@ export default function CEOFilterDashboard() {
             ) : (
               filteredTasks.map((t) => (
                 <TableRow key={t.id} className="hover:bg-slate-50/80 transition-colors">
-                  <TableCell className="font-bold text-slate-900">{t.title}</TableCell>
+                  <TableCell>
+                    <div className="font-bold text-slate-900">{t.title}</div>
+                    <div className="text-xs text-slate-500 mt-0.5">
+                      Progress: <strong>{t.progress_percentage || 0}%</strong>
+                      {t.hours_spent > 0 && ` • ${t.hours_spent} hrs`}
+                    </div>
+                    {t.blockers && (
+                      <div className="text-[11px] text-red-600 font-semibold mt-0.5">
+                        ⚠️ Blocker: {t.blockers}
+                      </div>
+                    )}
+                  </TableCell>
                   <TableCell className="text-slate-600">{t.project_name || "N/A"}</TableCell>
                   <TableCell className="text-slate-600">{t.assignee_name || "Unassigned"}</TableCell>
                   <TableCell><Badge variant="outline">{t.priority}</Badge></TableCell>
