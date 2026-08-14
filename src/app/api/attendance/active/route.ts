@@ -2,7 +2,12 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import pool from "@/lib/db";
-import { getCurrentISTDate, getCurrentISTTime12, calculateHoursDifference } from "@/lib/timeUtils";
+import { 
+  getCurrentISTDate, 
+  getCurrentISTTime12, 
+  calculateHoursDifference, 
+  validateCheckoutTimeBuffer 
+} from "@/lib/timeUtils";
 import { sendEmail } from "@/lib/mailer";
 
 export async function GET() {
@@ -24,12 +29,34 @@ export async function GET() {
 
     const todayIST = getCurrentISTDate();
 
-    const [rows]: any = await pool.query(
-      "SELECT * FROM attendance WHERE user_id = ? AND date = ?",
+    // 1. First check if there is an unclosed active shift (even if started on a previous day/yesterday)
+    const [openRows]: any = await pool.query(
+      "SELECT * FROM attendance WHERE user_id = ? AND logout_time IS NULL ORDER BY date DESC, id DESC LIMIT 1",
+      [userId]
+    );
+
+    if (openRows.length > 0) {
+      const activeShift = openRows[0];
+      const isShiftFromPreviousDay = activeShift.date < todayIST;
+
+      return NextResponse.json({
+        isCeo: false,
+        todayRecord: {
+          ...activeShift,
+          isOvernightShift: isShiftFromPreviousDay,
+        },
+        currentDate: todayIST,
+        currentTime: getCurrentISTTime12(),
+      });
+    }
+
+    // 2. If no open shift, fetch today's closed record (if already completed today)
+    const [todayRows]: any = await pool.query(
+      "SELECT * FROM attendance WHERE user_id = ? AND date = ? ORDER BY id DESC LIMIT 1",
       [userId, todayIST]
     );
 
-    const todayRecord = rows[0] || null;
+    const todayRecord = todayRows[0] || null;
 
     return NextResponse.json({
       isCeo: false,
@@ -61,53 +88,29 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { action, targetDate, offline_time, manual_time } = body; // "check-in" or "check-out"
+    const { action, targetDate, offline_time, manual_time, is_overnight } = body;
     const todayIST = getCurrentISTDate();
-    const nowTime12 = manual_time || offline_time || getCurrentISTTime12();
+    const currentISTTime = getCurrentISTTime12();
+    const nowTime12 = manual_time || offline_time || currentISTTime;
 
-    // 2. Strict Current Date Enforcement: Punch only allowed for current date!
-    if (targetDate && targetDate !== todayIST) {
-      const securityAlertMsg = `SECURITY ALERT: User ${userName} (${userEmail}) attempted to log attendance for unauthorized date (${targetDate}) instead of today (${todayIST}).`;
-
-      // Log high-priority notification for PM & CEO
-      await pool.query(
-        "INSERT INTO notifications (target_role, title, message, type) VALUES ('PM', ?, ?, 'security_alert'), ('CEO', ?, ?, 'security_alert')",
-        ["Unauthorized Attendance Date Attempt", securityAlertMsg, "Unauthorized Attendance Date Attempt", securityAlertMsg]
-      );
-
-      // Notify the employee
-      await pool.query(
-        "INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'warning')",
-        [
-          userId,
-          "Attendance Date Restriction",
-          `Attendance can only be logged for today's current date (${todayIST}). Your action has been flagged to the Project Manager.`
-        ]
-      );
-
-      // Dispatch security email
-      await sendEmail({
-        to: "pm@unitglo.com",
-        subject: `[Security Warning] Unauthorized Attendance Date Modification: ${userName}`,
-        html: `
-          <h3>Security Alert: Unauthorized Attendance Date Attempt</h3>
-          <p><strong>Employee:</strong> ${userName} (${userEmail})</p>
-          <p><strong>Role:</strong> ${role}</p>
-          <p><strong>Attempted Date:</strong> ${targetDate}</p>
-          <p><strong>Actual Current Date (IST):</strong> ${todayIST}</p>
-          <p>The action was automatically blocked by the system.</p>
-        `,
-      });
-
-      return NextResponse.json(
-        {
-          error: `Attendance can ONLY be recorded for the current date (${todayIST}). Attempted date (${targetDate}) was rejected and reported to the PM.`,
-        },
-        { status: 400 }
-      );
-    }
-
+    // CHECK-IN ACTION
     if (action === "check-in") {
+      // 2. Check if user already has an active open shift that wasn't closed
+      const [openRows]: any = await pool.query(
+        "SELECT * FROM attendance WHERE user_id = ? AND logout_time IS NULL ORDER BY date DESC LIMIT 1",
+        [userId]
+      );
+
+      if (openRows.length > 0) {
+        const active = openRows[0];
+        return NextResponse.json(
+          { 
+            error: `You already have an active shift started on ${active.date} at ${active.login_time}. Please check out of that shift first.` 
+          },
+          { status: 400 }
+        );
+      }
+
       await pool.query(
         `INSERT INTO attendance (user_id, date, status, login_time) 
          VALUES (?, ?, 'Present', ?) 
@@ -123,65 +126,78 @@ export async function POST(req: Request) {
       });
     }
 
+    // CHECK-OUT ACTION
     if (action === "check-out") {
-      const [rows]: any = await pool.query(
-        "SELECT login_time FROM attendance WHERE user_id = ? AND date = ?",
-        [userId, todayIST]
+      // Find the open active shift
+      const [openRows]: any = await pool.query(
+        "SELECT * FROM attendance WHERE user_id = ? AND logout_time IS NULL ORDER BY date DESC, id DESC LIMIT 1",
+        [userId]
       );
 
-      let totalHours = 0;
-      let isHalfDay = false;
-      const loginTime = rows[0]?.login_time;
+      let activeShift = openRows[0];
 
-      if (loginTime) {
-        totalHours = calculateHoursDifference(loginTime, nowTime12);
+      // Fallback: If no open record found, check today's record
+      if (!activeShift) {
+        const [todayRows]: any = await pool.query(
+          "SELECT * FROM attendance WHERE user_id = ? AND date = ? ORDER BY id DESC LIMIT 1",
+          [userId, todayIST]
+        );
+        activeShift = todayRows[0];
       }
 
-      // If shift < 9 hours, mark as Half Day
-      if (totalHours < 9) {
-        isHalfDay = true;
+      if (!activeShift || !activeShift.login_time) {
+        return NextResponse.json(
+          { error: "No active check-in record found to check out from." },
+          { status: 400 }
+        );
       }
 
-      const status = isHalfDay ? "Half Day" : "Present";
+      const isCrossDay = is_overnight || activeShift.date < todayIST;
+
+      // 3. Validate checkout buffer: Cannot be more than 30 minutes in advance of current time
+      const isBufferValid = validateCheckoutTimeBuffer(nowTime12, currentISTTime, 30, isCrossDay);
+      if (!isBufferValid) {
+        return NextResponse.json(
+          { 
+            error: "Check-out time cannot be more than 30 minutes in advance of the current time." 
+          },
+          { status: 400 }
+        );
+      }
+
+      // 4. Calculate total hours with overnight awareness
+      const totalHours = calculateHoursDifference(activeShift.login_time, nowTime12, isCrossDay);
+      const isHalfDay = totalHours < 9;
+      const isOvertime = totalHours >= 12;
+
+      let status = "Present";
+      if (isHalfDay) status = "Half Day";
+      else if (isOvertime) status = "Present (Overtime)";
 
       await pool.query(
         `UPDATE attendance 
          SET logout_time = ?, total_hours = ?, status = ? 
-         WHERE user_id = ? AND date = ?`,
-        [nowTime12, totalHours.toFixed(2), status, userId, todayIST]
+         WHERE id = ?`,
+        [nowTime12, totalHours.toFixed(2), status, activeShift.id]
       );
 
       if (isHalfDay) {
-        const warningMsg = `You completed ${totalHours.toFixed(2)} hours today (${todayIST}), which is less than 9 hours required. Shift recorded as HALF DAY.`;
-
+        const warningMsg = `You completed ${totalHours.toFixed(2)} hours for shift ${activeShift.date} (<9 hours required). Recorded as HALF DAY.`;
         await pool.query(
           "INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'warning')",
           [userId, "Half Day Notice (<9 Hours)", warningMsg]
         );
-
-        await pool.query(
-          "INSERT INTO notifications (target_role, title, message, type) VALUES ('PM', ?, ?, 'info')",
-          [
-            `Early Checkout: ${userName}`,
-            `${userName} checked out after ${totalHours.toFixed(2)} hours (Half Day) at ${nowTime12}.`
-          ]
-        );
-
-        return NextResponse.json({
-          success: true,
-          isHalfDay: true,
-          totalHours: totalHours.toFixed(2),
-          logout_time: nowTime12,
-          message: `Checked OUT at ${nowTime12}. Total: ${totalHours.toFixed(2)} hrs (Marked as Half Day)${offline_time ? ' [Synced from offline session]' : ''}.`,
-        });
       }
 
       return NextResponse.json({
         success: true,
-        isHalfDay: false,
+        isHalfDay,
+        isOvertime,
         totalHours: totalHours.toFixed(2),
+        shiftDate: activeShift.date,
+        login_time: activeShift.login_time,
         logout_time: nowTime12,
-        message: `Checked OUT successfully at ${nowTime12} (Total: ${totalHours.toFixed(2)} hrs)${offline_time ? ' [Synced from offline session]' : ''}.`,
+        message: `Checked OUT successfully at ${nowTime12}. Total: ${totalHours.toFixed(2)} hrs (${status}).`,
       });
     }
 

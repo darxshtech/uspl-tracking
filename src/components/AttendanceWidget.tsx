@@ -4,10 +4,20 @@ import { useState, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Clock, LogIn, LogOut, AlertTriangle, WifiOff, CheckCircle2, Calendar } from "lucide-react";
+import { 
+  Clock, 
+  LogIn, 
+  LogOut, 
+  AlertTriangle, 
+  WifiOff, 
+  CheckCircle2, 
+  Calendar, 
+  Moon, 
+  Info 
+} from "lucide-react";
 
 export default function AttendanceWidget() {
   const { data: session } = useSession();
@@ -27,12 +37,22 @@ export default function AttendanceWidget() {
   // Check Out Modal State
   const [checkOutModalOpen, setCheckOutModalOpen] = useState(false);
   const [manualCheckOutTime, setManualCheckOutTime] = useState("");
+  const [isOvernight, setIsOvernight] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   const getShiftKey = () => `unitglo_shift_state_${userId || "default"}`;
   const getQueueKey = () => `unitglo_offline_queue_${userId || "default"}`;
 
   const getCurrent24HourTime = () => {
     const now = new Date();
+    const hours = now.getHours().toString().padStart(2, "0");
+    const minutes = now.getMinutes().toString().padStart(2, "0");
+    return `${hours}:${minutes}`;
+  };
+
+  const getMaxAllowedCheckout24HourTime = () => {
+    const now = new Date();
+    now.setMinutes(now.getMinutes() + 30);
     const hours = now.getHours().toString().padStart(2, "0");
     const minutes = now.getMinutes().toString().padStart(2, "0");
     return `${hours}:${minutes}`;
@@ -76,6 +96,7 @@ export default function AttendanceWidget() {
             manual_time: item.manual_time,
             offline_time: item.time,
             targetDate: item.date,
+            is_overnight: item.is_overnight,
           }),
         });
       }
@@ -103,18 +124,8 @@ export default function AttendanceWidget() {
           setRecord(data.todayRecord);
           localStorage.setItem(getShiftKey(), JSON.stringify(data.todayRecord));
         } else {
-          const localShiftRaw = localStorage.getItem(getShiftKey());
-          if (localShiftRaw) {
-            const localShift = JSON.parse(localShiftRaw);
-            if (localShift.date === getTodayDateStr() && localShift.login_time && !localShift.logout_time) {
-              setRecord(localShift);
-              setIsOfflineMode(true);
-            } else {
-              setRecord(null);
-            }
-          } else {
-            setRecord(null);
-          }
+          setRecord(null);
+          localStorage.removeItem(getShiftKey());
         }
       }
 
@@ -125,9 +136,7 @@ export default function AttendanceWidget() {
       if (localShiftRaw) {
         try {
           const localShift = JSON.parse(localShiftRaw);
-          if (localShift.date === getTodayDateStr()) {
-            setRecord(localShift);
-          }
+          setRecord(localShift);
         } catch (_) {}
       }
     }
@@ -164,7 +173,17 @@ export default function AttendanceWidget() {
   };
 
   const openCheckOutDialog = () => {
-    setManualCheckOutTime(getCurrent24HourTime());
+    const current24 = getCurrent24HourTime();
+    setManualCheckOutTime(current24);
+    setCheckoutError(null);
+
+    // Auto-detect overnight if shift date was yesterday or current time is early morning
+    if (record?.date && record.date < getTodayDateStr()) {
+      setIsOvernight(true);
+    } else {
+      setIsOvernight(false);
+    }
+
     setCheckOutModalOpen(true);
   };
 
@@ -175,7 +194,6 @@ export default function AttendanceWidget() {
     const formattedTime12 = convert24To12Hour(manualCheckInTime);
     const localDate = getTodayDateStr();
 
-    // 1. Immediately update Local Storage shift state for offline resilience
     const updatedLocalRecord = {
       user_id: userId,
       date: localDate,
@@ -186,7 +204,6 @@ export default function AttendanceWidget() {
     setRecord(updatedLocalRecord);
     localStorage.setItem(getShiftKey(), JSON.stringify(updatedLocalRecord));
 
-    // 2. Dispatch to API
     try {
       const res = await fetch("/api/attendance/active", {
         method: "POST",
@@ -194,10 +211,13 @@ export default function AttendanceWidget() {
         body: JSON.stringify({ action: "check-in", manual_time: formattedTime12 }),
       });
 
-      if (!res.ok) throw new Error("API request failed");
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Check-in failed");
+      }
       setCheckInModalOpen(false);
       fetchActiveAttendance();
-    } catch (err) {
+    } catch (err: any) {
       setIsOfflineMode(true);
       const queueRaw = localStorage.getItem(getQueueKey()) || "[]";
       let queue = [];
@@ -219,10 +239,26 @@ export default function AttendanceWidget() {
 
   const handleConfirmCheckOut = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
+    setCheckoutError(null);
 
     const formattedTime12 = convert24To12Hour(manualCheckOutTime);
     const localDate = getTodayDateStr();
+
+    // Validate 30-minute meeting buffer
+    if (!isOvernight && record?.date === localDate) {
+      const now = new Date();
+      const [h, m] = manualCheckOutTime.split(":").map(Number);
+      const selected = new Date();
+      selected.setHours(h, m, 0, 0);
+
+      const maxLimit = new Date(now.getTime() + 30 * 60 * 1000);
+      if (selected > maxLimit) {
+        setCheckoutError("Check-out time can only be set up to 30 minutes in advance of current time.");
+        return;
+      }
+    }
+
+    setLoading(true);
 
     const updatedLocalRecord = {
       ...record,
@@ -235,41 +271,51 @@ export default function AttendanceWidget() {
       const res = await fetch("/api/attendance/active", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "check-out", manual_time: formattedTime12 }),
+        body: JSON.stringify({ 
+          action: "check-out", 
+          manual_time: formattedTime12,
+          is_overnight: isOvernight || record?.date < localDate,
+        }),
       });
 
-      if (!res.ok) throw new Error("API request failed");
-
       const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Check-out failed");
+      }
+
       setCheckOutModalOpen(false);
 
       if (data.isHalfDay) {
         setWarningModal(
-          `You have checked out after completing ${data.totalHours} hours today. Your attendance has been logged as HALF DAY (<9 hours required).`
+          `You completed ${data.totalHours} hours today. Recorded as HALF DAY (<9 hours required).`
         );
       }
       fetchActiveAttendance();
-    } catch (err) {
-      setIsOfflineMode(true);
-      const queueRaw = localStorage.getItem(getQueueKey()) || "[]";
-      let queue = [];
-      try { queue = JSON.parse(queueRaw); } catch (_) {}
-      queue.push({
-        action: "check-out",
-        manual_time: formattedTime12,
-        time: formattedTime12,
-        date: localDate,
-        timestamp: Date.now(),
-      });
-      localStorage.setItem(getQueueKey(), JSON.stringify(queue));
-      setSyncStatus(`Offline check-out saved for ${formattedTime12}`);
-      setCheckOutModalOpen(false);
+    } catch (err: any) {
+      if (err.message && err.message.includes("30 minutes")) {
+        setCheckoutError(err.message);
+      } else {
+        setIsOfflineMode(true);
+        const queueRaw = localStorage.getItem(getQueueKey()) || "[]";
+        let queue = [];
+        try { queue = JSON.parse(queueRaw); } catch (_) {}
+        queue.push({
+          action: "check-out",
+          manual_time: formattedTime12,
+          time: formattedTime12,
+          date: localDate,
+          is_overnight: isOvernight || record?.date < localDate,
+          timestamp: Date.now(),
+        });
+        localStorage.setItem(getQueueKey(), JSON.stringify(queue));
+        setSyncStatus(`Offline check-out saved for ${formattedTime12}`);
+        setCheckOutModalOpen(false);
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  // CEO Role is exempt from attendance tracking
   if (role === "CEO") {
     return null;
   }
@@ -296,7 +342,7 @@ export default function AttendanceWidget() {
         </span>
       )}
 
-      {/* Early Checkout Warning Modal */}
+      {/* Early Checkout Notice */}
       <Dialog open={!!warningModal} onOpenChange={() => setWarningModal(null)}>
         <DialogContent className="border-amber-200 bg-amber-50 max-w-sm">
           <DialogHeader>
@@ -364,7 +410,7 @@ export default function AttendanceWidget() {
         </DialogContent>
       </Dialog>
 
-      {/* MANUAL CHECK OUT DIALOG */}
+      {/* MANUAL CHECK OUT DIALOG (+30 Min Buffer & Overnight Support) */}
       <Dialog open={checkOutModalOpen} onOpenChange={setCheckOutModalOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
@@ -375,25 +421,58 @@ export default function AttendanceWidget() {
           </DialogHeader>
           <form onSubmit={handleConfirmCheckOut} className="space-y-3 pt-2">
             <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700 space-y-1">
-              <div className="font-bold text-slate-900">Shift Started At: {record?.login_time || "N/A"}</div>
-              <p className="text-slate-500 text-[11px]">
-                Enter your checkout time. Total shift hours will be calculated automatically upon confirmation.
-              </p>
+              <div className="font-bold text-slate-900">Shift Started: {record?.date} at {record?.login_time || "N/A"}</div>
+              <div className="text-[11px] text-sky-700 font-medium flex items-center gap-1 pt-0.5">
+                <Info className="h-3 w-3 text-sky-500" />
+                <span>You can add out time up to <strong>+30 mins</strong> in advance for meetings.</span>
+              </div>
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="checkOutTime" className="font-semibold text-slate-700 text-xs">
-                Check-Out Time *
-              </Label>
+              <div className="flex justify-between items-center">
+                <Label htmlFor="checkOutTime" className="font-semibold text-slate-700 text-xs">
+                  Check-Out Time *
+                </Label>
+                <span className="text-[10px] text-slate-500">Max limit: {getMaxAllowedCheckout24HourTime()}</span>
+              </div>
               <Input
                 id="checkOutTime"
                 type="time"
                 value={manualCheckOutTime}
-                onChange={(e) => setManualCheckOutTime(e.target.value)}
+                onChange={(e) => {
+                  setManualCheckOutTime(e.target.value);
+                  setCheckoutError(null);
+                }}
                 className="text-base font-bold"
                 required
               />
             </div>
+
+            {/* Overnight / Crossed Midnight Shift Option */}
+            <div className="p-2.5 rounded-lg border border-indigo-200 bg-indigo-50/70 space-y-1.5">
+              <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-indigo-900">
+                <input
+                  type="checkbox"
+                  checked={isOvernight}
+                  onChange={(e) => setIsOvernight(e.target.checked)}
+                  className="rounded border-indigo-300 text-indigo-600 h-3.5 w-3.5"
+                />
+                <span className="flex items-center gap-1">
+                  <Moon className="h-3.5 w-3.5 text-indigo-600" />
+                  Overnight Shift (Checked out after 12:00 AM midnight)
+                </span>
+              </label>
+              <p className="text-[10px] text-indigo-700 leading-tight">
+                Enable this if you started your shift earlier and worked past midnight (e.g. 8:00 AM to 1:00 AM).
+              </p>
+            </div>
+
+            {checkoutError && (
+              <div className="p-2 rounded bg-red-50 border border-red-200 text-xs font-semibold text-red-700 flex items-center gap-1.5">
+                <AlertTriangle className="h-4 w-4 text-red-600 shrink-0" />
+                <span>{checkoutError}</span>
+              </div>
+            )}
 
             <Button
               type="submit"
@@ -406,18 +485,26 @@ export default function AttendanceWidget() {
         </DialogContent>
       </Dialog>
 
-      {/* Status Badge (No countdown timer, clean static indicator) */}
+      {/* Clean Status Badge */}
       {isCheckedIn && (
         <Badge
-          className="bg-emerald-50 text-emerald-800 border-emerald-300 font-bold text-xs py-1 px-2.5 shadow-2xs gap-1.5"
-          title={`Checked in at ${record.login_time}`}
+          className={`font-bold text-xs py-1 px-2.5 shadow-2xs gap-1.5 ${
+            record.isOvernightShift
+              ? "bg-indigo-50 text-indigo-800 border-indigo-300"
+              : "bg-emerald-50 text-emerald-800 border-emerald-300"
+          }`}
+          title={`Shift from ${record.date} at ${record.login_time}`}
         >
-          <Clock className="h-3.5 w-3.5 text-emerald-600" />
-          <span>In Shift (Since {record.login_time})</span>
+          {record.isOvernightShift ? (
+            <Moon className="h-3.5 w-3.5 text-indigo-600 animate-pulse" />
+          ) : (
+            <Clock className="h-3.5 w-3.5 text-emerald-600" />
+          )}
+          <span>In Shift ({record.login_time}{record.isOvernightShift ? " - Overnight" : ""})</span>
         </Badge>
       )}
 
-      {/* Check In Button (Triggers manual time dialog) */}
+      {/* Check In Button */}
       {!isCheckedIn && !isCheckedOut && (
         <Button
           size="sm"
@@ -429,7 +516,7 @@ export default function AttendanceWidget() {
         </Button>
       )}
 
-      {/* Check Out Button (Triggers manual time dialog) */}
+      {/* Check Out Button */}
       {isCheckedIn && (
         <Button
           size="sm"
