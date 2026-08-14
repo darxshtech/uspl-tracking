@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { showError, showSuccess, showWarning } from "@/lib/swal";
 import { 
   CheckCircle2, 
   XCircle, 
@@ -76,7 +77,7 @@ export default function TestingQueuePage() {
       if (res.ok) {
         fetchTestingQueue();
       } else {
-        alert("Failed to start testing session.");
+        showError("Failed to Start Session", "Failed to start testing session.");
       }
     } catch (err) {
       console.error(err);
@@ -100,7 +101,7 @@ export default function TestingQueuePage() {
     const parsedCount = forcePass ? 0 : Math.max(0, parseInt(issuesCount as any) || 0);
 
     if (parsedCount > 0 && !testSheetLink.trim()) {
-      alert("Please provide the link to the test sheet or bug tracker so the developer can review the issues.");
+      showWarning("Link Required", "Please provide the link to the test sheet or bug tracker so the developer can review the issues.");
       return;
     }
 
@@ -127,11 +128,11 @@ export default function TestingQueuePage() {
         fetchTestingQueue();
       } else {
         const data = await res.json();
-        alert(`Failed to submit QA audit: ${data.error || "Unknown error"}`);
+        showError("Audit Failed", data.error || "Unknown error");
       }
     } catch (err) {
       console.error(err);
-      alert("Failed to complete testing audit.");
+      showError("Audit Failed", "Failed to complete testing audit.");
     } finally {
       setSubmittingAudit(false);
     }

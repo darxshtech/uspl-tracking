@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { showError, showSuccess, showWarning, showToast } from "@/lib/swal";
 import AttendanceCalendarView from "@/components/AttendanceCalendarView";
 import { 
   Users, 
@@ -101,13 +102,14 @@ export default function EmployeesPage() {
         setPassword("");
         setPhone("");
         setRole("Developer");
+        showToast("Employee created successfully!");
       } else {
         const data = await res.json();
-        alert(`Failed to create employee: ${data.error || "Unknown error"}`);
+        showError("Failed to Create Employee", data.error || "Unknown error");
       }
     } catch (err) {
       console.error(err);
-      alert("Error creating employee");
+      showError("Error creating employee");
     } finally {
       setSubmitting(false);
     }
@@ -150,13 +152,14 @@ export default function EmployeesPage() {
         setEditOpen(false);
         setEditingEmp(null);
         fetchEmployees();
+        showToast("Employee updated successfully!");
       } else {
         const data = await res.json();
-        alert(`Failed to update employee: ${data.error || "Unknown error"}`);
+        showError("Failed to Update Employee", data.error || "Unknown error");
       }
     } catch (err) {
       console.error(err);
-      alert("Error updating employee");
+      showError("Error updating employee");
     } finally {
       setSavingEdit(false);
     }
@@ -175,13 +178,14 @@ export default function EmployeesPage() {
 
       if (res.ok) {
         fetchEmployees();
+        showToast(`Employee ${newStatus ? "activated" : "deactivated"}!`);
       } else {
         const data = await res.json();
-        alert(`Failed to update status: ${data.error || "Unknown error"}`);
+        showError("Failed to update status", data.error || "Unknown error");
       }
     } catch (err) {
       console.error(err);
-      alert("Error toggling account status");
+      showError("Error toggling account status");
     }
   };
 
@@ -189,7 +193,7 @@ export default function EmployeesPage() {
   const confirmDeleteEmployee = async () => {
     if (!deleteConfirmEmp) return;
     if (deleteConfirmEmp.id === currentUserId) {
-      alert("You cannot delete your own logged-in account.");
+      showWarning("Action Prohibited", "You cannot delete your own logged-in account.");
       setDeleteConfirmEmp(null);
       return;
     }
@@ -203,13 +207,14 @@ export default function EmployeesPage() {
       if (res.ok) {
         setDeleteConfirmEmp(null);
         fetchEmployees();
+        showToast("Employee deleted successfully!");
       } else {
         const data = await res.json();
-        alert(`Failed to delete employee: ${data.error || "Unknown error"}`);
+        showError("Failed to delete employee", data.error || "Unknown error");
       }
     } catch (err) {
       console.error(err);
-      alert("Error deleting employee.");
+      showError("Error deleting employee.");
     } finally {
       setDeleting(false);
     }

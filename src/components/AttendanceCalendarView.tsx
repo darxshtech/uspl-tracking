@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { showError, showSuccess } from "@/lib/swal";
 import { 
   ChevronLeft, 
   ChevronRight, 
@@ -138,13 +139,14 @@ export default function AttendanceCalendarView({
         setHolidayDate("");
         setHolidayDesc("");
         fetchHolidays();
+        showSuccess("Holiday Added", `${holidayName} added to the company calendar.`);
       } else {
         const data = await res.json();
-        alert(`Failed to add holiday: ${data.error || "Unknown error"}`);
+        showError("Failed to Add Holiday", data.error || "Unknown error");
       }
     } catch (err) {
       console.error(err);
-      alert("Error adding holiday.");
+      showError("Error adding holiday.");
     } finally {
       setSubmittingHoliday(false);
     }

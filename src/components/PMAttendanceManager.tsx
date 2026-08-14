@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { showError, showSuccess, showWarning, showInfo } from "@/lib/swal";
 import { 
   FileSpreadsheet, 
   FileText, 
@@ -132,7 +133,7 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
         fetchRecords();
         setFeedback("Attendance record updated successfully!");
       } else {
-        alert("Failed to update record.");
+        showError("Failed to update record.");
       }
     } catch (err) {
       console.error(err);
@@ -166,11 +167,11 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
         fetchRecords();
         setFeedback(`✓ ${data.message}`);
       } else {
-        alert(`Failed to record leave: ${data.error || "Unknown error"}`);
+        showError("Failed to Record Leave", data.error || "Unknown error");
       }
     } catch (err) {
       console.error(err);
-      alert("Error recording leave.");
+      showError("Error recording leave.");
     } finally {
       setSubmittingLeave(false);
     }
@@ -190,7 +191,7 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
   // 1. Export Excel (.xlsx)
   const handleExportExcel = () => {
     if (records.length === 0) {
-      alert("No attendance records to export.");
+      showWarning("No Records", "No attendance records to export.");
       return;
     }
 
@@ -216,7 +217,7 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
   // 2. Export PDF
   const handleExportPDF = () => {
     if (records.length === 0) {
-      alert("No attendance records to export.");
+      showWarning("No Records", "No attendance records to export.");
       return;
     }
 
@@ -260,12 +261,12 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
   // 3. Email report to Employee from PM Mail
   const handleSendEmail = async () => {
     if (selectedEmployee === "ALL" || !selectedEmpObj) {
-      alert("Please select a specific employee from the filter dropdown before sending the email report.");
+      showWarning("Employee Required", "Please select a specific employee from the filter dropdown before sending the email report.");
       return;
     }
 
     if (records.length === 0) {
-      alert("No records found for this employee in the selected month.");
+      showWarning("No Records", "No records found for this employee in the selected month.");
       return;
     }
 
@@ -296,11 +297,11 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
       if (res.ok) {
         setFeedback(`✓ ${data.message}`);
       } else {
-        alert(`Failed to send email: ${data.error || "Unknown error"}`);
+        showError("Email Failed", data.error || "Unknown error");
       }
     } catch (err) {
       console.error(err);
-      alert("An error occurred while sending email.");
+      showError("An error occurred while sending email.");
     } finally {
       setEmailing(false);
     }

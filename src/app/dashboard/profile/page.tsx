@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { showError, showSuccess, showToast } from "@/lib/swal";
 import { 
   User, 
   Camera, 
@@ -89,12 +90,13 @@ export default function ProfilePage() {
           body: JSON.stringify({ avatar_url: data.url }),
         });
         setFeedback("Profile photo updated successfully!");
+        showToast("Profile photo updated!");
       } else {
-        alert("Failed to upload photo: " + (data.error || "Unknown error"));
+        showError("Upload Failed", data.error || "Unknown error");
       }
     } catch (err) {
       console.error(err);
-      alert("Error uploading photo.");
+      showError("Upload Error", "Error uploading photo.");
     } finally {
       setUploading(false);
     }
@@ -120,12 +122,13 @@ export default function ProfilePage() {
       if (res.ok) {
         setFeedback("✓ Profile details saved successfully!");
         fetchProfile();
+        showToast("Profile saved successfully!");
       } else {
-        alert("Failed to update profile.");
+        showError("Failed to update profile.");
       }
     } catch (err) {
       console.error(err);
-      alert("Error saving profile.");
+      showError("Error saving profile.");
     } finally {
       setSaving(false);
     }

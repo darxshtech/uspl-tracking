@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { showError, showSuccess, showWarning, showToast } from "@/lib/swal";
 import { 
   Briefcase, 
   ShieldAlert, 
@@ -126,12 +127,12 @@ export default function ProjectsPage() {
             setAttachments((prev) => [...prev, newAttachment]);
           }
         } else {
-          alert(`File upload failed: ${data.error || "Unknown error"}`);
+          showError("Upload Failed", data.error || "Unknown error");
         }
       }
     } catch (err) {
       console.error(err);
-      alert("Error uploading file to Cloudinary.");
+      showError("Upload Error", "Error uploading file to Cloudinary.");
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -166,13 +167,7 @@ export default function ProjectsPage() {
   const handleCreateProject = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
-
     try {
-      const finalMembers = [...selectedMembers];
-      if (primaryDeveloperId && !finalMembers.includes(parseInt(primaryDeveloperId))) {
-        finalMembers.push(parseInt(primaryDeveloperId));
-      }
-
       const res = await fetch("/api/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -182,14 +177,14 @@ export default function ProjectsPage() {
           target_date: targetDate || null,
           documentation_url: documentationUrl || null,
           attachments,
-          members: finalMembers,
+          members: selectedMembers,
+          primary_developer_id: primaryDeveloperId ? parseInt(primaryDeveloperId) : null,
         }),
       });
 
       if (res.ok) {
         setCreateOpen(false);
         fetchProjects();
-        // Reset form
         setName("");
         setDescription("");
         setTargetDate("");
@@ -197,13 +192,14 @@ export default function ProjectsPage() {
         setAttachments([]);
         setSelectedMembers([]);
         setPrimaryDeveloperId("");
+        showToast("Project created successfully!");
       } else {
         const data = await res.json();
-        alert(`Failed to create project: ${data.error || "Unknown error"}`);
+        showError("Failed to Create Project", data.error || "Unknown error");
       }
     } catch (err) {
       console.error(err);
-      alert("An error occurred while creating the project.");
+      showError("An error occurred while creating the project.");
     } finally {
       setSubmitting(false);
     }
@@ -247,13 +243,14 @@ export default function ProjectsPage() {
         setEditOpen(false);
         setEditingProject(null);
         fetchProjects();
+        showToast("Project updated successfully!");
       } else {
         const data = await res.json();
-        alert(`Failed to update project: ${data.error || "Unknown error"}`);
+        showError("Failed to Update Project", data.error || "Unknown error");
       }
     } catch (err) {
       console.error(err);
-      alert("An error occurred while updating the project.");
+      showError("An error occurred while updating the project.");
     } finally {
       setSavingEdit(false);
     }
@@ -269,12 +266,13 @@ export default function ProjectsPage() {
       if (res.ok) {
         setDeleteConfirmProject(null);
         fetchProjects();
+        showToast("Project deleted successfully!");
       } else {
-        alert("Failed to delete project.");
+        showError("Failed to delete project.");
       }
     } catch (err) {
       console.error(err);
-      alert("Error deleting project.");
+      showError("Error deleting project.");
     } finally {
       setDeletingProject(false);
     }

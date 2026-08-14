@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { showError, showInfo, showToast } from "@/lib/swal";
 import PMAttendanceManager from "@/components/PMAttendanceManager";
 import AttendanceCalendarView from "@/components/AttendanceCalendarView";
 import { 
@@ -92,7 +93,7 @@ export default function AttendancePage() {
 
   const handlePunch = async (action: "check-in" | "check-out") => {
     if (isCEO) {
-      alert("CEO role does not require attendance logging.");
+      showInfo("Attendance Not Required", "CEO role does not require attendance logging.");
       return;
     }
 
@@ -130,8 +131,10 @@ export default function AttendancePage() {
           status: "Present",
         }));
         fetchAttendance();
+        showToast(action === "check-in" ? "Checked In successfully!" : "Checked Out successfully!");
       } else {
         setFeedback(`⚠️ Error: ${data.error}`);
+        showError("Attendance Error", data.error || "Failed to update attendance");
       }
     } catch (err) {
       // Offline fallback: Queue punch in localStorage
@@ -156,6 +159,7 @@ export default function AttendancePage() {
       }));
 
       setFeedback(`📶 Offline Mode: ${action === "check-in" ? "Check-In" : "Check-Out"} saved locally at ${localNow}. Shift timer will continue running and auto-sync when internet reconnects.`);
+      showToast(`Saved offline: ${action === "check-in" ? "Check-In" : "Check-Out"}`);
     } finally {
       setActionLoading(false);
     }
@@ -163,16 +167,16 @@ export default function AttendancePage() {
 
   const handleRecordLeave = async (e: React.FormEvent) => {
     e.preventDefault();
-    const targetUserId = isPM || isCEO ? parseInt(leaveEmpId) : (session?.user as any)?.id;
-    if (!targetUserId || !leaveStartDate) return;
+    const userId = (session?.user as any)?.id;
+    if (!userId || !leaveStartDate) return;
 
     setSubmittingLeave(true);
     try {
-      const res = await fetch("/api/attendance/manage", {
+      const res = await fetch("/api/attendance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          user_id: targetUserId,
+          action: "leave",
           start_date: leaveStartDate,
           end_date: leaveEndDate || leaveStartDate,
           status: leaveType,
@@ -186,12 +190,13 @@ export default function AttendancePage() {
         setLeaveReason("");
         fetchAttendance();
         setFeedback(`✓ ${data.message}`);
+        showToast("Leave recorded successfully!");
       } else {
-        alert(`Failed to record leave: ${data.error || "Unknown error"}`);
+        showError("Failed to Record Leave", data.error || "Unknown error");
       }
     } catch (err) {
       console.error(err);
-      alert("Error recording leave.");
+      showError("Error recording leave.");
     } finally {
       setSubmittingLeave(false);
     }

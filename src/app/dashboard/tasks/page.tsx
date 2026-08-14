@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { showError, showSuccess, showWarning, showToast } from "@/lib/swal";
 import { 
   CheckCircle, 
   Send, 
@@ -136,7 +137,7 @@ export default function DailyTasksPage() {
   const handleCreateTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !projectId) {
-      alert("Please enter a title and select a project.");
+      showWarning("Missing Fields", "Please enter a title and select a project.");
       return;
     }
 
@@ -171,13 +172,14 @@ export default function DailyTasksPage() {
         setCustomDate("");
         setInitialChecklists([]);
         setNewChecklistInput("");
+        showToast("Task created successfully!");
       } else {
         const data = await res.json();
-        alert(`Failed to create task: ${data.error || "Unknown error"}`);
+        showError("Failed to Create Task", data.error || "Unknown error");
       }
     } catch (err) {
       console.error(err);
-      alert("Failed to submit task.");
+      showError("Failed to submit task.");
     } finally {
       setSubmitting(false);
     }
@@ -221,13 +223,14 @@ export default function DailyTasksPage() {
         setProgressModalOpen(false);
         setSelectedTaskForProgress(null);
         fetchTasks();
+        showToast("Progress updated!");
       } else {
         const data = await res.json();
-        alert(`Failed to update task progress: ${data.error || "Unknown error"}`);
+        showError("Update Failed", data.error || "Unknown error");
       }
     } catch (err) {
       console.error(err);
-      alert("An error occurred while updating task progress.");
+      showError("An error occurred while updating task progress.");
     } finally {
       setSubmittingProgress(false);
     }
@@ -266,7 +269,7 @@ export default function DailyTasksPage() {
 
     const validLinks = taskLinks.filter((l) => l && l.trim());
     if (validLinks.length === 0) {
-      alert("Please provide at least one valid preview / PR link for the QA tester.");
+      showWarning("Link Required", "Please provide at least one valid preview / PR link for the QA tester.");
       return;
     }
 
@@ -287,13 +290,14 @@ export default function DailyTasksPage() {
         setTestingModalOpen(false);
         setSelectedTaskForTesting(null);
         fetchTasks();
+        showSuccess("Submitted for QA", "Task moved to QA Testing queue.");
       } else {
         const data = await res.json();
-        alert(`Failed to submit for QA testing: ${data.error || "Unknown error"}`);
+        showError("Submission Failed", data.error || "Unknown error");
       }
     } catch (err) {
       console.error(err);
-      alert("An error occurred while submitting task to testing.");
+      showError("An error occurred while submitting task to testing.");
     } finally {
       setSubmittingTesting(false);
     }
@@ -309,7 +313,7 @@ export default function DailyTasksPage() {
       if (res.ok) {
         fetchTasks();
       } else {
-        alert("Failed to update status.");
+        showError("Failed to update status.");
       }
     } catch (err) {
       console.error(err);
