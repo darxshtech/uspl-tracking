@@ -4,8 +4,10 @@ import { useState, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Clock, LogIn, LogOut, AlertTriangle, WifiOff, CloudSync, CheckCircle2 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Clock, LogIn, LogOut, AlertTriangle, WifiOff, CheckCircle2, Calendar } from "lucide-react";
 
 export default function AttendanceWidget() {
   const { data: session } = useSession();
@@ -13,22 +15,39 @@ export default function AttendanceWidget() {
   const userId = (session?.user as any)?.id;
 
   const [record, setRecord] = useState<any>(null);
-  const [elapsedTime, setElapsedTime] = useState("00h 00m 00s");
   const [loading, setLoading] = useState(false);
   const [warningModal, setWarningModal] = useState<string | null>(null);
   const [isOfflineMode, setIsOfflineMode] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
 
+  // Check In Modal State
+  const [checkInModalOpen, setCheckInModalOpen] = useState(false);
+  const [manualCheckInTime, setManualCheckInTime] = useState("");
+
+  // Check Out Modal State
+  const [checkOutModalOpen, setCheckOutModalOpen] = useState(false);
+  const [manualCheckOutTime, setManualCheckOutTime] = useState("");
+
   const getShiftKey = () => `unitglo_shift_state_${userId || "default"}`;
   const getQueueKey = () => `unitglo_offline_queue_${userId || "default"}`;
 
-  const getLocal12HourTime = () => {
-    return new Date().toLocaleTimeString("en-IN", {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: true,
-    });
+  const getCurrent24HourTime = () => {
+    const now = new Date();
+    const hours = now.getHours().toString().padStart(2, "0");
+    const minutes = now.getMinutes().toString().padStart(2, "0");
+    return `${hours}:${minutes}`;
+  };
+
+  const convert24To12Hour = (time24: string) => {
+    if (!time24) return "";
+    const [hStr, mStr] = time24.split(":");
+    let h = parseInt(hStr, 10);
+    const m = mStr || "00";
+    const ampm = h >= 12 ? "PM" : "AM";
+    h = h % 12;
+    h = h ? h : 12;
+    const hFormatted = h < 10 ? `0${h}` : h;
+    return `${hFormatted}:${m}:00 ${ampm}`;
   };
 
   const getTodayDateStr = () => {
@@ -54,6 +73,7 @@ export default function AttendanceWidget() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             action: item.action,
+            manual_time: item.manual_time,
             offline_time: item.time,
             targetDate: item.date,
           }),
@@ -81,10 +101,8 @@ export default function AttendanceWidget() {
       if (data && data.todayRecord !== undefined) {
         if (data.todayRecord) {
           setRecord(data.todayRecord);
-          // Update local storage backup
           localStorage.setItem(getShiftKey(), JSON.stringify(data.todayRecord));
         } else {
-          // If server says no record, verify if local offline active punch exists
           const localShiftRaw = localStorage.getItem(getShiftKey());
           if (localShiftRaw) {
             const localShift = JSON.parse(localShiftRaw);
@@ -100,10 +118,8 @@ export default function AttendanceWidget() {
         }
       }
 
-      // Check if there are queued offline punches to sync
       syncOfflineQueue();
     } catch (err) {
-      // Offline fallback: load from local storage
       setIsOfflineMode(true);
       const localShiftRaw = localStorage.getItem(getShiftKey());
       if (localShiftRaw) {
@@ -121,7 +137,7 @@ export default function AttendanceWidget() {
     if (role === "CEO") return;
 
     fetchActiveAttendance();
-    const interval = setInterval(fetchActiveAttendance, 12000);
+    const interval = setInterval(fetchActiveAttendance, 15000);
 
     const handleOnline = () => {
       setIsOfflineMode(false);
@@ -142,88 +158,91 @@ export default function AttendanceWidget() {
     };
   }, [role, userId, syncOfflineQueue]);
 
-  // Live timer for hours elapsed since check-in (runs continuously offline or online)
-  useEffect(() => {
-    if (!record || !record.login_time || record.logout_time) {
-      setElapsedTime("00h 00m 00s");
-      return;
-    }
+  const openCheckInDialog = () => {
+    setManualCheckInTime(getCurrent24HourTime());
+    setCheckInModalOpen(true);
+  };
 
-    const parseTimeToDate = (timeStr: string) => {
-      const now = new Date();
-      const is12Hour = /am|pm/i.test(timeStr);
-      if (is12Hour) {
-        const parts = timeStr.trim().split(/[:\s]/);
-        let h = parseInt(parts[0], 10);
-        const m = parseInt(parts[1], 10) || 0;
-        const s = parseInt(parts[2], 10) || 0;
-        const meridian = (parts[parts.length - 1] || "").toUpperCase();
+  const openCheckOutDialog = () => {
+    setManualCheckOutTime(getCurrent24HourTime());
+    setCheckOutModalOpen(true);
+  };
 
-        if (meridian === "PM" && h < 12) h += 12;
-        if (meridian === "AM" && h === 12) h = 0;
-
-        now.setHours(h, m, s, 0);
-        return now;
-      } else {
-        const [h, m, s] = timeStr.split(":").map(Number);
-        now.setHours(h, m, s || 0, 0);
-        return now;
-      }
-    };
-
-    const timer = setInterval(() => {
-      const loginDate = parseTimeToDate(record.login_time);
-      const now = new Date();
-      const diffMs = Math.max(0, now.getTime() - loginDate.getTime());
-
-      const hours = Math.floor(diffMs / (1000 * 60 * 60));
-      const mins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-      const secs = Math.floor((diffMs % (1000 * 60)) / 1000);
-
-      const pad = (n: number) => n.toString().padStart(2, "0");
-      setElapsedTime(`${pad(hours)}h ${pad(mins)}m ${pad(secs)}s`);
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [record]);
-
-  const handlePunch = async (action: "check-in" | "check-out") => {
+  const handleConfirmCheckIn = async (e: React.FormEvent) => {
+    e.preventDefault();
     setLoading(true);
-    const localNow = getLocal12HourTime();
+
+    const formattedTime12 = convert24To12Hour(manualCheckInTime);
     const localDate = getTodayDateStr();
 
-    // 1. Immediately update Local Storage shift state for resilience
-    let updatedLocalRecord: any = { ...record };
-    if (action === "check-in") {
-      updatedLocalRecord = {
-        user_id: userId,
-        date: localDate,
-        login_time: localNow,
-        logout_time: null,
-        status: "Present",
-      };
-      setRecord(updatedLocalRecord);
-      localStorage.setItem(getShiftKey(), JSON.stringify(updatedLocalRecord));
-    } else {
-      updatedLocalRecord = {
-        ...updatedLocalRecord,
-        logout_time: localNow,
-      };
-      setRecord(updatedLocalRecord);
-      localStorage.setItem(getShiftKey(), JSON.stringify(updatedLocalRecord));
-    }
+    // 1. Immediately update Local Storage shift state for offline resilience
+    const updatedLocalRecord = {
+      user_id: userId,
+      date: localDate,
+      login_time: formattedTime12,
+      logout_time: null,
+      status: "Present",
+    };
+    setRecord(updatedLocalRecord);
+    localStorage.setItem(getShiftKey(), JSON.stringify(updatedLocalRecord));
 
-    // 2. Attempt online API dispatch
+    // 2. Dispatch to API
     try {
       const res = await fetch("/api/attendance/active", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, offline_time: localNow }),
+        body: JSON.stringify({ action: "check-in", manual_time: formattedTime12 }),
+      });
+
+      if (!res.ok) throw new Error("API request failed");
+      setCheckInModalOpen(false);
+      fetchActiveAttendance();
+    } catch (err) {
+      setIsOfflineMode(true);
+      const queueRaw = localStorage.getItem(getQueueKey()) || "[]";
+      let queue = [];
+      try { queue = JSON.parse(queueRaw); } catch (_) {}
+      queue.push({
+        action: "check-in",
+        manual_time: formattedTime12,
+        time: formattedTime12,
+        date: localDate,
+        timestamp: Date.now(),
+      });
+      localStorage.setItem(getQueueKey(), JSON.stringify(queue));
+      setSyncStatus(`Offline check-in saved for ${formattedTime12}`);
+      setCheckInModalOpen(false);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleConfirmCheckOut = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+
+    const formattedTime12 = convert24To12Hour(manualCheckOutTime);
+    const localDate = getTodayDateStr();
+
+    const updatedLocalRecord = {
+      ...record,
+      logout_time: formattedTime12,
+    };
+    setRecord(updatedLocalRecord);
+    localStorage.setItem(getShiftKey(), JSON.stringify(updatedLocalRecord));
+
+    try {
+      const res = await fetch("/api/attendance/active", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "check-out", manual_time: formattedTime12 }),
       });
 
       if (!res.ok) throw new Error("API request failed");
 
       const data = await res.json();
+      setCheckOutModalOpen(false);
+
       if (data.isHalfDay) {
         setWarningModal(
           `You have checked out after completing ${data.totalHours} hours today. Your attendance has been logged as HALF DAY (<9 hours required).`
@@ -231,23 +250,20 @@ export default function AttendanceWidget() {
       }
       fetchActiveAttendance();
     } catch (err) {
-      // 3. Network Failure / Offline Fallback -> Queue punch in localStorage
       setIsOfflineMode(true);
       const queueRaw = localStorage.getItem(getQueueKey()) || "[]";
       let queue = [];
-      try {
-        queue = JSON.parse(queueRaw);
-      } catch (_) {}
-
+      try { queue = JSON.parse(queueRaw); } catch (_) {}
       queue.push({
-        action,
-        time: localNow,
+        action: "check-out",
+        manual_time: formattedTime12,
+        time: formattedTime12,
         date: localDate,
         timestamp: Date.now(),
       });
-
       localStorage.setItem(getQueueKey(), JSON.stringify(queue));
-      setSyncStatus(`Offline: ${action === "check-in" ? "Check-in" : "Check-out"} saved locally at ${localNow}`);
+      setSyncStatus(`Offline check-out saved for ${formattedTime12}`);
+      setCheckOutModalOpen(false);
     } finally {
       setLoading(false);
     }
@@ -263,12 +279,12 @@ export default function AttendanceWidget() {
 
   return (
     <div className="flex items-center gap-2.5">
-      {/* Offline Status or Sync Indicator */}
+      {/* Offline Indicator */}
       {isOfflineMode && (
         <Badge
           variant="outline"
           className="text-[10px] font-bold text-amber-700 bg-amber-50 border-amber-300 gap-1 px-2 py-0.5"
-          title="Internet disconnected. Check-in time is actively running in localStorage fallback."
+          title="Operating in offline mode"
         >
           <WifiOff className="h-3 w-3 text-amber-600" /> Offline Session
         </Badge>
@@ -280,7 +296,7 @@ export default function AttendanceWidget() {
         </span>
       )}
 
-      {/* Early Checkout (< 9 Hours) Warning Dialog */}
+      {/* Early Checkout Warning Modal */}
       <Dialog open={!!warningModal} onOpenChange={() => setWarningModal(null)}>
         <DialogContent className="border-amber-200 bg-amber-50 max-w-sm">
           <DialogHeader>
@@ -304,26 +320,108 @@ export default function AttendanceWidget() {
         </DialogContent>
       </Dialog>
 
-      {/* Live Timer Display if Checked In (Continues ticking offline and online) */}
+      {/* MANUAL CHECK IN DIALOG */}
+      <Dialog open={checkInModalOpen} onOpenChange={setCheckInModalOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base font-bold text-slate-900">
+              <LogIn className="h-5 w-5 text-emerald-600" />
+              Daily Shift Check-In
+            </DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleConfirmCheckIn} className="space-y-3 pt-2">
+            <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700 space-y-1">
+              <div className="flex items-center gap-1 font-bold text-slate-900">
+                <Calendar className="h-3.5 w-3.5 text-sky-500" /> Date: Today ({getTodayDateStr()})
+              </div>
+              <p className="text-slate-500 text-[11px]">
+                Enter your exact punch-in time below:
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="checkInTime" className="font-semibold text-slate-700 text-xs">
+                Check-In Time *
+              </Label>
+              <Input
+                id="checkInTime"
+                type="time"
+                value={manualCheckInTime}
+                onChange={(e) => setManualCheckInTime(e.target.value)}
+                className="text-base font-bold"
+                required
+              />
+            </div>
+
+            <Button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2 shadow-sm"
+            >
+              {loading ? "Checking In..." : "Confirm & Check In"}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* MANUAL CHECK OUT DIALOG */}
+      <Dialog open={checkOutModalOpen} onOpenChange={setCheckOutModalOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base font-bold text-slate-900">
+              <LogOut className="h-5 w-5 text-slate-900" />
+              Daily Shift Check-Out
+            </DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleConfirmCheckOut} className="space-y-3 pt-2">
+            <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700 space-y-1">
+              <div className="font-bold text-slate-900">Shift Started At: {record?.login_time || "N/A"}</div>
+              <p className="text-slate-500 text-[11px]">
+                Enter your checkout time. Total shift hours will be calculated automatically upon confirmation.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="checkOutTime" className="font-semibold text-slate-700 text-xs">
+                Check-Out Time *
+              </Label>
+              <Input
+                id="checkOutTime"
+                type="time"
+                value={manualCheckOutTime}
+                onChange={(e) => setManualCheckOutTime(e.target.value)}
+                className="text-base font-bold"
+                required
+              />
+            </div>
+
+            <Button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2 shadow-sm"
+            >
+              {loading ? "Calculating & Checking Out..." : "Confirm & Complete Shift"}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Status Badge (No countdown timer, clean static indicator) */}
       {isCheckedIn && (
-        <div
-          className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-mono font-bold shadow-xs border ${
-            isOfflineMode
-              ? "bg-amber-50 border-amber-300 text-amber-900"
-              : "bg-sky-50 border-sky-200 text-sky-900"
-          }`}
-          title={isOfflineMode ? "Running via Local Storage Offline Session" : "Live Shift Timer"}
+        <Badge
+          className="bg-emerald-50 text-emerald-800 border-emerald-300 font-bold text-xs py-1 px-2.5 shadow-2xs gap-1.5"
+          title={`Checked in at ${record.login_time}`}
         >
-          <Clock className="h-3.5 w-3.5 text-sky-500 animate-spin" />
-          <span>{elapsedTime}</span>
-        </div>
+          <Clock className="h-3.5 w-3.5 text-emerald-600" />
+          <span>In Shift (Since {record.login_time})</span>
+        </Badge>
       )}
 
-      {/* Check In Button */}
+      {/* Check In Button (Triggers manual time dialog) */}
       {!isCheckedIn && !isCheckedOut && (
         <Button
           size="sm"
-          onClick={() => handlePunch("check-in")}
+          onClick={openCheckInDialog}
           disabled={loading}
           className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-1.5 shadow-sm"
         >
@@ -331,11 +429,11 @@ export default function AttendanceWidget() {
         </Button>
       )}
 
-      {/* Check Out Button */}
+      {/* Check Out Button (Triggers manual time dialog) */}
       {isCheckedIn && (
         <Button
           size="sm"
-          onClick={() => handlePunch("check-out")}
+          onClick={openCheckOutDialog}
           disabled={loading}
           className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs gap-1.5 shadow-sm"
         >

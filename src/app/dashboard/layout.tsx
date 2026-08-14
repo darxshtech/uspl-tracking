@@ -31,14 +31,14 @@ export default async function DashboardLayout({
   const role = (session.user as any).role;
 
   const navItems = [
-    { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ["CEO", "PM", "Developer", "Tester"] },
-    { name: "Employees", href: "/dashboard/employees", icon: Users, roles: ["CEO", "PM"] },
-    { name: "Projects", href: "/dashboard/projects", icon: Briefcase, roles: ["CEO", "PM", "Developer", "Tester"] },
-    { name: "Daily Tasks", href: "/dashboard/tasks", icon: CheckSquare, roles: ["CEO", "PM", "Developer", "Tester"] },
-    { name: "Testing Queue", href: "/dashboard/testing", icon: Activity, roles: ["CEO", "PM", "Developer", "Tester"] },
-    { name: "Work Accomplishments", href: "/dashboard/work", icon: Clock, roles: ["CEO", "PM", "Developer", "Tester"] },
-    { name: "Attendance", href: "/dashboard/attendance", icon: CalendarDays, roles: ["CEO", "PM", "Developer", "Tester"] },
-    { name: "Profile & Tenure", href: "/dashboard/profile", icon: Users, roles: ["CEO", "PM", "Developer", "Tester"] },
+    { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ["Admin", "CEO", "PM", "Developer", "Tester"] },
+    { name: "Employees", href: "/dashboard/employees", icon: Users, roles: ["Admin", "CEO", "PM"] },
+    { name: "Projects", href: "/dashboard/projects", icon: Briefcase, roles: ["Admin", "CEO", "PM", "Developer", "Tester"] },
+    { name: "Daily Tasks", href: "/dashboard/tasks", icon: CheckSquare, roles: ["Admin", "CEO", "PM", "Developer", "Tester"] },
+    { name: "Testing Queue", href: "/dashboard/testing", icon: Activity, roles: ["Admin", "CEO", "PM", "Developer", "Tester"] },
+    { name: "Work Accomplishments", href: "/dashboard/work", icon: Clock, roles: ["Admin", "CEO", "PM", "Developer", "Tester"] },
+    { name: "Attendance", href: "/dashboard/attendance", icon: CalendarDays, roles: ["Admin", "CEO", "PM", "Developer", "Tester"] },
+    { name: "Profile & Tenure", href: "/dashboard/profile", icon: Users, roles: ["Admin", "CEO", "PM", "Developer", "Tester"] },
   ];
 
   const visibleNavItems = navItems.filter(item => item.roles.includes(role));

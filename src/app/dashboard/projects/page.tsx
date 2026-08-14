@@ -28,16 +28,18 @@ import {
 export default function ProjectsPage() {
   const { data: session } = useSession();
   const role = (session?.user as any)?.role;
-  const canManageProject = role === "CEO" || role === "PM";
+  const canManageProject = ["Admin", "CEO", "PM"].includes(role);
 
   const [projects, setProjects] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [open, setOpen] = useState(false);
+  
+  // Create Modal State
+  const [createOpen, setCreateOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
 
-  // Form State (No initial status required)
+  // Form State for Create
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [targetDate, setTargetDate] = useState("");
@@ -46,7 +48,20 @@ export default function ProjectsPage() {
   const [selectedMembers, setSelectedMembers] = useState<number[]>([]);
   const [primaryDeveloperId, setPrimaryDeveloperId] = useState("");
 
+  // Edit Modal State
+  const [editOpen, setEditOpen] = useState(false);
+  const [editingProject, setEditingProject] = useState<any>(null);
+  const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editTargetDate, setEditTargetDate] = useState("");
+  const [editStatus, setEditStatus] = useState("In Progress");
+  const [editDocUrl, setEditDocUrl] = useState("");
+  const [editAttachments, setEditAttachments] = useState<any[]>([]);
+  const [editMembers, setEditMembers] = useState<number[]>([]);
+  const [savingEdit, setSavingEdit] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const editFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchProjects();
@@ -77,7 +92,7 @@ export default function ProjectsPage() {
     }
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, isEdit = false) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
@@ -96,60 +111,65 @@ export default function ProjectsPage() {
 
         const data = await res.json();
         if (res.ok && data.url) {
-          setAttachments((prev) => [
-            ...prev,
-            {
-              name: data.name || file.name,
-              url: data.url,
-              size: data.size || file.size,
-              type: data.type || file.type,
-              storage: data.storage,
-            },
-          ]);
+          const newAttachment = {
+            name: file.name,
+            url: data.url,
+            format: data.format || file.name.split(".").pop(),
+            size: file.size,
+          };
+          if (isEdit) {
+            setEditAttachments((prev) => [...prev, newAttachment]);
+          } else {
+            setAttachments((prev) => [...prev, newAttachment]);
+          }
         } else {
-          alert(`Failed to upload ${file.name}: ${data.error || "Unknown error"}`);
+          alert(`File upload failed: ${data.error || "Unknown error"}`);
         }
       }
     } catch (err) {
-      console.error("Upload error:", err);
-      alert("An error occurred during file upload.");
+      console.error(err);
+      alert("Error uploading file to Cloudinary.");
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
+      if (editFileInputRef.current) editFileInputRef.current.value = "";
     }
   };
 
-  const removeAttachment = (index: number) => {
-    setAttachments((prev) => prev.filter((_, i) => i !== index));
+  const removeAttachment = (index: number, isEdit = false) => {
+    if (isEdit) {
+      setEditAttachments((prev) => prev.filter((_, i) => i !== index));
+    } else {
+      setAttachments((prev) => prev.filter((_, i) => i !== index));
+    }
   };
 
-  const toggleMember = (memberId: number) => {
-    setSelectedMembers((prev) =>
-      prev.includes(memberId) ? prev.filter((id) => id !== memberId) : [...prev, memberId]
-    );
-  };
-
-  const handleDeveloperDropdownSelect = (devIdStr: string) => {
-    if (!devIdStr) return;
-    setPrimaryDeveloperId(devIdStr);
-    const id = parseInt(devIdStr);
-    if (!selectedMembers.includes(id)) {
-      setSelectedMembers((prev) => [...prev, id]);
+  const toggleMemberSelection = (employeeId: number, isEdit = false) => {
+    if (isEdit) {
+      setEditMembers((prev) =>
+        prev.includes(employeeId)
+          ? prev.filter((id) => id !== employeeId)
+          : [...prev, employeeId]
+      );
+    } else {
+      setSelectedMembers((prev) =>
+        prev.includes(employeeId)
+          ? prev.filter((id) => id !== employeeId)
+          : [...prev, employeeId]
+      );
     }
   };
 
   const handleCreateProject = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canManageProject) return;
-
-    // Combine primary developer with selected members
-    let finalMembers = [...selectedMembers];
-    if (primaryDeveloperId && !finalMembers.includes(parseInt(primaryDeveloperId))) {
-      finalMembers.push(parseInt(primaryDeveloperId));
-    }
-
     setSubmitting(true);
+
     try {
+      const finalMembers = [...selectedMembers];
+      if (primaryDeveloperId && !finalMembers.includes(parseInt(primaryDeveloperId))) {
+        finalMembers.push(parseInt(primaryDeveloperId));
+      }
+
       const res = await fetch("/api/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -157,15 +177,14 @@ export default function ProjectsPage() {
           name,
           description,
           target_date: targetDate || null,
-          status: "Planning",
-          documentation_url: documentationUrl,
+          documentation_url: documentationUrl || null,
           attachments,
           members: finalMembers,
         }),
       });
 
       if (res.ok) {
-        setOpen(false);
+        setCreateOpen(false);
         fetchProjects();
         // Reset form
         setName("");
@@ -181,18 +200,69 @@ export default function ProjectsPage() {
       }
     } catch (err) {
       console.error(err);
-      alert("Failed to submit project.");
+      alert("An error occurred while creating the project.");
     } finally {
       setSubmitting(false);
     }
   };
 
+  const openEditModal = (proj: any) => {
+    setEditingProject(proj);
+    setEditName(proj.name || "");
+    setEditDescription(proj.description || "");
+    setEditTargetDate(proj.target_date ? proj.target_date.split("T")[0] : "");
+    setEditStatus(proj.status || "In Progress");
+    setEditDocUrl(proj.documentation_url || "");
+    setEditAttachments(Array.isArray(proj.attachments) ? proj.attachments : []);
+    const memberIds = (proj.members || []).map((m: any) => m.id);
+    setEditMembers(memberIds);
+    setEditOpen(true);
+  };
+
+  const handleUpdateProject = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingProject) return;
+
+    setSavingEdit(true);
+    try {
+      const res = await fetch("/api/projects", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editingProject.id,
+          name: editName,
+          description: editDescription,
+          target_date: editTargetDate || null,
+          status: editStatus,
+          documentation_url: editDocUrl || null,
+          attachments: editAttachments,
+          members: editMembers,
+        }),
+      });
+
+      if (res.ok) {
+        setEditOpen(false);
+        setEditingProject(null);
+        fetchProjects();
+      } else {
+        const data = await res.json();
+        alert(`Failed to update project: ${data.error || "Unknown error"}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("An error occurred while updating the project.");
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   const handleDeleteProject = async (id: number, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm("Are you sure you want to delete this project and all associated tasks?")) return;
-
+    if (!confirm("Are you sure you want to delete this project? This will remove all associated tasks and work logs.")) return;
     try {
-      const res = await fetch(`/api/projects?id=${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/projects?id=${id}`, {
+        method: "DELETE",
+      });
       if (res.ok) {
         fetchProjects();
       } else {
@@ -203,79 +273,50 @@ export default function ProjectsPage() {
     }
   };
 
-  const formatFileSize = (bytes: number) => {
-    if (!bytes) return "0 KB";
-    const kb = bytes / 1024;
-    if (kb < 1024) return `${kb.toFixed(1)} KB`;
-    return `${(kb / 1024).toFixed(1)} MB`;
-  };
-
-  const developersList = employees.filter((e) => e.role === "Developer");
-  const testersList = employees.filter((e) => e.role === "Tester");
-
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-900 flex items-center gap-3">
             <Briefcase className="h-8 w-8 text-sky-500" />
-            Projects & Documentation Hub
+            Initiatives & Projects
           </h1>
           <p className="text-slate-500 mt-1">
             {canManageProject
-              ? "Create projects, assign developers from dropdown, and upload specifications (PDF/Excel)."
-              : "Access assigned projects, technical specifications, and downloadable project documentation."}
+              ? "Create, edit, assign team members (CEO, PM, Developers, Testers), and manage project deliverables."
+              : "Overview of company projects, assigned team members, and deliverables."}
           </p>
         </div>
 
         {canManageProject && (
-          <Dialog open={open} onOpenChange={setOpen}>
+          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
             <DialogTrigger render={<Button className="bg-sky-600 hover:bg-sky-700 text-white font-bold shadow-md flex items-center gap-2" />}>
               <Plus className="h-4 w-4" /> Create New Project
             </DialogTrigger>
             <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle className="text-xl font-bold text-slate-900 flex items-center gap-2">
-                  <Briefcase className="h-5 w-5 text-sky-500" /> Create New Project
+                  <Briefcase className="h-5 w-5 text-sky-500" /> Create New Project Initiative
                 </DialogTitle>
               </DialogHeader>
 
-              <form onSubmit={handleCreateProject} className="space-y-5 pt-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="projName" className="font-semibold text-slate-700">Project Name *</Label>
-                  <Input
-                    id="projName"
-                    placeholder="e.g. Unitglo Payment Gateway API"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    required
-                  />
-                </div>
-
+              <form onSubmit={handleCreateProject} className="space-y-4 pt-3">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Developers in Dropdown */}
                   <div className="space-y-1.5">
-                    <Label className="font-semibold text-slate-700 flex items-center gap-1.5">
-                      <UserCheck className="h-4 w-4 text-sky-500" /> Assign Lead Developer *
-                    </Label>
-                    <Select value={primaryDeveloperId} onValueChange={handleDeveloperDropdownSelect}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select Developer from Dropdown" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {developersList.map((d) => (
-                          <SelectItem key={d.id} value={d.id.toString()}>
-                            {d.name} ({d.email})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Label htmlFor="name" className="font-semibold text-slate-700">Project Name *</Label>
+                    <Input
+                      id="name"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="e.g. Employee Tracking Portal 2.0"
+                      required
+                    />
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="projDate" className="font-semibold text-slate-700">Target Delivery Date</Label>
+                    <Label htmlFor="targetDate" className="font-semibold text-slate-700">Target Delivery Date</Label>
                     <Input
-                      id="projDate"
+                      id="targetDate"
                       type="date"
                       value={targetDate}
                       onChange={(e) => setTargetDate(e.target.value)}
@@ -284,139 +325,124 @@ export default function ProjectsPage() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="projDesc" className="font-semibold text-slate-700">Project Overview & Deliverables</Label>
-                  <Input
-                    id="projDesc"
-                    placeholder="Brief summary of modules, architecture, and scope..."
+                  <Label htmlFor="description" className="font-semibold text-slate-700">Project Description & Scope</Label>
+                  <textarea
+                    id="description"
+                    rows={3}
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Brief description of the initiative, key milestones, and business goals..."
+                    className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
                   />
                 </div>
 
+                {/* Primary Assignee Selector (Including CEO, PM, Developer, Tester) */}
                 <div className="space-y-1.5">
-                  <Label htmlFor="projDocs" className="font-semibold text-slate-700">Documentation URL / Repository</Label>
-                  <Input
-                    id="projDocs"
-                    placeholder="https://docs.unitglo.com or Google Docs URL"
-                    value={documentationUrl}
-                    onChange={(e) => setDocumentationUrl(e.target.value)}
-                  />
+                  <Label className="font-semibold text-slate-700 flex items-center gap-1.5">
+                    <UserCheck className="h-4 w-4 text-sky-500" /> Primary Lead / Developer Assignee
+                  </Label>
+                  <Select value={primaryDeveloperId} onValueChange={(val) => setPrimaryDeveloperId(val || "")}>
+                    <SelectTrigger><SelectValue placeholder="Select Lead Developer / PM / CEO" /></SelectTrigger>
+                    <SelectContent>
+                      {employees.map((e) => (
+                        <SelectItem key={e.id} value={e.id.toString()}>
+                          {e.name} ({e.role})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-slate-500">
+                    You can assign any team member (CEO, PM, Developer, Tester) directly as the lead or developer on this project.
+                  </p>
                 </div>
 
-                {/* Cloudinary File Uploads (PDF, Excel, Docs) */}
-                <div className="space-y-2 rounded-xl border border-dashed border-slate-300 bg-slate-50/50 p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label className="font-bold text-slate-900 flex items-center gap-1.5">
-                        <UploadCloud className="h-4 w-4 text-sky-500" /> Project Specifications & Files (Cloudinary)
-                      </Label>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        Upload Architecture PDF, Excel Requirements, or Technical Docs.
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={uploading}
-                      onClick={() => fileInputRef.current?.click()}
-                      className="bg-white font-semibold text-xs gap-1.5"
-                    >
-                      <Paperclip className="h-3.5 w-3.5" />
-                      {uploading ? "Uploading..." : "Add Files"}
-                    </Button>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      multiple
-                      accept=".pdf,.xlsx,.xls,.doc,.docx,.csv,.png,.jpg,.jpeg"
-                      onChange={handleFileUpload}
-                      className="hidden"
+                {/* Multi-member Selection */}
+                <div className="space-y-2">
+                  <Label className="font-semibold text-slate-700 flex items-center gap-1.5">
+                    <Users className="h-4 w-4 text-sky-500" /> Additional Assigned Team Members
+                  </Label>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-36 overflow-y-auto p-2 border border-slate-200 rounded-xl bg-slate-50">
+                    {employees.map((emp) => {
+                      const isSelected = selectedMembers.includes(emp.id);
+                      return (
+                        <div
+                          key={emp.id}
+                          onClick={() => toggleMemberSelection(emp.id, false)}
+                          className={`flex items-center gap-2 p-2 rounded-lg text-xs font-medium cursor-pointer border transition-all ${
+                            isSelected
+                              ? "bg-sky-50 border-sky-500 text-sky-900 shadow-xs"
+                              : "bg-white border-slate-200 text-slate-700 hover:bg-slate-100"
+                          }`}
+                        >
+                          <div className={`h-4 w-4 rounded flex items-center justify-center border ${isSelected ? "bg-sky-600 border-sky-600 text-white" : "border-slate-300"}`}>
+                            {isSelected && <Check className="h-3 w-3 stroke-[3]" />}
+                          </div>
+                          <span className="truncate">{emp.name} ({emp.role})</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Documentation & File Uploads */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="docUrl" className="font-semibold text-slate-700 flex items-center gap-1">
+                      <FileText className="h-4 w-4 text-sky-500" /> Documentation / PR Link
+                    </Label>
+                    <Input
+                      id="docUrl"
+                      type="url"
+                      value={documentationUrl}
+                      onChange={(e) => setDocumentationUrl(e.target.value)}
+                      placeholder="https://docs.google.com/... or Notion URL"
                     />
                   </div>
 
-                  {attachments.length > 0 && (
-                    <div className="space-y-2 pt-2">
+                  <div className="space-y-1.5">
+                    <Label className="font-semibold text-slate-700 flex items-center gap-1">
+                      <UploadCloud className="h-4 w-4 text-sky-500" /> Attach Files / PDFs (Cloudinary)
+                    </Label>
+                    <Input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      onChange={(e) => handleFileUpload(e, false)}
+                      disabled={uploading}
+                      className="cursor-pointer text-xs"
+                    />
+                    {uploading && <p className="text-xs text-sky-600 font-semibold animate-pulse">Uploading file to Cloudinary...</p>}
+                  </div>
+                </div>
+
+                {/* Attachment list preview */}
+                {attachments.length > 0 && (
+                  <div className="space-y-1.5 pt-1">
+                    <Label className="text-xs font-bold text-slate-600">Attached Files:</Label>
+                    <div className="flex flex-wrap gap-2">
                       {attachments.map((file, idx) => (
-                        <div
-                          key={idx}
-                          className="flex items-center justify-between p-2.5 bg-white rounded-lg border border-slate-200 text-xs shadow-xs"
-                        >
-                          <div className="flex items-center gap-2 truncate">
-                            {file.name.endsWith(".xlsx") || file.name.endsWith(".xls") || file.name.endsWith(".csv") ? (
-                              <FileSpreadsheet className="h-4 w-4 text-emerald-600 shrink-0" />
-                            ) : (
-                              <FileText className="h-4 w-4 text-sky-600 shrink-0" />
-                            )}
-                            <span className="font-semibold text-slate-900 truncate">{file.name}</span>
-                            <span className="text-slate-400 text-[11px]">({formatFileSize(file.size)})</span>
-                            <Badge variant="outline" className="text-[10px] bg-slate-50 text-slate-600">
-                              {file.storage === "cloudinary" ? "Cloudinary Cloud" : "Local Storage"}
-                            </Badge>
-                          </div>
+                        <div key={idx} className="flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200 text-xs">
+                          <Paperclip className="h-3 w-3 text-slate-500" />
+                          <span className="font-medium text-slate-800 truncate max-w-xs">{file.name}</span>
                           <button
                             type="button"
-                            onClick={() => removeAttachment(idx)}
-                            className="text-red-500 hover:text-red-700 p-1"
-                            title="Remove attachment"
+                            onClick={() => removeAttachment(idx, false)}
+                            className="text-red-500 hover:text-red-700 ml-1"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
                       ))}
                     </div>
-                  )}
-                </div>
-
-                {/* Additional Team Member Multi-select */}
-                <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50/50 p-4">
-                  <Label className="font-bold text-slate-900 flex items-center gap-1.5">
-                    <Users className="h-4 w-4 text-indigo-500" /> Additional Team Members & QA Testers
-                  </Label>
-                  <p className="text-xs text-slate-500">
-                    Select all additional developers and testers to include on this project.
-                  </p>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 max-h-40 overflow-y-auto">
-                    {employees
-                      .filter((e) => e.role === "Developer" || e.role === "Tester")
-                      .map((emp) => {
-                        const isSelected = selectedMembers.includes(emp.id);
-                        return (
-                          <div
-                            key={emp.id}
-                            onClick={() => toggleMember(emp.id)}
-                            className={`flex items-center justify-between p-2 rounded-lg border text-xs cursor-pointer transition-all ${
-                              isSelected
-                                ? "bg-sky-50 border-sky-300 text-sky-900 font-semibold shadow-xs"
-                                : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
-                            }`}
-                          >
-                            <div className="flex items-center gap-2 truncate">
-                              <div
-                                className={`w-4 h-4 rounded flex items-center justify-center border ${
-                                  isSelected ? "bg-sky-600 border-sky-600 text-white" : "border-slate-300 bg-white"
-                                }`}
-                              >
-                                {isSelected && <Check className="h-3 w-3" />}
-                              </div>
-                              <span className="truncate">{emp.name}</span>
-                            </div>
-                            <Badge variant="outline" className="text-[10px] shrink-0">
-                              {emp.role}
-                            </Badge>
-                          </div>
-                        );
-                      })}
                   </div>
-                </div>
+                )}
 
                 <Button
                   type="submit"
-                  disabled={submitting}
-                  className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 mt-2 shadow-lg"
+                  disabled={submitting || uploading}
+                  className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 mt-2"
                 >
-                  {submitting ? "Creating Project & Notifying Team..." : "Create Project"}
+                  {submitting ? "Creating Project..." : "Save & Create Project"}
                 </Button>
               </form>
             </DialogContent>
@@ -424,7 +450,155 @@ export default function ProjectsPage() {
         )}
       </div>
 
-      {/* Projects Grid Table */}
+      {/* EDIT PROJECT MODAL */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-slate-900 flex items-center gap-2">
+              <Edit3 className="h-5 w-5 text-sky-500" /> Edit Project Initiative
+            </DialogTitle>
+          </DialogHeader>
+
+          <form onSubmit={handleUpdateProject} className="space-y-4 pt-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="space-y-1.5 md:col-span-2">
+                <Label htmlFor="editName" className="font-semibold text-slate-700">Project Name *</Label>
+                <Input
+                  id="editName"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="font-semibold text-slate-700">Project Status</Label>
+                <Select value={editStatus} onValueChange={(val) => setEditStatus(val || "In Progress")}>
+                  <SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Planning">Planning</SelectItem>
+                    <SelectItem value="In Progress">In Progress</SelectItem>
+                    <SelectItem value="On Hold">On Hold</SelectItem>
+                    <SelectItem value="Completed">Completed</SelectItem>
+                    <SelectItem value="Cancelled">Cancelled</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="editTargetDate" className="font-semibold text-slate-700">Target Delivery Date</Label>
+                <Input
+                  id="editTargetDate"
+                  type="date"
+                  value={editTargetDate}
+                  onChange={(e) => setEditTargetDate(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="editDocUrl" className="font-semibold text-slate-700 flex items-center gap-1">
+                  <FileText className="h-4 w-4 text-sky-500" /> Documentation Link
+                </Label>
+                <Input
+                  id="editDocUrl"
+                  type="url"
+                  value={editDocUrl}
+                  onChange={(e) => setEditDocUrl(e.target.value)}
+                  placeholder="https://docs.google.com/... or Notion URL"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="editDescription" className="font-semibold text-slate-700">Project Description & Scope</Label>
+              <textarea
+                id="editDescription"
+                rows={3}
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+              />
+            </div>
+
+            {/* Team Members Selection (All roles) */}
+            <div className="space-y-2">
+              <Label className="font-semibold text-slate-700 flex items-center gap-1.5">
+                <Users className="h-4 w-4 text-sky-500" /> Assigned Team Members (CEO, PM, Dev, Tester)
+              </Label>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-36 overflow-y-auto p-2 border border-slate-200 rounded-xl bg-slate-50">
+                {employees.map((emp) => {
+                  const isSelected = editMembers.includes(emp.id);
+                  return (
+                    <div
+                      key={emp.id}
+                      onClick={() => toggleMemberSelection(emp.id, true)}
+                      className={`flex items-center gap-2 p-2 rounded-lg text-xs font-medium cursor-pointer border transition-all ${
+                        isSelected
+                          ? "bg-sky-50 border-sky-500 text-sky-900 shadow-xs"
+                          : "bg-white border-slate-200 text-slate-700 hover:bg-slate-100"
+                      }`}
+                    >
+                      <div className={`h-4 w-4 rounded flex items-center justify-center border ${isSelected ? "bg-sky-600 border-sky-600 text-white" : "border-slate-300"}`}>
+                        {isSelected && <Check className="h-3 w-3 stroke-[3]" />}
+                      </div>
+                      <span className="truncate">{emp.name} ({emp.role})</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* File Uploads */}
+            <div className="space-y-1.5">
+              <Label className="font-semibold text-slate-700 flex items-center gap-1">
+                <UploadCloud className="h-4 w-4 text-sky-500" /> Add More Attachments (Cloudinary)
+              </Label>
+              <Input
+                ref={editFileInputRef}
+                type="file"
+                multiple
+                onChange={(e) => handleFileUpload(e, true)}
+                disabled={uploading}
+                className="cursor-pointer text-xs"
+              />
+            </div>
+
+            {/* Edit Attachment list */}
+            {editAttachments.length > 0 && (
+              <div className="space-y-1.5 pt-1">
+                <Label className="text-xs font-bold text-slate-600">Current Attachments:</Label>
+                <div className="flex flex-wrap gap-2">
+                  {editAttachments.map((file, idx) => (
+                    <div key={idx} className="flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200 text-xs">
+                      <Paperclip className="h-3 w-3 text-slate-500" />
+                      <span className="font-medium text-slate-800 truncate max-w-xs">{file.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeAttachment(idx, true)}
+                        className="text-red-500 hover:text-red-700 ml-1"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <Button
+              type="submit"
+              disabled={savingEdit || uploading}
+              className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 mt-2"
+            >
+              {savingEdit ? "Updating Project..." : "Save Project Changes"}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Projects Table */}
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <Table>
           <TableHeader className="bg-slate-50">
@@ -511,20 +685,39 @@ export default function ProjectsPage() {
                   </TableCell>
 
                   <TableCell>
-                    <Badge className="bg-sky-500 text-white font-bold">{proj.status || "Active"}</Badge>
+                    <Badge className={
+                      proj.status === "Completed" 
+                        ? "bg-emerald-500 text-white font-bold" 
+                        : proj.status === "On Hold"
+                        ? "bg-amber-500 text-white font-bold"
+                        : "bg-sky-500 text-white font-bold"
+                    }>
+                      {proj.status || "In Progress"}
+                    </Badge>
                   </TableCell>
 
                   {canManageProject && (
                     <TableCell className="text-right">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={(e) => handleDeleteProject(proj.id, e)}
-                        className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1.5 h-8 w-8"
-                        title="Delete Project"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => openEditModal(proj)}
+                          className="text-sky-600 hover:text-sky-800 hover:bg-sky-50 p-1.5 h-8 w-8"
+                          title="Edit Project"
+                        >
+                          <Edit3 className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={(e) => handleDeleteProject(proj.id, e)}
+                          className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1.5 h-8 w-8"
+                          title="Delete Project"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   )}
                 </TableRow>

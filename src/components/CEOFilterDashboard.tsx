@@ -4,7 +4,18 @@ import { useState, useEffect } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Filter, CheckCircle2, Briefcase, Clock, ShieldCheck, User } from "lucide-react";
+import { 
+  Filter, 
+  CheckCircle2, 
+  Briefcase, 
+  Clock, 
+  ShieldCheck, 
+  User, 
+  TrendingUp, 
+  AlertTriangle,
+  Flame,
+  Users
+} from "lucide-react";
 
 export default function CEOFilterDashboard() {
   const [tasks, setTasks] = useState<any[]>([]);
@@ -53,11 +64,33 @@ export default function CEOFilterDashboard() {
     return matchProject && matchStatus && matchAssignee;
   });
 
-  const completedCount = filteredTasks.filter((t) => t.status === "Completed").length;
-  const inProgressCount = filteredTasks.filter((t) => t.status === "In Progress" || t.status === "Assigned").length;
-  const readyForTestingCount = filteredTasks.filter((t) => t.status === "Ready for Testing").length;
+  const completedCount = filteredTasks.filter((t) => t.status === "Completed" || t.status === "Ready for Demo" || t.status === "Tested (PASS)").length;
+  const inProgressCount = filteredTasks.filter((t) => t.status === "In Progress" || t.status === "Planning").length;
+  const readyForTestingCount = filteredTasks.filter((t) => t.status === "Ready for Testing" || t.status === "Testing").length;
   const changesRequiredCount = filteredTasks.filter((t) => t.status === "Changes Required").length;
   const completionRate = filteredTasks.length > 0 ? Math.round((completedCount / filteredTasks.length) * 100) : 0;
+
+  // Build Employee Progress Breakdown Matrix
+  const employeeProgressList = employees.map((emp) => {
+    const empTasks = tasks.filter((t) => t.assigned_to === emp.id);
+    const empProjectsCount = new Set(empTasks.map((t) => t.project_id).filter(Boolean)).size;
+    const empCompleted = empTasks.filter((t) => t.status === "Completed" || t.status === "Ready for Demo" || t.status === "Tested (PASS)").length;
+    const empInProgress = empTasks.filter((t) => t.status === "In Progress" || t.status === "Planning").length;
+    const empBlocked = empTasks.filter((t) => t.blockers && t.status !== "Completed").length;
+    const empTotalHours = empTasks.reduce((sum, t) => sum + (parseFloat(t.hours_spent) || 0), 0);
+    const empRate = empTasks.length > 0 ? Math.round((empCompleted / empTasks.length) * 100) : 0;
+
+    return {
+      ...emp,
+      totalTasks: empTasks.length,
+      assignedProjectsCount: empProjectsCount,
+      completedCount: empCompleted,
+      inProgressCount: empInProgress,
+      blockedCount: empBlocked,
+      totalHours: empTotalHours,
+      completionRate: empRate,
+    };
+  }).filter((emp) => selectedAssignee === "ALL" || emp.id.toString() === selectedAssignee);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -81,31 +114,21 @@ export default function CEOFilterDashboard() {
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      {/* Filter Control Header */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-            <Filter className="h-5 w-5 text-sky-500" />
-            CEO & PM Executive Project & Task Filter
-          </h3>
-          <span className="text-xs text-slate-500 font-medium">
-            Showing {filteredTasks.length} of {tasks.length} tasks
-          </span>
+    <div className="space-y-6">
+      {/* Filter Control Bar */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex items-center gap-2 text-sm font-bold text-slate-800 mb-4">
+          <Filter className="h-4 w-4 text-sky-500" />
+          Filter Projects, Tasks & Employee Progress Matrix
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
-          {/* Project Filter */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-              <Briefcase className="h-3.5 w-3.5 text-sky-500" /> Filter by Project
-            </label>
+            <label className="text-xs font-bold text-slate-600 uppercase">Project</label>
             <Select value={selectedProject} onValueChange={(val) => setSelectedProject(val || "ALL")}>
-              <SelectTrigger className="w-full bg-slate-50">
-                <SelectValue placeholder="All Projects" />
-              </SelectTrigger>
+              <SelectTrigger><SelectValue placeholder="All Projects" /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="ALL">All Projects ({projects.length})</SelectItem>
+                <SelectItem value="ALL">All Projects</SelectItem>
                 {projects.map((p) => (
                   <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
                 ))}
@@ -113,37 +136,10 @@ export default function CEOFilterDashboard() {
             </Select>
           </div>
 
-          {/* Task Status Filter */}
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> Filter by Status
-            </label>
-            <Select value={selectedStatus} onValueChange={(val) => setSelectedStatus(val || "ALL")}>
-              <SelectTrigger className="w-full bg-slate-50">
-                <SelectValue placeholder="All Statuses" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All Task Statuses</SelectItem>
-                <SelectItem value="Planning">Planning</SelectItem>
-                <SelectItem value="In Progress">In Progress</SelectItem>
-                <SelectItem value="Ready for Testing">Ready for Testing</SelectItem>
-                <SelectItem value="Tested (PASS)">QA Passed</SelectItem>
-                <SelectItem value="Ready for Demo">Ready for Demo</SelectItem>
-                <SelectItem value="Completed">Completed</SelectItem>
-                <SelectItem value="Changes Required">Changes Required (Failed)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Assignee / Employee Filter */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-              <User className="h-3.5 w-3.5 text-indigo-500" /> Filter by Team Member
-            </label>
+            <label className="text-xs font-bold text-slate-600 uppercase">Assigned Employee</label>
             <Select value={selectedAssignee} onValueChange={(val) => setSelectedAssignee(val || "ALL")}>
-              <SelectTrigger className="w-full bg-slate-50">
-                <SelectValue placeholder="All Employees" />
-              </SelectTrigger>
+              <SelectTrigger><SelectValue placeholder="All Team Members" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="ALL">All Team Members</SelectItem>
                 {employees.map((e) => (
@@ -152,42 +148,123 @@ export default function CEOFilterDashboard() {
               </SelectContent>
             </Select>
           </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-slate-600 uppercase">Task Status</label>
+            <Select value={selectedStatus} onValueChange={(val) => setSelectedStatus(val || "ALL")}>
+              <SelectTrigger><SelectValue placeholder="All Statuses" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All Statuses</SelectItem>
+                <SelectItem value="Planning">Planning</SelectItem>
+                <SelectItem value="In Progress">In Progress</SelectItem>
+                <SelectItem value="Ready for Testing">Ready for Testing</SelectItem>
+                <SelectItem value="Changes Required">Changes Required</SelectItem>
+                <SelectItem value="Tested (PASS)">Tested (PASS)</SelectItem>
+                <SelectItem value="Ready for Demo">Ready for Demo</SelectItem>
+                <SelectItem value="Completed">Completed</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </div>
 
-      {/* Dynamic Filtered Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/50">
-          <span className="text-xs font-bold text-emerald-700 uppercase tracking-wider">Completed Tasks</span>
-          <div className="text-2xl font-black text-emerald-900 mt-1">{completedCount}</div>
-          <span className="text-[11px] text-emerald-600 font-semibold">{completionRate}% Completion Rate</span>
+      {/* Filtered Summary Metrics */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <div className="rounded-xl border border-slate-200 bg-white p-4 text-center shadow-xs">
+          <span className="text-[11px] font-bold text-slate-500 uppercase">Filtered Tasks</span>
+          <div className="text-2xl font-black text-slate-900 mt-1">{filteredTasks.length}</div>
         </div>
 
-        <div className="p-4 rounded-xl border border-sky-200 bg-sky-50/50">
-          <span className="text-xs font-bold text-sky-700 uppercase tracking-wider">In Progress</span>
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 text-center shadow-xs">
+          <span className="text-[11px] font-bold text-emerald-700 uppercase">Completed</span>
+          <div className="text-2xl font-black text-emerald-900 mt-1">{completedCount} ({completionRate}%)</div>
+        </div>
+
+        <div className="rounded-xl border border-sky-200 bg-sky-50/50 p-4 text-center shadow-xs">
+          <span className="text-[11px] font-bold text-sky-700 uppercase">In Progress</span>
           <div className="text-2xl font-black text-sky-900 mt-1">{inProgressCount}</div>
-          <span className="text-[11px] text-sky-600 font-semibold">Active Development</span>
         </div>
 
-        <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/50">
-          <span className="text-xs font-bold text-amber-700 uppercase tracking-wider">Testing Queue</span>
+        <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 text-center shadow-xs">
+          <span className="text-[11px] font-bold text-amber-700 uppercase">In Testing</span>
           <div className="text-2xl font-black text-amber-900 mt-1">{readyForTestingCount}</div>
-          <span className="text-[11px] text-amber-600 font-semibold">Awaiting QA Audit</span>
         </div>
 
-        <div className="p-4 rounded-xl border border-red-200 bg-red-50/50">
-          <span className="text-xs font-bold text-red-700 uppercase tracking-wider">Changes Required</span>
+        <div className="rounded-xl border border-red-200 bg-red-50/50 p-4 text-center shadow-xs col-span-2 sm:col-span-1">
+          <span className="text-[11px] font-bold text-red-700 uppercase">QA Rejections</span>
           <div className="text-2xl font-black text-red-900 mt-1">{changesRequiredCount}</div>
-          <span className="text-[11px] text-red-600 font-semibold">QA Rejections</span>
         </div>
       </div>
 
-      {/* Filtered Data Table */}
+      {/* EMPLOYEE PROGRESS MATRIX */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+            <TrendingUp className="h-5 w-5 text-sky-500" />
+            Team Member Progress & Initiative Completion Matrix
+          </h2>
+          <Badge variant="outline" className="text-xs font-semibold">
+            {employeeProgressList.length} Team Members
+          </Badge>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {employeeProgressList.map((emp) => (
+            <div key={emp.id} className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-bold text-slate-900 text-sm">{emp.name}</div>
+                  <Badge variant="outline" className="text-[10px] mt-0.5">{emp.role}</Badge>
+                </div>
+                <div className="text-right">
+                  <div className="text-lg font-black text-sky-900">{emp.completionRate}%</div>
+                  <span className="text-[10px] font-semibold text-slate-500">Done</span>
+                </div>
+              </div>
+
+              {/* Progress Bar */}
+              <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden border border-slate-200">
+                <div
+                  className={`h-full transition-all duration-300 ${
+                    emp.completionRate === 100 ? "bg-emerald-500" : emp.completionRate >= 50 ? "bg-sky-500" : "bg-amber-500"
+                  }`}
+                  style={{ width: `${emp.completionRate}%` }}
+                />
+              </div>
+
+              {/* Metrics Pills */}
+              <div className="grid grid-cols-3 gap-1.5 text-center text-xs pt-1">
+                <div className="p-1.5 bg-white rounded border border-slate-200">
+                  <span className="text-[10px] text-slate-500 block">Tasks</span>
+                  <span className="font-bold text-slate-900">{emp.completedCount}/{emp.totalTasks}</span>
+                </div>
+                <div className="p-1.5 bg-white rounded border border-slate-200">
+                  <span className="text-[10px] text-slate-500 block">Projects</span>
+                  <span className="font-bold text-slate-900">{emp.assignedProjectsCount}</span>
+                </div>
+                <div className="p-1.5 bg-white rounded border border-slate-200">
+                  <span className="text-[10px] text-slate-500 block">Hours</span>
+                  <span className="font-bold text-slate-900">{emp.totalHours.toFixed(1)}</span>
+                </div>
+              </div>
+
+              {emp.blockedCount > 0 && (
+                <div className="p-1.5 rounded bg-red-50 border border-red-200 text-[11px] text-red-700 font-semibold flex items-center gap-1">
+                  <AlertTriangle className="h-3.5 w-3.5 text-red-600" />
+                  {emp.blockedCount} Task(s) Blocked
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Filtered Tasks Table */}
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <Table>
           <TableHeader className="bg-slate-50">
             <TableRow>
-              <TableHead className="font-bold">Task Title</TableHead>
+              <TableHead className="font-bold">Task & Progress</TableHead>
               <TableHead className="font-bold">Project</TableHead>
               <TableHead className="font-bold">Assigned To</TableHead>
               <TableHead className="font-bold">Priority</TableHead>
@@ -207,7 +284,7 @@ export default function CEOFilterDashboard() {
                     <div className="font-bold text-slate-900">{t.title}</div>
                     <div className="text-xs text-slate-500 mt-0.5">
                       Progress: <strong>{t.progress_percentage || 0}%</strong>
-                      {t.hours_spent > 0 && ` • ${t.hours_spent} hrs`}
+                      {t.hours_spent > 0 && ` • ${t.hours_spent} hrs logged`}
                     </div>
                     {t.blockers && (
                       <div className="text-[11px] text-red-600 font-semibold mt-0.5">
@@ -215,11 +292,11 @@ export default function CEOFilterDashboard() {
                       </div>
                     )}
                   </TableCell>
-                  <TableCell className="text-slate-600">{t.project_name || "N/A"}</TableCell>
-                  <TableCell className="text-slate-600">{t.assignee_name || "Unassigned"}</TableCell>
+                  <TableCell className="text-slate-600 font-medium text-xs">{t.project_name || "N/A"}</TableCell>
+                  <TableCell className="text-slate-700 font-semibold text-xs">{t.assignee_name || "Unassigned"}</TableCell>
                   <TableCell><Badge variant="outline">{t.priority}</Badge></TableCell>
                   <TableCell>{getStatusBadge(t.status)}</TableCell>
-                  <TableCell className="text-slate-500 text-xs">{t.creator_name || "System"}</TableCell>
+                  <TableCell className="text-slate-500 text-xs">{t.creator_name || "System"} ({t.creator_role || "PM"})</TableCell>
                 </TableRow>
               ))
             )}

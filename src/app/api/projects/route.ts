@@ -69,7 +69,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
-  if (!session || !["CEO", "PM"].includes((session.user as any).role)) {
+  if (!session || !["Admin", "CEO", "PM"].includes((session.user as any).role)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
@@ -143,7 +143,7 @@ export async function POST(req: Request) {
 
 export async function PUT(req: Request) {
   const session = await getServerSession(authOptions);
-  if (!session || !["CEO", "PM"].includes((session.user as any).role)) {
+  if (!session || !["Admin", "CEO", "PM"].includes((session.user as any).role)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
@@ -216,7 +216,7 @@ export async function PUT(req: Request) {
 
 export async function DELETE(req: Request) {
   const session = await getServerSession(authOptions);
-  if (!session || !["CEO", "PM"].includes((session.user as any).role)) {
+  if (!session || !["Admin", "CEO", "PM"].includes((session.user as any).role)) {
     return NextResponse.json({ error: "Unauthorized: PM or CEO role required" }, { status: 403 });
   }
 

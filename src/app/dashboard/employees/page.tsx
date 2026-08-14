@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -16,19 +17,37 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import AttendanceCalendarView from "@/components/AttendanceCalendarView";
-import { Users, UserPlus, Calendar, Eye, Mail, Shield } from "lucide-react";
+import { Users, UserPlus, Calendar, Edit3, Shield, KeyRound, Phone, UserCheck } from "lucide-react";
 
 export default function EmployeesPage() {
+  const { data: session } = useSession();
+  const currentRole = (session?.user as any)?.role;
+  const isSuperAdminOrCEO = currentRole === "Admin" || currentRole === "CEO";
+
   const [employees, setEmployees] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [open, setOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
   const [viewingEmployee, setViewingEmployee] = useState<any>(null);
 
-  // Form state
+  // Form state for Create
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [phone, setPhone] = useState("");
   const [role, setRole] = useState("Developer");
+  const [submitting, setSubmitting] = useState(false);
+
+  // Form state for Edit
+  const [editOpen, setEditOpen] = useState(false);
+  const [editingEmp, setEditingEmp] = useState<any>(null);
+  const [editName, setEditName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editRole, setEditRole] = useState("Developer");
+  const [editPhone, setEditPhone] = useState("");
+  const [editBio, setEditBio] = useState("");
+  const [editPassword, setEditPassword] = useState("");
+  const [editIsActive, setEditIsActive] = useState<boolean>(true);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
     fetchEmployees();
@@ -50,23 +69,79 @@ export default function EmployeesPage() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitting(true);
     try {
       const res = await fetch("/api/employees", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, password, role, is_active: true }),
+        body: JSON.stringify({ name, email, password, role, phone, is_active: true }),
       });
       if (res.ok) {
-        setOpen(false);
+        setCreateOpen(false);
         fetchEmployees();
         setName("");
         setEmail("");
         setPassword("");
+        setPhone("");
+        setRole("Developer");
       } else {
-        alert("Failed to create employee");
+        const data = await res.json();
+        alert(`Failed to create employee: ${data.error || "Unknown error"}`);
       }
     } catch (err) {
       console.error(err);
+      alert("Error creating employee");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const openEditModal = (emp: any) => {
+    setEditingEmp(emp);
+    setEditName(emp.name || "");
+    setEditEmail(emp.email || "");
+    setEditRole(emp.role || "Developer");
+    setEditPhone(emp.phone || "");
+    setEditBio(emp.bio || "");
+    setEditIsActive(emp.is_active !== 0 && emp.is_active !== false);
+    setEditPassword("");
+    setEditOpen(true);
+  };
+
+  const handleUpdateEmployee = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingEmp) return;
+
+    setSavingEdit(true);
+    try {
+      const res = await fetch("/api/employees", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editingEmp.id,
+          name: editName,
+          email: editEmail,
+          role: editRole,
+          phone: editPhone,
+          bio: editBio,
+          is_active: editIsActive,
+          password: editPassword.trim() || undefined,
+        }),
+      });
+
+      if (res.ok) {
+        setEditOpen(false);
+        setEditingEmp(null);
+        fetchEmployees();
+      } else {
+        const data = await res.json();
+        alert(`Failed to update employee: ${data.error || "Unknown error"}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error updating employee");
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -75,12 +150,14 @@ export default function EmployeesPage() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-900 flex items-center gap-3">
-            <Users className="h-8 w-8 text-sky-500" /> Employees Directory
+            <Users className="h-8 w-8 text-sky-500" /> Employees Directory & Team Management
           </h1>
-          <p className="text-slate-500 mt-1">Manage team members, roles, and view day-by-day monthly attendance calendars.</p>
+          <p className="text-slate-500 mt-1">
+            Create and edit team members, assign executive management roles (CEO, PM), reset credentials, and audit monthly attendance calendars.
+          </p>
         </div>
         
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogTrigger render={<Button className="bg-sky-600 hover:bg-sky-700 text-white font-bold gap-2 shadow-md" />}>
             <UserPlus className="h-4 w-4" /> Add Employee
           </DialogTrigger>
@@ -93,65 +170,161 @@ export default function EmployeesPage() {
             <form onSubmit={handleCreate} className="space-y-4 pt-3">
               <div className="space-y-1.5">
                 <Label htmlFor="name" className="font-semibold text-slate-700">Full Name *</Label>
-                <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required />
+                <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Rahul Sharma" required />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="email" className="font-semibold text-slate-700">Email Address *</Label>
-                <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="rahul@unitglo.com" required />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="phone" className="font-semibold text-slate-700">Phone Number</Label>
+                  <Input id="phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 43210" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="role" className="font-semibold text-slate-700">System Role *</Label>
+                  <Select value={role} onValueChange={(val) => setRole(val || "Developer")}>
+                    <SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger>
+                    <SelectContent>
+                      {isSuperAdminOrCEO && (
+                        <>
+                          <SelectItem value="Admin">Admin (Master)</SelectItem>
+                          <SelectItem value="CEO">CEO (Executive)</SelectItem>
+                          <SelectItem value="PM">PM (Project Manager)</SelectItem>
+                        </>
+                      )}
+                      <SelectItem value="Developer">Developer</SelectItem>
+                      <SelectItem value="Tester">QA Tester</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="password" className="font-semibold text-slate-700">Initial Password *</Label>
-                <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+                <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required />
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="role" className="font-semibold text-slate-700">Role</Label>
-                <Select value={role} onValueChange={(val) => setRole(val || "Developer")}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="CEO">CEO (Executive)</SelectItem>
-                    <SelectItem value="PM">PM (Project Manager)</SelectItem>
-                    <SelectItem value="Developer">Developer</SelectItem>
-                    <SelectItem value="Tester">QA Tester</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <Button type="submit" className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 mt-2">
-                Create Employee Account
+              <Button type="submit" disabled={submitting} className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 mt-2">
+                {submitting ? "Creating..." : "Create Employee Account"}
               </Button>
             </form>
           </DialogContent>
         </Dialog>
       </div>
 
+      {/* EDIT EMPLOYEE MODAL */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
+              <Edit3 className="h-5 w-5 text-sky-500" /> Edit Employee Details
+            </DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleUpdateEmployee} className="space-y-4 pt-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="editName" className="font-semibold text-slate-700">Full Name *</Label>
+              <Input id="editName" value={editName} onChange={(e) => setEditName(e.target.value)} required />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="editEmail" className="font-semibold text-slate-700">Email Address *</Label>
+              <Input id="editEmail" type="email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} required />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="editPhone" className="font-semibold text-slate-700">Phone</Label>
+                <Input id="editPhone" value={editPhone} onChange={(e) => setEditPhone(e.target.value)} />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="font-semibold text-slate-700">System Role *</Label>
+                <Select value={editRole} onValueChange={(val) => setEditRole(val || "Developer")}>
+                  <SelectTrigger><SelectValue placeholder="Role" /></SelectTrigger>
+                  <SelectContent>
+                    {isSuperAdminOrCEO && (
+                      <>
+                        <SelectItem value="Admin">Admin (Master)</SelectItem>
+                        <SelectItem value="CEO">CEO (Executive)</SelectItem>
+                        <SelectItem value="PM">PM (Project Manager)</SelectItem>
+                      </>
+                    )}
+                    <SelectItem value="Developer">Developer</SelectItem>
+                    <SelectItem value="Tester">QA Tester</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="font-semibold text-slate-700">Account Status</Label>
+              <Select value={editIsActive ? "active" : "inactive"} onValueChange={(val) => setEditIsActive(val === "active")}>
+                <SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Active Account</SelectItem>
+                  <SelectItem value="inactive">Suspended / Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5 p-3 rounded-xl bg-slate-50 border border-slate-200">
+              <Label htmlFor="editPassword" className="font-bold text-slate-800 text-xs flex items-center gap-1">
+                <KeyRound className="h-3.5 w-3.5 text-sky-500" /> Reset Password (Optional)
+              </Label>
+              <Input
+                id="editPassword"
+                type="password"
+                value={editPassword}
+                onChange={(e) => setEditPassword(e.target.value)}
+                placeholder="Leave blank to keep existing password"
+                className="bg-white text-xs"
+              />
+            </div>
+
+            <Button type="submit" disabled={savingEdit} className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 mt-2">
+              {savingEdit ? "Saving..." : "Save Employee Changes"}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Employees Table */}
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <Table>
           <TableHeader className="bg-slate-50">
             <TableRow>
               <TableHead className="font-bold">Team Member</TableHead>
               <TableHead className="font-bold">Email Address</TableHead>
+              <TableHead className="font-bold">Phone</TableHead>
               <TableHead className="font-bold">Role</TableHead>
               <TableHead className="font-bold">Account Status</TableHead>
-              <TableHead className="font-bold text-right">Attendance Calendar</TableHead>
+              <TableHead className="font-bold text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-8">Loading employees...</TableCell>
+                <TableCell colSpan={6} className="text-center py-8">Loading employees...</TableCell>
               </TableRow>
             ) : employees.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center text-slate-500 py-10">No employees found.</TableCell>
+                <TableCell colSpan={6} className="text-center text-slate-500 py-10">No employees found.</TableCell>
               </TableRow>
             ) : (
               employees.map((emp) => (
                 <TableRow key={emp.id} className="hover:bg-slate-50/80 transition-colors">
                   <TableCell className="font-bold text-slate-900">{emp.name}</TableCell>
                   <TableCell className="text-slate-600 text-xs font-mono">{emp.email}</TableCell>
+                  <TableCell className="text-slate-600 text-xs">{emp.phone || "--"}</TableCell>
                   <TableCell>
-                    <Badge variant="outline" className="font-semibold">{emp.role}</Badge>
+                    <Badge className={
+                      emp.role === "Admin" ? "bg-red-600 text-white font-bold" :
+                      emp.role === "CEO" ? "bg-purple-600 text-white font-bold" :
+                      emp.role === "PM" ? "bg-emerald-600 text-white font-bold" :
+                      emp.role === "Tester" ? "bg-amber-600 text-white font-bold" :
+                      "bg-sky-600 text-white font-bold"
+                    }>
+                      {emp.role}
+                    </Badge>
                   </TableCell>
                   <TableCell>
                     {emp.is_active ? (
@@ -161,18 +334,30 @@ export default function EmployeesPage() {
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    {emp.role !== "CEO" ? (
+                    <div className="flex items-center justify-end gap-1.5">
                       <Button
                         size="sm"
-                        variant="outline"
-                        onClick={() => setViewingEmployee(emp)}
-                        className="text-xs font-semibold gap-1.5 text-sky-600 hover:bg-sky-50 bg-white"
+                        variant="ghost"
+                        onClick={() => openEditModal(emp)}
+                        className="text-xs font-semibold text-slate-700 hover:text-sky-600 hover:bg-slate-100 p-1.5 h-8 w-8"
+                        title="Edit Employee"
                       >
-                        <Calendar className="h-3.5 w-3.5" /> View Calendar
+                        <Edit3 className="h-4 w-4" />
                       </Button>
-                    ) : (
-                      <span className="text-xs text-slate-400 font-medium italic">CEO Exempt</span>
-                    )}
+
+                      {emp.role !== "CEO" && emp.role !== "Admin" ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setViewingEmployee(emp)}
+                          className="text-xs font-semibold gap-1 text-sky-600 hover:bg-sky-50 bg-white h-8"
+                        >
+                          <Calendar className="h-3.5 w-3.5" /> Calendar
+                        </Button>
+                      ) : (
+                        <span className="text-xs text-slate-400 font-medium italic pr-2">Exempt</span>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               ))

@@ -61,9 +61,9 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { action, targetDate, offline_time } = body; // "check-in" or "check-out"
+    const { action, targetDate, offline_time, manual_time } = body; // "check-in" or "check-out"
     const todayIST = getCurrentISTDate();
-    const nowTime12 = offline_time || getCurrentISTTime12();
+    const nowTime12 = manual_time || offline_time || getCurrentISTTime12();
 
     // 2. Strict Current Date Enforcement: Punch only allowed for current date!
     if (targetDate && targetDate !== todayIST) {
