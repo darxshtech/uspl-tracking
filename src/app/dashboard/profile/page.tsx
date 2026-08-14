@@ -20,6 +20,7 @@ import {
   Save, 
   Sparkles 
 } from "lucide-react";
+import { getRoleDisplayName, getRoleBadgeClass, getRoleIconEmoji } from "@/lib/roleUtils";
 
 export default function ProfilePage() {
   const { data: session, update } = useSession();
@@ -119,16 +120,17 @@ export default function ProfilePage() {
         }),
       });
 
+      const data = await res.json();
       if (res.ok) {
         setFeedback("✓ Profile details saved successfully!");
         fetchProfile();
         showToast("Profile saved successfully!");
       } else {
-        showError("Failed to update profile.");
+        showError("Failed to update profile", data.error || "Unknown server error");
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      showError("Error saving profile.");
+      showError("Error saving profile", err.message || "Network error");
     } finally {
       setSaving(false);
     }
@@ -158,6 +160,7 @@ export default function ProfilePage() {
     return <div className="p-8 text-center text-slate-500 font-medium">Loading profile...</div>;
   }
 
+  const userRole = profile?.role || "Developer";
   const tenureText = calculateTenure(joiningDate);
   const joiningYear = joiningDate ? new Date(joiningDate).getFullYear() : 2024;
 
@@ -210,8 +213,8 @@ export default function ProfilePage() {
         <div className="space-y-1.5 text-center sm:text-left flex-1">
           <div className="flex flex-col sm:flex-row sm:items-center gap-2">
             <h2 className="text-2xl font-black text-slate-900">{profile?.name || "Employee"}</h2>
-            <Badge className="bg-sky-500 text-white font-bold w-fit mx-auto sm:mx-0">
-              {profile?.role || "Developer"}
+            <Badge className={`${getRoleBadgeClass(userRole)} px-2.5 py-0.5 text-xs font-bold w-fit mx-auto sm:mx-0`}>
+              {getRoleIconEmoji(userRole)} {getRoleDisplayName(userRole)}
             </Badge>
           </div>
 

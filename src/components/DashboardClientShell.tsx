@@ -22,6 +22,7 @@ import {
   ChevronRight,
   Shield
 } from "lucide-react";
+import { getRoleDisplayName, getRoleIconEmoji } from "@/lib/roleUtils";
 
 interface DashboardClientShellProps {
   children: ReactNode;
@@ -138,7 +139,7 @@ export default function DashboardClientShell({ children, user }: DashboardClient
             <div className="truncate">
               <p className="font-bold text-xs text-slate-100 truncate">{user.name}</p>
               <span className="inline-block text-[10px] font-semibold text-sky-400 uppercase tracking-wider">
-                {role}
+                {getRoleIconEmoji(role)} {getRoleDisplayName(role)}
               </span>
             </div>
           </Link>
@@ -211,7 +212,7 @@ export default function DashboardClientShell({ children, user }: DashboardClient
                 <div className="truncate text-xs">
                   <p className="font-bold text-slate-100 truncate">{user.name}</p>
                   <span className="inline-block text-[10px] font-semibold text-sky-400">
-                    {role}
+                    {getRoleIconEmoji(role)} {getRoleDisplayName(role)}
                   </span>
                 </div>
               </Link>

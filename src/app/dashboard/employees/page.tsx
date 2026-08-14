@@ -32,6 +32,7 @@ import {
   UserCheck, 
   AlertTriangle 
 } from "lucide-react";
+import { getRoleDisplayName, getRoleBadgeClass, getRoleIconEmoji } from "@/lib/roleUtils";
 
 export default function EmployeesPage() {
   const { data: session } = useSession();
@@ -263,13 +264,13 @@ export default function EmployeesPage() {
                     <SelectContent>
                       {isSuperAdminOrCEO && (
                         <>
-                          <SelectItem value="Admin">Admin (Master)</SelectItem>
-                          <SelectItem value="CEO">CEO (Executive)</SelectItem>
-                          <SelectItem value="PM">PM (Project Manager)</SelectItem>
+                          <SelectItem value="Admin">🏢 Company (Master Admin)</SelectItem>
+                          <SelectItem value="CEO">👑 Owner (CEO)</SelectItem>
+                          <SelectItem value="PM">📋 PM (Project Manager)</SelectItem>
                         </>
                       )}
-                      <SelectItem value="Developer">Developer</SelectItem>
-                      <SelectItem value="Tester">QA Tester</SelectItem>
+                      <SelectItem value="Developer">💻 Developer</SelectItem>
+                      <SelectItem value="Tester">🧪 QA Tester</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -318,13 +319,13 @@ export default function EmployeesPage() {
                   <SelectContent>
                     {isSuperAdminOrCEO && (
                       <>
-                        <SelectItem value="Admin">Admin (Master)</SelectItem>
-                        <SelectItem value="CEO">CEO (Executive)</SelectItem>
-                        <SelectItem value="PM">PM (Project Manager)</SelectItem>
+                        <SelectItem value="Admin">🏢 Company (Master Admin)</SelectItem>
+                        <SelectItem value="CEO">👑 Owner (CEO)</SelectItem>
+                        <SelectItem value="PM">📋 PM (Project Manager)</SelectItem>
                       </>
                     )}
-                    <SelectItem value="Developer">Developer</SelectItem>
-                    <SelectItem value="Tester">QA Tester</SelectItem>
+                    <SelectItem value="Developer">💻 Developer</SelectItem>
+                    <SelectItem value="Tester">🧪 QA Tester</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -370,7 +371,7 @@ export default function EmployeesPage() {
               <TableHead className="font-bold">Team Member</TableHead>
               <TableHead className="font-bold">Email Address</TableHead>
               <TableHead className="font-bold">Phone</TableHead>
-              <TableHead className="font-bold">Role</TableHead>
+              <TableHead className="font-bold">Role & Position</TableHead>
               <TableHead className="font-bold">Account Status</TableHead>
               <TableHead className="font-bold text-right">Actions</TableHead>
             </TableRow>
@@ -391,14 +392,9 @@ export default function EmployeesPage() {
                   <TableCell className="text-slate-600 text-xs font-mono">{emp.email}</TableCell>
                   <TableCell className="text-slate-600 text-xs">{emp.phone || "--"}</TableCell>
                   <TableCell>
-                    <Badge className={
-                      emp.role === "Admin" ? "bg-red-600 text-white font-bold" :
-                      emp.role === "CEO" ? "bg-purple-600 text-white font-bold" :
-                      emp.role === "PM" ? "bg-emerald-600 text-white font-bold" :
-                      emp.role === "Tester" ? "bg-amber-600 text-white font-bold" :
-                      "bg-sky-600 text-white font-bold"
-                    }>
-                      {emp.role}
+                    <Badge className={`${getRoleBadgeClass(emp.role)} gap-1`}>
+                      <span>{getRoleIconEmoji(emp.role)}</span>
+                      <span>{getRoleDisplayName(emp.role)}</span>
                     </Badge>
                   </TableCell>
                   <TableCell>

@@ -7,6 +7,7 @@ import UnitgloLogo from "@/components/UnitgloLogo";
 import MoltenMetal from "@/components/MoltenMetal";
 import BorderGlow from "@/components/BorderGlow";
 import { Lock, Mail, ArrowRight, LogOut, Sparkles, UserCheck } from "lucide-react";
+import { getRoleDisplayName, getRoleIconEmoji } from "@/lib/roleUtils";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -130,8 +131,8 @@ export default function LoginPage() {
                     {session.user?.email}
                   </p>
                   <div className="pt-1">
-                    <span className="inline-block px-2 py-0.5 text-[10px] font-bold rounded-md bg-white/10 text-slate-200 border border-white/10 uppercase tracking-wider">
-                      {(session.user as any)?.role || "Employee"}
+                    <span className="inline-block px-2.5 py-0.5 text-[10px] font-bold rounded-md bg-white/10 text-slate-200 border border-white/10 uppercase tracking-wider">
+                      {getRoleIconEmoji((session.user as any)?.role)} {getRoleDisplayName((session.user as any)?.role)}
                     </span>
                   </div>
                 </div>
