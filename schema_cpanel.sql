@@ -155,11 +155,11 @@ CREATE TABLE IF NOT EXISTS `accomplishments` (
 -- CEO/PM/Dev/Tester: password123
 -- --------------------------------------------------------
 INSERT INTO `users` (`id`, `name`, `email`, `password_hash`, `role`, `is_active`) VALUES
-(1, 'Master Admin', 'admin@unitglo.com', '$2b$10$w3eIugb59j4.9yC9j9E.B.9WjGz8Z8q9Q6r9O9S9T9U9V9W9X9Y9Z', 'Admin', 1),
-(2, 'Chief Executive', 'ceo@unitglo.com', '$2a$12$Nq9v7JB3220rQ40eF796e.t74k.uVwz7JqX8v/Yj123456789012.', 'CEO', 1),
-(3, 'Project Manager', 'pm@unitglo.com', '$2a$12$Nq9v7JB3220rQ40eF796e.t74k.uVwz7JqX8v/Yj123456789012.', 'PM', 1),
-(4, 'Senior Developer', 'dev@unitglo.com', '$2a$12$Nq9v7JB3220rQ40eF796e.t74k.uVwz7JqX8v/Yj123456789012.', 'Developer', 1),
-(5, 'QA Lead Tester', 'tester@unitglo.com', '$2a$12$Nq9v7JB3220rQ40eF796e.t74k.uVwz7JqX8v/Yj123456789012.', 'Tester', 1)
-ON DUPLICATE KEY UPDATE `name`=VALUES(`name`), `role`=VALUES(`role`);
+(1, 'Master Admin', 'admin@unitglo.com', '$2b$10$pe0eGfmMxfR9DvtRiY2tWe9gh1QjI3SvVYo4wOWSU2wOkhby6WoZe', 'Admin', 1),
+(2, 'Chief Executive', 'ceo@unitglo.com', '$2b$10$z/KHUHVCrpNqLQ4SId08sOvsBMe3OZP1Q8pNJrY73iw62.vVJzlju', 'CEO', 1),
+(3, 'Project Manager', 'pm@unitglo.com', '$2b$10$z/KHUHVCrpNqLQ4SId08sOvsBMe3OZP1Q8pNJrY73iw62.vVJzlju', 'PM', 1),
+(4, 'Senior Developer', 'dev@unitglo.com', '$2b$10$z/KHUHVCrpNqLQ4SId08sOvsBMe3OZP1Q8pNJrY73iw62.vVJzlju', 'Developer', 1),
+(5, 'QA Lead Tester', 'tester@unitglo.com', '$2b$10$z/KHUHVCrpNqLQ4SId08sOvsBMe3OZP1Q8pNJrY73iw62.vVJzlju', 'Tester', 1)
+ON DUPLICATE KEY UPDATE `name`=VALUES(`name`), `password_hash`=VALUES(`password_hash`), `role`=VALUES(`role`);
 
 SET FOREIGN_KEY_CHECKS = 1;
