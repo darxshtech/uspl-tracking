@@ -105,3 +105,64 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+
+export async function POST(req: Request) {
+  const session = await getServerSession(authOptions);
+  if (!session || !["CEO", "PM"].includes((session.user as any).role)) {
+    return NextResponse.json({ error: "Unauthorized: PM or CEO role required" }, { status: 403 });
+  }
+
+  try {
+    const body = await req.json();
+    const { user_id, start_date, end_date, date, status = "Leave", reason, remarks } = body;
+
+    if (!user_id) {
+      return NextResponse.json({ error: "Employee selection is required" }, { status: 400 });
+    }
+
+    const startDateStr = start_date || date;
+    const endDateStr = end_date || startDateStr;
+
+    if (!startDateStr) {
+      return NextResponse.json({ error: "Date is required" }, { status: 400 });
+    }
+
+    const start = new Date(startDateStr);
+    const end = new Date(endDateStr);
+    let insertedCount = 0;
+
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const curDateStr = d.toISOString().split("T")[0];
+
+      await pool.query(
+        `INSERT INTO attendance (user_id, date, status, login_time, logout_time, total_hours) 
+         VALUES (?, ?, ?, NULL, NULL, 0)
+         ON DUPLICATE KEY UPDATE status = VALUES(status), login_time = NULL, logout_time = NULL, total_hours = 0`,
+        [user_id, curDateStr, status]
+      );
+      insertedCount++;
+    }
+
+    // Notify employee about leave approval / registration
+    const [userRows]: any = await pool.query("SELECT name FROM users WHERE id = ?", [user_id]);
+    const empName = userRows[0]?.name || "Employee";
+
+    await pool.query(
+      "INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'info')",
+      [
+        user_id,
+        `🏖️ ${status} Recorded by Management`,
+        `Your ${status} for ${startDateStr} ${endDateStr !== startDateStr ? "to " + endDateStr : ""} has been officially logged in the tracking portal.${reason ? " Reason: " + reason : ""}`
+      ]
+    );
+
+    return NextResponse.json({
+      success: true,
+      message: `Successfully logged ${status} for ${empName} (${insertedCount} day${insertedCount > 1 ? "s" : ""})`,
+      count: insertedCount,
+    });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+

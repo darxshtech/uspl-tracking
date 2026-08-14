@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -18,7 +18,12 @@ import {
   Calendar, 
   Users, 
   Filter, 
-  Send 
+  Send,
+  Eye,
+  Plus,
+  Palmtree,
+  Sparkles,
+  UserCheck
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
@@ -59,6 +64,18 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
   const [editStatus, setEditStatus] = useState("Present");
   const [editHours, setEditHours] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
+
+  // View Details Modal State
+  const [viewingEmployee, setViewingEmployee] = useState<any>(null);
+
+  // Record Leave Modal State
+  const [leaveModalOpen, setLeaveModalOpen] = useState(false);
+  const [leaveEmpId, setLeaveEmpId] = useState("");
+  const [leaveStartDate, setLeaveStartDate] = useState(new Date().toISOString().split("T")[0]);
+  const [leaveEndDate, setLeaveEndDate] = useState(new Date().toISOString().split("T")[0]);
+  const [leaveType, setLeaveType] = useState("Leave");
+  const [leaveReason, setLeaveReason] = useState("");
+  const [submittingLeave, setSubmittingLeave] = useState(false);
 
   useEffect(() => {
     fetchRecords();
@@ -123,11 +140,47 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
     }
   };
 
+  const handleRecordLeave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!leaveEmpId || !leaveStartDate) return;
+
+    setSubmittingLeave(true);
+    try {
+      const res = await fetch("/api/attendance/manage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: parseInt(leaveEmpId),
+          start_date: leaveStartDate,
+          end_date: leaveEndDate || leaveStartDate,
+          status: leaveType,
+          reason: leaveReason,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setLeaveModalOpen(false);
+        setLeaveReason("");
+        fetchRecords();
+        setFeedback(`✓ ${data.message}`);
+      } else {
+        alert(`Failed to record leave: ${data.error || "Unknown error"}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error recording leave.");
+    } finally {
+      setSubmittingLeave(false);
+    }
+  };
+
   // Metrics summary
   const totalDays = records.length;
   const totalHours = records.reduce((acc, r) => acc + (parseFloat(r.total_hours) || 0), 0);
   const presentDays = records.filter((r) => r.status === "Present").length;
   const halfDays = records.filter((r) => r.status === "Half Day").length;
+  const leaveDays = records.filter((r) => r.status === "Leave").length;
   const avgHours = totalDays > 0 ? (totalHours / totalDays).toFixed(1) : "0";
 
   const monthLabel = MONTHS.find((m) => m.value === selectedMonth)?.label || "Month";
@@ -177,7 +230,7 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
     doc.setFontSize(10);
     doc.setTextColor(100, 116, 139);
     doc.text(empText, 14, 25);
-    doc.text(`Total Days: ${totalDays} | Total Working Hours: ${totalHours.toFixed(1)} hrs | Present: ${presentDays} | Half Days: ${halfDays}`, 14, 31);
+    doc.text(`Total Days: ${totalDays} | Total Working Hours: ${totalHours.toFixed(1)} hrs | Present: ${presentDays} | Half Days: ${halfDays} | Leaves: ${leaveDays}`, 14, 31);
 
     const tableHeaders = [["#", "Employee", "Date", "Login (IST)", "Logout (IST)", "Hours", "Status"]];
     const tableBody = records.map((r, i) => [
@@ -233,6 +286,7 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
             totalHours: totalHours.toFixed(1),
             presentDays,
             halfDays,
+            leaveDays,
           },
         }),
       });
@@ -261,8 +315,92 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
             PM Executive Attendance Management & Dispatch
           </h3>
 
-          {/* Action Export Buttons */}
+          {/* Action Export & Leave Buttons */}
           <div className="flex flex-wrap items-center gap-2">
+            {/* Record Leave Modal Trigger */}
+            <Dialog open={leaveModalOpen} onOpenChange={setLeaveModalOpen}>
+              <DialogTrigger render={<Button size="sm" className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs gap-1.5 shadow-xs" />}>
+                <Palmtree className="h-3.5 w-3.5" /> Record Leave
+              </DialogTrigger>
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2 text-lg font-bold text-slate-900">
+                    <Palmtree className="h-5 w-5 text-amber-500" /> Record Employee Leave
+                  </DialogTitle>
+                </DialogHeader>
+
+                <form onSubmit={handleRecordLeave} className="space-y-4 pt-2">
+                  <div className="space-y-1.5">
+                    <Label className="font-semibold text-slate-700">Select Employee *</Label>
+                    <Select value={leaveEmpId} onValueChange={(val) => setLeaveEmpId(val || "")}>
+                      <SelectTrigger><SelectValue placeholder="Choose Employee" /></SelectTrigger>
+                      <SelectContent>
+                        {employees
+                          .filter((e) => e.role !== "CEO")
+                          .map((e) => (
+                            <SelectItem key={e.id} value={e.id.toString()}>{e.name} ({e.role})</SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="lStart" className="font-semibold text-slate-700">Start Date *</Label>
+                      <Input
+                        id="lStart"
+                        type="date"
+                        value={leaveStartDate}
+                        onChange={(e) => setLeaveStartDate(e.target.value)}
+                        required
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="lEnd" className="font-semibold text-slate-700">End Date</Label>
+                      <Input
+                        id="lEnd"
+                        type="date"
+                        value={leaveEndDate}
+                        onChange={(e) => setLeaveEndDate(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="font-semibold text-slate-700">Leave Type</Label>
+                    <Select value={leaveType} onValueChange={(val) => setLeaveType(val || "Leave")}>
+                      <SelectTrigger><SelectValue placeholder="Leave Type" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Leave">Casual Leave</SelectItem>
+                        <SelectItem value="Leave">Sick Leave</SelectItem>
+                        <SelectItem value="Leave">Paid Vacation Leave</SelectItem>
+                        <SelectItem value="Absent">Unapproved Absence</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="lReason" className="font-semibold text-slate-700">Reason / Notes</Label>
+                    <Input
+                      id="lReason"
+                      placeholder="e.g. Medical emergency, family function"
+                      value={leaveReason}
+                      onChange={(e) => setLeaveReason(e.target.value)}
+                    />
+                  </div>
+
+                  <Button
+                    type="submit"
+                    disabled={submittingLeave || !leaveEmpId}
+                    className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 mt-2"
+                  >
+                    {submittingLeave ? "Logging Leave..." : "Confirm & Record Leave"}
+                  </Button>
+                </form>
+              </DialogContent>
+            </Dialog>
+
             <Button
               size="sm"
               onClick={handleExportExcel}
@@ -370,11 +508,71 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
         </div>
 
         <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/60">
-          <span className="text-xs font-bold text-amber-700 uppercase tracking-wider">Half Days</span>
-          <div className="text-2xl font-black text-amber-900 mt-1">{halfDays}</div>
-          <span className="text-[11px] text-amber-600 font-semibold">&lt; 9 Hours Shift</span>
+          <span className="text-xs font-bold text-amber-700 uppercase tracking-wider">Leaves / Half Days</span>
+          <div className="text-2xl font-black text-amber-900 mt-1">{leaveDays + halfDays}</div>
+          <span className="text-[11px] text-amber-600 font-semibold">{leaveDays} Leaves | {halfDays} Half Days</span>
         </div>
       </div>
+
+      {/* Detailed Employee Timesheet View Modal */}
+      <Dialog open={!!viewingEmployee} onOpenChange={(open) => !open && setViewingEmployee(null)}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-xl font-bold text-slate-900">
+              <Eye className="h-5 w-5 text-sky-500" /> Employee Attendance Breakdown
+            </DialogTitle>
+          </DialogHeader>
+
+          {viewingEmployee && (
+            <div className="space-y-4 pt-2">
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-lg font-bold text-slate-900">{viewingEmployee.employee_name}</h4>
+                  <div className="text-xs text-slate-500">{viewingEmployee.employee_email} • <Badge variant="outline" className="text-[10px]">{viewingEmployee.employee_role}</Badge></div>
+                </div>
+                <div className="text-right">
+                  <div className="text-xs font-bold text-slate-500 uppercase">{monthLabel} {selectedYear}</div>
+                  <div className="text-base font-black text-sky-600">{records.filter(r => r.user_id === viewingEmployee.user_id).reduce((a, c) => a + (parseFloat(c.total_hours) || 0), 0).toFixed(1)} Total Hrs</div>
+                </div>
+              </div>
+
+              {/* Itemized Day Records for this Employee */}
+              <div className="rounded-xl border border-slate-200 overflow-hidden">
+                <Table>
+                  <TableHeader className="bg-slate-50">
+                    <TableRow>
+                      <TableHead className="font-bold text-xs">Date</TableHead>
+                      <TableHead className="font-bold text-xs">Check-In</TableHead>
+                      <TableHead className="font-bold text-xs">Check-Out</TableHead>
+                      <TableHead className="font-bold text-xs">Hours</TableHead>
+                      <TableHead className="font-bold text-xs">Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {records.filter(r => r.user_id === viewingEmployee.user_id).map((rec) => (
+                      <TableRow key={rec.id} className="hover:bg-slate-50">
+                        <TableCell className="text-xs font-semibold">{new Date(rec.date).toLocaleDateString()}</TableCell>
+                        <TableCell className="text-xs font-mono">{rec.login_time || "--:--"}</TableCell>
+                        <TableCell className="text-xs font-mono">{rec.logout_time || "--:--"}</TableCell>
+                        <TableCell className="text-xs font-bold">{parseFloat(rec.total_hours || 0).toFixed(2)}h</TableCell>
+                        <TableCell>
+                          <Badge className={
+                            rec.status === "Present" ? "bg-emerald-500 text-white text-[10px]" :
+                            rec.status === "Half Day" ? "bg-amber-500 text-white text-[10px]" :
+                            rec.status === "Leave" ? "bg-sky-500 text-white text-[10px]" : "bg-red-500 text-white text-[10px]"
+                          }>
+                            {rec.status}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Edit Record Modal */}
       <Dialog open={!!editingRecord} onOpenChange={(open) => !open && setEditingRecord(null)}>
@@ -489,14 +687,25 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
                     {rec.status === "Absent" && <Badge className="bg-red-500 text-white font-bold">Absent</Badge>}
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => openEditModal(rec)}
-                      className="text-xs font-semibold gap-1 text-slate-700 hover:text-sky-600 bg-white"
-                    >
-                      <Edit3 className="h-3.5 w-3.5" /> Edit
-                    </Button>
+                    <div className="flex items-center justify-end gap-1.5">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setViewingEmployee(rec)}
+                        className="text-xs font-semibold gap-1 text-sky-600 hover:bg-sky-50 bg-white"
+                        title="View Complete Timesheet"
+                      >
+                        <Eye className="h-3.5 w-3.5" /> View
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openEditModal(rec)}
+                        className="text-xs font-semibold gap-1 text-slate-700 hover:text-sky-600 bg-white"
+                      >
+                        <Edit3 className="h-3.5 w-3.5" /> Edit
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))

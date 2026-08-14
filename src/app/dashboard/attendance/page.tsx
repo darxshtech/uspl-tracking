@@ -5,6 +5,10 @@ import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import PMAttendanceManager from "@/components/PMAttendanceManager";
 import AttendanceCalendarView from "@/components/AttendanceCalendarView";
 import { 
@@ -17,7 +21,10 @@ import {
   CheckCircle2, 
   Crown, 
   Calendar as CalendarIcon, 
-  List 
+  List,
+  Eye,
+  Palmtree,
+  Plus
 } from "lucide-react";
 
 export default function AttendancePage() {
@@ -36,6 +43,18 @@ export default function AttendancePage() {
   const [feedback, setFeedback] = useState("");
   const [currentISTTime, setCurrentISTTime] = useState("");
   const [currentISTDate, setCurrentISTDate] = useState("");
+
+  // Record Leave Modal State (for PM / CEO or self)
+  const [leaveModalOpen, setLeaveModalOpen] = useState(false);
+  const [leaveEmpId, setLeaveEmpId] = useState("");
+  const [leaveStartDate, setLeaveStartDate] = useState(new Date().toISOString().split("T")[0]);
+  const [leaveEndDate, setLeaveEndDate] = useState(new Date().toISOString().split("T")[0]);
+  const [leaveType, setLeaveType] = useState("Leave");
+  const [leaveReason, setLeaveReason] = useState("");
+  const [submittingLeave, setSubmittingLeave] = useState(false);
+
+  // View Record Detail Modal
+  const [selectedRecord, setSelectedRecord] = useState<any>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -97,6 +116,42 @@ export default function AttendancePage() {
       setFeedback("An unexpected error occurred.");
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const handleRecordLeave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const targetUserId = isPM || isCEO ? parseInt(leaveEmpId) : (session?.user as any)?.id;
+    if (!targetUserId || !leaveStartDate) return;
+
+    setSubmittingLeave(true);
+    try {
+      const res = await fetch("/api/attendance/manage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: targetUserId,
+          start_date: leaveStartDate,
+          end_date: leaveEndDate || leaveStartDate,
+          status: leaveType,
+          reason: leaveReason,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setLeaveModalOpen(false);
+        setLeaveReason("");
+        fetchAttendance();
+        setFeedback(`✓ ${data.message}`);
+      } else {
+        alert(`Failed to record leave: ${data.error || "Unknown error"}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error recording leave.");
+    } finally {
+      setSubmittingLeave(false);
     }
   };
 
@@ -175,7 +230,7 @@ export default function AttendancePage() {
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <Button
               onClick={() => handlePunch("check-in")}
               disabled={actionLoading}
@@ -191,6 +246,75 @@ export default function AttendancePage() {
             >
               <LogOut className="h-4 w-4" /> Check Out
             </Button>
+
+            {/* Record / Apply Leave Trigger */}
+            <Dialog open={leaveModalOpen} onOpenChange={setLeaveModalOpen}>
+              <DialogTrigger render={<Button variant="outline" className="text-amber-700 border-amber-300 hover:bg-amber-50 font-bold px-4 py-2.5 flex items-center gap-2" />}>
+                <Palmtree className="h-4 w-4 text-amber-600" /> Apply Leave
+              </DialogTrigger>
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2 text-lg font-bold text-slate-900">
+                    <Palmtree className="h-5 w-5 text-amber-500" /> Record / Apply Leave
+                  </DialogTitle>
+                </DialogHeader>
+
+                <form onSubmit={handleRecordLeave} className="space-y-4 pt-2">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="leaveStart" className="font-semibold text-slate-700">Start Date *</Label>
+                      <Input
+                        id="leaveStart"
+                        type="date"
+                        value={leaveStartDate}
+                        onChange={(e) => setLeaveStartDate(e.target.value)}
+                        required
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="leaveEnd" className="font-semibold text-slate-700">End Date</Label>
+                      <Input
+                        id="leaveEnd"
+                        type="date"
+                        value={leaveEndDate}
+                        onChange={(e) => setLeaveEndDate(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="font-semibold text-slate-700">Leave Type</Label>
+                    <Select value={leaveType} onValueChange={(val) => setLeaveType(val || "Leave")}>
+                      <SelectTrigger><SelectValue placeholder="Leave Type" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Leave">Casual Leave</SelectItem>
+                        <SelectItem value="Leave">Sick Leave</SelectItem>
+                        <SelectItem value="Leave">Paid Vacation Leave</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="leaveNotes" className="font-semibold text-slate-700">Reason / Notes</Label>
+                    <Input
+                      id="leaveNotes"
+                      placeholder="e.g. Medical, personal emergency"
+                      value={leaveReason}
+                      onChange={(e) => setLeaveReason(e.target.value)}
+                    />
+                  </div>
+
+                  <Button
+                    type="submit"
+                    disabled={submittingLeave}
+                    className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 mt-2 shadow-md"
+                  >
+                    {submittingLeave ? "Submitting Leave..." : "Confirm & Save Leave"}
+                  </Button>
+                </form>
+              </DialogContent>
+            </Dialog>
           </div>
         </div>
       )}
@@ -240,13 +364,14 @@ export default function AttendancePage() {
                     <TableHead className="font-bold">Check-Out (IST)</TableHead>
                     <TableHead className="font-bold">Total Shift Hours</TableHead>
                     <TableHead className="font-bold">Status</TableHead>
+                    <TableHead className="font-bold text-right">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {loading ? (
-                    <TableRow><TableCell colSpan={7} className="text-center py-8">Loading records...</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={8} className="text-center py-8">Loading records...</TableCell></TableRow>
                   ) : attendance.length === 0 ? (
-                    <TableRow><TableCell colSpan={7} className="text-center text-slate-500 py-10">No attendance records logged.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={8} className="text-center text-slate-500 py-10">No attendance records logged.</TableCell></TableRow>
                   ) : (
                     attendance.map((rec) => (
                       <TableRow key={rec.id} className="hover:bg-slate-50/80 transition-colors">
@@ -262,6 +387,16 @@ export default function AttendancePage() {
                           {rec.status === "Leave" && <Badge className="bg-sky-500 text-white font-bold">Leave</Badge>}
                           {rec.status === "Absent" && <Badge className="bg-red-500 text-white font-bold">Absent</Badge>}
                         </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setSelectedRecord(rec)}
+                            className="text-xs font-semibold gap-1 text-sky-600 hover:bg-sky-50 bg-white"
+                          >
+                            <Eye className="h-3.5 w-3.5" /> View
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     ))
                   )}
@@ -271,6 +406,59 @@ export default function AttendancePage() {
           </div>
         </>
       )}
+
+      {/* Individual Attendance Detail Modal */}
+      <Dialog open={!!selectedRecord} onOpenChange={(open) => !open && setSelectedRecord(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg font-bold text-slate-900">
+              <Eye className="h-5 w-5 text-sky-500" /> Shift Verification Details
+            </DialogTitle>
+          </DialogHeader>
+
+          {selectedRecord && (
+            <div className="space-y-4 pt-2">
+              <div className="rounded-xl bg-slate-50 p-4 border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-500 uppercase">Employee</span>
+                  <span className="text-sm font-black text-slate-900">{selectedRecord.employee_name || "Employee"}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-500 uppercase">Shift Date</span>
+                  <span className="text-sm font-semibold text-slate-800">{new Date(selectedRecord.date).toLocaleDateString()}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-500 uppercase">Status</span>
+                  <Badge className={
+                    selectedRecord.status === "Present" ? "bg-emerald-500 text-white" :
+                    selectedRecord.status === "Half Day" ? "bg-amber-500 text-white" :
+                    selectedRecord.status === "Leave" ? "bg-sky-500 text-white" : "bg-red-500 text-white"
+                  }>
+                    {selectedRecord.status}
+                  </Badge>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 rounded-xl border border-slate-200 bg-white">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase">Check-In Time</span>
+                  <div className="font-mono text-sm font-bold text-slate-900 mt-1">{selectedRecord.login_time || "Not Recorded"}</div>
+                </div>
+
+                <div className="p-3 rounded-xl border border-slate-200 bg-white">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase">Check-Out Time</span>
+                  <div className="font-mono text-sm font-bold text-slate-900 mt-1">{selectedRecord.logout_time || "Not Recorded"}</div>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-xl border border-sky-200 bg-sky-50/60 flex items-center justify-between">
+                <span className="text-xs font-bold text-sky-800 uppercase">Total Shift Duration</span>
+                <span className="text-xl font-black text-sky-900">{parseFloat(selectedRecord.total_hours || 0).toFixed(2)} Hours</span>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
