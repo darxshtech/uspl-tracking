@@ -205,3 +205,42 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+
+export async function DELETE(req: Request) {
+  const session = await getServerSession(authOptions);
+  if (!session || !["CEO", "PM"].includes((session.user as any).role)) {
+    return NextResponse.json({ error: "Unauthorized: PM or CEO role required" }, { status: 403 });
+  }
+
+  try {
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get("id");
+
+    if (!id) {
+      return NextResponse.json({ error: "Project ID is required" }, { status: 400 });
+    }
+
+    const connection: any = await pool.getConnection();
+    await connection.beginTransaction();
+
+    try {
+      await connection.query("DELETE FROM daily_work WHERE project_id = ?", [id]);
+      await connection.query("DELETE FROM task_checklists WHERE task_id IN (SELECT id FROM tasks WHERE project_id = ?)", [id]);
+      await connection.query("DELETE FROM tasks WHERE project_id = ?", [id]);
+      await connection.query("DELETE FROM project_members WHERE project_id = ?", [id]);
+      await connection.query("DELETE FROM projects WHERE id = ?", [id]);
+
+      await connection.commit();
+      connection.release();
+
+      return NextResponse.json({ success: true, message: "Project deleted successfully" });
+    } catch (err) {
+      await connection.rollback();
+      connection.release();
+      throw err;
+    }
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
