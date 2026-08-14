@@ -17,11 +17,25 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import AttendanceCalendarView from "@/components/AttendanceCalendarView";
-import { Users, UserPlus, Calendar, Edit3, Shield, KeyRound, Phone, UserCheck } from "lucide-react";
+import { 
+  Users, 
+  UserPlus, 
+  Calendar, 
+  Edit3, 
+  Trash2, 
+  Power, 
+  PowerOff, 
+  Shield, 
+  KeyRound, 
+  Phone, 
+  UserCheck, 
+  AlertTriangle 
+} from "lucide-react";
 
 export default function EmployeesPage() {
   const { data: session } = useSession();
   const currentRole = (session?.user as any)?.role;
+  const currentUserId = (session?.user as any)?.id;
   const isSuperAdminOrCEO = currentRole === "Admin" || currentRole === "CEO";
 
   const [employees, setEmployees] = useState<any[]>([]);
@@ -145,6 +159,61 @@ export default function EmployeesPage() {
     }
   };
 
+  // Quick toggle active / inactive status
+  const handleToggleActive = async (emp: any) => {
+    const newStatus = !emp.is_active;
+    const confirmMsg = newStatus 
+      ? `Are you sure you want to activate ${emp.name}'s account?`
+      : `Are you sure you want to deactivate ${emp.name}? They will not be able to log in.`;
+    
+    if (!confirm(confirmMsg)) return;
+
+    try {
+      const res = await fetch("/api/employees", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: emp.id, is_active: newStatus }),
+      });
+
+      if (res.ok) {
+        fetchEmployees();
+      } else {
+        const data = await res.json();
+        alert(`Failed to update status: ${data.error || "Unknown error"}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error toggling account status");
+    }
+  };
+
+  // Delete employee permanently
+  const handleDeleteEmployee = async (emp: any) => {
+    if (emp.id === currentUserId) {
+      alert("You cannot delete your own logged-in account.");
+      return;
+    }
+
+    const confirmMsg = `WARNING: Are you sure you want to PERMANENTLY delete ${emp.name} (${emp.email})?\n\nThis will remove their project memberships, attendance records, and unassign their tasks. This action cannot be undone.`;
+    if (!confirm(confirmMsg)) return;
+
+    try {
+      const res = await fetch(`/api/employees?id=${emp.id}`, {
+        method: "DELETE",
+      });
+
+      if (res.ok) {
+        fetchEmployees();
+      } else {
+        const data = await res.json();
+        alert(`Failed to delete employee: ${data.error || "Unknown error"}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error deleting employee.");
+    }
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -153,7 +222,7 @@ export default function EmployeesPage() {
             <Users className="h-8 w-8 text-sky-500" /> Employees Directory & Team Management
           </h1>
           <p className="text-slate-500 mt-1">
-            Create and edit team members, assign executive management roles (CEO, PM), reset credentials, and audit monthly attendance calendars.
+            Create and edit team members, manage active/inactive status, assign executive roles (CEO, PM), reset credentials, and delete accounts.
           </p>
         </div>
         
@@ -327,14 +396,24 @@ export default function EmployeesPage() {
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    {emp.is_active ? (
-                      <Badge className="bg-emerald-500 text-white font-bold">Active</Badge>
-                    ) : (
-                      <Badge variant="secondary">Inactive</Badge>
-                    )}
+                    <button
+                      onClick={() => handleToggleActive(emp)}
+                      className="cursor-pointer transition-transform hover:scale-105"
+                      title="Click to toggle Active / Inactive status"
+                    >
+                      {emp.is_active ? (
+                        <Badge className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold gap-1">
+                          <Power className="h-3 w-3" /> Active
+                        </Badge>
+                      ) : (
+                        <Badge variant="secondary" className="bg-slate-200 text-slate-600 hover:bg-slate-300 font-bold gap-1">
+                          <PowerOff className="h-3 w-3" /> Inactive
+                        </Badge>
+                      )}
+                    </button>
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-1.5">
+                    <div className="flex items-center justify-end gap-1">
                       <Button
                         size="sm"
                         variant="ghost"
@@ -345,17 +424,29 @@ export default function EmployeesPage() {
                         <Edit3 className="h-4 w-4" />
                       </Button>
 
-                      {emp.role !== "CEO" && emp.role !== "Admin" ? (
+                      {emp.role !== "CEO" && emp.role !== "Admin" && (
                         <Button
                           size="sm"
                           variant="outline"
                           onClick={() => setViewingEmployee(emp)}
-                          className="text-xs font-semibold gap-1 text-sky-600 hover:bg-sky-50 bg-white h-8"
+                          className="text-xs font-semibold gap-1 text-sky-600 hover:bg-sky-50 bg-white h-8 px-2"
+                          title="View Attendance Calendar"
                         >
-                          <Calendar className="h-3.5 w-3.5" /> Calendar
+                          <Calendar className="h-3.5 w-3.5" />
                         </Button>
-                      ) : (
-                        <span className="text-xs text-slate-400 font-medium italic pr-2">Exempt</span>
+                      )}
+
+                      {/* Delete Employee Button (Admin & CEO can delete) */}
+                      {isSuperAdminOrCEO && emp.id !== currentUserId && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleDeleteEmployee(emp)}
+                          className="text-xs font-semibold text-red-500 hover:text-red-700 hover:bg-red-50 p-1.5 h-8 w-8"
+                          title="Delete Employee Permanently"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       )}
                     </div>
                   </TableCell>

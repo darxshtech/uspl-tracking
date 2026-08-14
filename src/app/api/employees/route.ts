@@ -73,8 +73,18 @@ export async function PUT(req: Request) {
     const body = await req.json();
     const { id, name, email, role, phone, bio, password, is_active } = body;
 
-    if (!id || !name || !email || !role) {
-      return NextResponse.json({ error: "Missing required fields (ID, Name, Email, Role)" }, { status: 400 });
+    if (!id) {
+      return NextResponse.json({ error: "Missing employee ID" }, { status: 400 });
+    }
+
+    // Quick toggle for is_active status only
+    if (name === undefined && is_active !== undefined) {
+      await pool.query("UPDATE users SET is_active = ? WHERE id = ?", [is_active, id]);
+      return NextResponse.json({ success: true, id, is_active });
+    }
+
+    if (!name || !email || !role) {
+      return NextResponse.json({ error: "Missing required fields (Name, Email, Role)" }, { status: 400 });
     }
 
     // Only Admin & CEO can promote or modify executive management roles (CEO, PM, Admin)
@@ -107,6 +117,47 @@ export async function PUT(req: Request) {
     if (error.code === 'ER_DUP_ENTRY') {
       return NextResponse.json({ error: "Email already exists" }, { status: 409 });
     }
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: Request) {
+  const session = await getServerSession(authOptions);
+  const currentRole = (session?.user as any)?.role;
+  const currentUserId = (session?.user as any)?.id;
+  
+  if (!session || !["Admin", "CEO", "PM"].includes(currentRole)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+  }
+
+  try {
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get("id");
+
+    if (!id) {
+      return NextResponse.json({ error: "Missing employee ID" }, { status: 400 });
+    }
+
+    const empId = parseInt(id);
+
+    if (empId === currentUserId) {
+      return NextResponse.json({ error: "You cannot delete your own active account." }, { status: 400 });
+    }
+
+    // Clean up relations before deleting user
+    await pool.query("DELETE FROM project_members WHERE user_id = ?", [empId]);
+    await pool.query("DELETE FROM attendance WHERE user_id = ?", [empId]);
+    await pool.query("DELETE FROM notifications WHERE user_id = ?", [empId]);
+    await pool.query("UPDATE tasks SET assigned_to = NULL WHERE assigned_to = ?", [empId]);
+    
+    const [delResult]: any = await pool.query("DELETE FROM users WHERE id = ?", [empId]);
+
+    if (delResult.affectedRows === 0) {
+      return NextResponse.json({ error: "Employee not found" }, { status: 404 });
+    }
+
+    return NextResponse.json({ success: true, message: `Employee ID ${empId} deleted successfully.` });
+  } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
