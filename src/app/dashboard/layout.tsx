@@ -47,8 +47,8 @@ export default async function DashboardLayout({
     <div className="flex h-screen w-full bg-slate-100">
       {/* Sidebar */}
       <aside className="w-64 border-r border-slate-200 bg-slate-900 text-white flex flex-col hidden md:flex shadow-xl z-20">
-        <div className="p-6 border-b border-slate-800 bg-slate-950/50">
-          <UnitgloLogo size="md" />
+        <div className="p-5 border-b border-slate-800 bg-slate-950/50 flex items-center justify-center">
+          <UnitgloLogo size="md" theme="dark" />
         </div>
         <div className="flex-1 overflow-y-auto py-6">
           <nav className="space-y-1.5 px-4">
