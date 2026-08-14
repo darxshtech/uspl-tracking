@@ -316,7 +316,7 @@ export default function AttendanceWidget() {
     }
   };
 
-  if (role === "CEO") {
+  if (role === "CEO" || role === "Admin") {
     return null;
   }
 
