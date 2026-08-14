@@ -63,6 +63,9 @@ export default function EmployeesPage() {
   const [editIsActive, setEditIsActive] = useState<boolean>(true);
   const [savingEdit, setSavingEdit] = useState(false);
 
+  const [deleteConfirmEmp, setDeleteConfirmEmp] = useState<any>(null);
+  const [deleting, setDeleting] = useState(false);
+
   useEffect(() => {
     fetchEmployees();
   }, []);
@@ -162,11 +165,6 @@ export default function EmployeesPage() {
   // Quick toggle active / inactive status
   const handleToggleActive = async (emp: any) => {
     const newStatus = !emp.is_active;
-    const confirmMsg = newStatus 
-      ? `Are you sure you want to activate ${emp.name}'s account?`
-      : `Are you sure you want to deactivate ${emp.name}? They will not be able to log in.`;
-    
-    if (!confirm(confirmMsg)) return;
 
     try {
       const res = await fetch("/api/employees", {
@@ -187,22 +185,23 @@ export default function EmployeesPage() {
     }
   };
 
-  // Delete employee permanently
-  const handleDeleteEmployee = async (emp: any) => {
-    if (emp.id === currentUserId) {
+  // Confirm delete employee permanently
+  const confirmDeleteEmployee = async () => {
+    if (!deleteConfirmEmp) return;
+    if (deleteConfirmEmp.id === currentUserId) {
       alert("You cannot delete your own logged-in account.");
+      setDeleteConfirmEmp(null);
       return;
     }
 
-    const confirmMsg = `WARNING: Are you sure you want to PERMANENTLY delete ${emp.name} (${emp.email})?\n\nThis will remove their project memberships, attendance records, and unassign their tasks. This action cannot be undone.`;
-    if (!confirm(confirmMsg)) return;
-
+    setDeleting(true);
     try {
-      const res = await fetch(`/api/employees?id=${emp.id}`, {
+      const res = await fetch(`/api/employees?id=${deleteConfirmEmp.id}`, {
         method: "DELETE",
       });
 
       if (res.ok) {
+        setDeleteConfirmEmp(null);
         fetchEmployees();
       } else {
         const data = await res.json();
@@ -211,6 +210,8 @@ export default function EmployeesPage() {
     } catch (err) {
       console.error(err);
       alert("Error deleting employee.");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -441,7 +442,7 @@ export default function EmployeesPage() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={() => handleDeleteEmployee(emp)}
+                          onClick={() => setDeleteConfirmEmp(emp)}
                           className="text-xs font-semibold text-red-500 hover:text-red-700 hover:bg-red-50 p-1.5 h-8 w-8"
                           title="Delete Employee Permanently"
                         >
@@ -456,6 +457,44 @@ export default function EmployeesPage() {
           </TableBody>
         </Table>
       </div>
+
+      {/* Delete Employee Confirmation Dialog */}
+      <Dialog open={!!deleteConfirmEmp} onOpenChange={(open) => !open && setDeleteConfirmEmp(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg font-bold text-red-600">
+              <AlertTriangle className="h-5 w-5 text-red-500" /> Confirm Permanent Deletion
+            </DialogTitle>
+          </DialogHeader>
+          {deleteConfirmEmp && (
+            <div className="space-y-4 pt-2">
+              <p className="text-sm text-slate-600">
+                Are you sure you want to permanently delete{" "}
+                <span className="font-bold text-slate-900">{deleteConfirmEmp.name}</span> ({deleteConfirmEmp.email})?
+              </p>
+              <div className="rounded-xl bg-red-50 p-3 text-xs text-red-700 border border-red-200">
+                ⚠️ This will remove their project memberships, attendance records, and unassign their tasks. This action cannot be undone.
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setDeleteConfirmEmp(null)}
+                  disabled={deleting}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="bg-red-600 hover:bg-red-700 text-white font-bold"
+                  onClick={confirmDeleteEmployee}
+                  disabled={deleting}
+                >
+                  {deleting ? "Deleting..." : "Permanently Delete"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Employee Month-Wise Calendar Modal */}
       <Dialog open={!!viewingEmployee} onOpenChange={(open) => !open && setViewingEmployee(null)}>

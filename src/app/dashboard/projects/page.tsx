@@ -22,7 +22,8 @@ import {
   Check, 
   Plus, 
   UserCheck, 
-  Edit3 
+  Edit3,
+  AlertTriangle
 } from "lucide-react";
 
 export default function ProjectsPage() {
@@ -38,6 +39,8 @@ export default function ProjectsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [deleteConfirmProject, setDeleteConfirmProject] = useState<any>(null);
+  const [deletingProject, setDeletingProject] = useState(false);
 
   // Form State for Create
   const [name, setName] = useState("");
@@ -256,20 +259,24 @@ export default function ProjectsPage() {
     }
   };
 
-  const handleDeleteProject = async (id: number, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!confirm("Are you sure you want to delete this project? This will remove all associated tasks and work logs.")) return;
+  const confirmDeleteProject = async () => {
+    if (!deleteConfirmProject) return;
+    setDeletingProject(true);
     try {
-      const res = await fetch(`/api/projects?id=${id}`, {
+      const res = await fetch(`/api/projects?id=${deleteConfirmProject.id}`, {
         method: "DELETE",
       });
       if (res.ok) {
+        setDeleteConfirmProject(null);
         fetchProjects();
       } else {
         alert("Failed to delete project.");
       }
     } catch (err) {
       console.error(err);
+      alert("Error deleting project.");
+    } finally {
+      setDeletingProject(false);
     }
   };
 
@@ -711,7 +718,10 @@ export default function ProjectsPage() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={(e) => handleDeleteProject(proj.id, e)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteConfirmProject(proj);
+                          }}
                           className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1.5 h-8 w-8"
                           title="Delete Project"
                         >
@@ -726,6 +736,43 @@ export default function ProjectsPage() {
           </TableBody>
         </Table>
       </div>
+
+      {/* Delete Project Confirmation Dialog */}
+      <Dialog open={!!deleteConfirmProject} onOpenChange={(open) => !open && setDeleteConfirmProject(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg font-bold text-red-600">
+              <AlertTriangle className="h-5 w-5 text-red-500" /> Confirm Project Deletion
+            </DialogTitle>
+          </DialogHeader>
+          {deleteConfirmProject && (
+            <div className="space-y-4 pt-2">
+              <p className="text-sm text-slate-600">
+                Are you sure you want to delete <span className="font-bold text-slate-900">{deleteConfirmProject.name}</span>?
+              </p>
+              <div className="rounded-xl bg-red-50 p-3 text-xs text-red-700 border border-red-200">
+                ⚠️ This will remove all associated tasks, documentation links, and work logs for this initiative. This action cannot be undone.
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setDeleteConfirmProject(null)}
+                  disabled={deletingProject}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="bg-red-600 hover:bg-red-700 text-white font-bold"
+                  onClick={confirmDeleteProject}
+                  disabled={deletingProject}
+                >
+                  {deletingProject ? "Deleting..." : "Delete Project"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
