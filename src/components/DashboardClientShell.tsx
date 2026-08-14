@@ -284,10 +284,23 @@ export default function DashboardClientShell({ children, user }: DashboardClient
         </header>
 
         {/* Main Content Area */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 animate-fade-in">
-          <div className="max-w-7xl mx-auto">
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 animate-fade-in flex flex-col justify-between">
+          <div className="max-w-7xl mx-auto w-full">
             {children}
           </div>
+
+          {/* Security & Copyright Footer */}
+          <footer className="mt-12 pt-6 border-t border-slate-200/80 text-center sm:text-left flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500 max-w-7xl mx-auto w-full">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-slate-700">© 2026 Unitglo Solutions Pvt. Ltd.</span>
+              <span>•</span>
+              <span>All rights reserved.</span>
+            </div>
+            <div className="flex items-center gap-2 text-[11px] text-slate-400 bg-slate-100 px-3 py-1 rounded-full border border-slate-200">
+              <Shield className="h-3.5 w-3.5 text-emerald-600" />
+              <span>256-Bit SSL Encrypted • Internal Enterprise Portal</span>
+            </div>
+          </footer>
         </main>
       </div>
     </div>

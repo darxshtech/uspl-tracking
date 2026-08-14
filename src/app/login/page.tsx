@@ -107,9 +107,12 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <div className="pt-2 text-center">
-          <p className="text-[11px] text-slate-400">
-            Protected Unitglo Solutions internal system. Authorized access only.
+        <div className="pt-2 text-center space-y-1">
+          <p className="text-[11px] font-medium text-slate-500">
+            © 2026 Unitglo Solutions Pvt. Ltd. All rights reserved.
+          </p>
+          <p className="text-[10px] text-slate-400">
+            🔒 256-Bit SSL Encrypted • Internal Enterprise System
           </p>
         </div>
       </div>
