@@ -20,7 +20,9 @@ import {
   Paperclip, 
   Trash2, 
   Check, 
-  Plus 
+  Plus, 
+  UserCheck, 
+  Edit3 
 } from "lucide-react";
 
 export default function ProjectsPage() {
@@ -35,14 +37,14 @@ export default function ProjectsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
 
-  // Form State
+  // Form State (No initial status required)
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [targetDate, setTargetDate] = useState("");
-  const [status, setStatus] = useState("Planning");
   const [documentationUrl, setDocumentationUrl] = useState("");
   const [attachments, setAttachments] = useState<any[]>([]);
   const [selectedMembers, setSelectedMembers] = useState<number[]>([]);
+  const [primaryDeveloperId, setPrimaryDeveloperId] = useState("");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -127,9 +129,24 @@ export default function ProjectsPage() {
     );
   };
 
+  const handleDeveloperDropdownSelect = (devIdStr: string) => {
+    if (!devIdStr) return;
+    setPrimaryDeveloperId(devIdStr);
+    const id = parseInt(devIdStr);
+    if (!selectedMembers.includes(id)) {
+      setSelectedMembers((prev) => [...prev, id]);
+    }
+  };
+
   const handleCreateProject = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canManageProject) return;
+
+    // Combine primary developer with selected members
+    let finalMembers = [...selectedMembers];
+    if (primaryDeveloperId && !finalMembers.includes(parseInt(primaryDeveloperId))) {
+      finalMembers.push(parseInt(primaryDeveloperId));
+    }
 
     setSubmitting(true);
     try {
@@ -140,10 +157,10 @@ export default function ProjectsPage() {
           name,
           description,
           target_date: targetDate || null,
-          status,
+          status: "Planning",
           documentation_url: documentationUrl,
           attachments,
-          members: selectedMembers,
+          members: finalMembers,
         }),
       });
 
@@ -154,10 +171,10 @@ export default function ProjectsPage() {
         setName("");
         setDescription("");
         setTargetDate("");
-        setStatus("Planning");
         setDocumentationUrl("");
         setAttachments([]);
         setSelectedMembers([]);
+        setPrimaryDeveloperId("");
       } else {
         const data = await res.json();
         alert(`Failed to create project: ${data.error || "Unknown error"}`);
@@ -170,12 +187,31 @@ export default function ProjectsPage() {
     }
   };
 
+  const handleDeleteProject = async (id: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm("Are you sure you want to delete this project and all associated tasks?")) return;
+
+    try {
+      const res = await fetch(`/api/projects?id=${id}`, { method: "DELETE" });
+      if (res.ok) {
+        fetchProjects();
+      } else {
+        alert("Failed to delete project.");
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const formatFileSize = (bytes: number) => {
     if (!bytes) return "0 KB";
     const kb = bytes / 1024;
     if (kb < 1024) return `${kb.toFixed(1)} KB`;
     return `${(kb / 1024).toFixed(1)} MB`;
   };
+
+  const developersList = employees.filter((e) => e.role === "Developer");
+  const testersList = employees.filter((e) => e.role === "Tester");
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -187,12 +223,12 @@ export default function ProjectsPage() {
           </h1>
           <p className="text-slate-500 mt-1">
             {canManageProject
-              ? "Create projects, upload Cloudinary documentation (PDF/Excel), and assign development teams."
+              ? "Create projects, assign developers from dropdown, and upload specifications (PDF/Excel)."
               : "Access assigned projects, technical specifications, and downloadable project documentation."}
           </p>
         </div>
 
-        {canManageProject ? (
+        {canManageProject && (
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger render={<Button className="bg-sky-600 hover:bg-sky-700 text-white font-bold shadow-md flex items-center gap-2" />}>
               <Plus className="h-4 w-4" /> Create New Project
@@ -205,43 +241,37 @@ export default function ProjectsPage() {
               </DialogHeader>
 
               <form onSubmit={handleCreateProject} className="space-y-5 pt-2">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="projName" className="font-semibold text-slate-700">Project Name *</Label>
-                    <Input
-                      id="projName"
-                      placeholder="e.g. Unitglo Core Banking API"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      required
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="projStatus" className="font-semibold text-slate-700">Initial Status</Label>
-                    <Select value={status} onValueChange={(val) => setStatus(val || "Planning")}>
-                      <SelectTrigger><SelectValue placeholder="Select Status" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Planning">Planning</SelectItem>
-                        <SelectItem value="In Progress">In Progress</SelectItem>
-                        <SelectItem value="Not Started">Not Started</SelectItem>
-                        <SelectItem value="On Hold">On Hold</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
                 <div className="space-y-1.5">
-                  <Label htmlFor="projDesc" className="font-semibold text-slate-700">Project Overview & Objectives</Label>
+                  <Label htmlFor="projName" className="font-semibold text-slate-700">Project Name *</Label>
                   <Input
-                    id="projDesc"
-                    placeholder="Brief description of the deliverables and scope"
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
+                    id="projName"
+                    placeholder="e.g. Unitglo Payment Gateway API"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
                   />
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Developers in Dropdown */}
+                  <div className="space-y-1.5">
+                    <Label className="font-semibold text-slate-700 flex items-center gap-1.5">
+                      <UserCheck className="h-4 w-4 text-sky-500" /> Assign Lead Developer *
+                    </Label>
+                    <Select value={primaryDeveloperId} onValueChange={handleDeveloperDropdownSelect}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select Developer from Dropdown" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {developersList.map((d) => (
+                          <SelectItem key={d.id} value={d.id.toString()}>
+                            {d.name} ({d.email})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
                   <div className="space-y-1.5">
                     <Label htmlFor="projDate" className="font-semibold text-slate-700">Target Delivery Date</Label>
                     <Input
@@ -251,16 +281,26 @@ export default function ProjectsPage() {
                       onChange={(e) => setTargetDate(e.target.value)}
                     />
                   </div>
+                </div>
 
-                  <div className="space-y-1.5">
-                    <Label htmlFor="projDocs" className="font-semibold text-slate-700">Project Documentation Link (URL)</Label>
-                    <Input
-                      id="projDocs"
-                      placeholder="https://docs.unitglo.com/specs or Google Docs URL"
-                      value={documentationUrl}
-                      onChange={(e) => setDocumentationUrl(e.target.value)}
-                    />
-                  </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="projDesc" className="font-semibold text-slate-700">Project Overview & Deliverables</Label>
+                  <Input
+                    id="projDesc"
+                    placeholder="Brief summary of modules, architecture, and scope..."
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="projDocs" className="font-semibold text-slate-700">Documentation URL / Repository</Label>
+                  <Input
+                    id="projDocs"
+                    placeholder="https://docs.unitglo.com or Google Docs URL"
+                    value={documentationUrl}
+                    onChange={(e) => setDocumentationUrl(e.target.value)}
+                  />
                 </div>
 
                 {/* Cloudinary File Uploads (PDF, Excel, Docs) */}
@@ -328,13 +368,13 @@ export default function ProjectsPage() {
                   )}
                 </div>
 
-                {/* Team Member Assignment (Developers & Testers) */}
+                {/* Additional Team Member Multi-select */}
                 <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50/50 p-4">
                   <Label className="font-bold text-slate-900 flex items-center gap-1.5">
-                    <Users className="h-4 w-4 text-indigo-500" /> Assign Team Members (Developers & Testers)
+                    <Users className="h-4 w-4 text-indigo-500" /> Additional Team Members & QA Testers
                   </Label>
                   <p className="text-xs text-slate-500">
-                    Assigned employees will receive instant notification alerts and immediate access to this project.
+                    Select all additional developers and testers to include on this project.
                   </p>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 max-h-40 overflow-y-auto">
@@ -362,7 +402,7 @@ export default function ProjectsPage() {
                               </div>
                               <span className="truncate">{emp.name}</span>
                             </div>
-                            <Badge variant="outline" className="text-[10px] uppercase font-bold">
+                            <Badge variant="outline" className="text-[10px] shrink-0">
                               {emp.role}
                             </Badge>
                           </div>
@@ -373,111 +413,116 @@ export default function ProjectsPage() {
 
                 <Button
                   type="submit"
-                  disabled={submitting || uploading}
-                  className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 shadow-md"
+                  disabled={submitting}
+                  className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 mt-2 shadow-lg"
                 >
-                  {submitting ? "Saving Project..." : "Create Project & Notify Team"}
+                  {submitting ? "Creating Project & Notifying Team..." : "Create Project"}
                 </Button>
               </form>
             </DialogContent>
           </Dialog>
-        ) : (
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-100 border border-slate-200 text-slate-700 text-xs font-semibold">
-            <Users className="h-4 w-4 text-sky-600" />
-            Showing Projects Assigned to Your Profile
-          </div>
         )}
       </div>
 
-      {/* Projects Table */}
+      {/* Projects Grid Table */}
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <Table>
           <TableHeader className="bg-slate-50">
             <TableRow>
               <TableHead className="font-bold">Project Name</TableHead>
-              <TableHead className="font-bold">Status</TableHead>
-              <TableHead className="font-bold">Target Date</TableHead>
-              <TableHead className="font-bold">Documentation & Cloudinary Files</TableHead>
               <TableHead className="font-bold">Assigned Team</TableHead>
+              <TableHead className="font-bold">Target Date</TableHead>
+              <TableHead className="font-bold">Documentation & Files</TableHead>
+              <TableHead className="font-bold">Status</TableHead>
+              {canManageProject && <TableHead className="font-bold text-right">Actions</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={5} className="text-center py-8">Loading projects...</TableCell></TableRow>
+              <TableRow><TableCell colSpan={6} className="text-center py-8">Loading projects...</TableCell></TableRow>
             ) : projects.length === 0 ? (
-              <TableRow><TableCell colSpan={5} className="text-center text-slate-500 py-10">No active projects assigned.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={6} className="text-center text-slate-500 py-10">No projects created yet. Click "Create New Project" to begin.</TableCell></TableRow>
             ) : (
               projects.map((proj) => (
                 <TableRow key={proj.id} className="hover:bg-slate-50/80 transition-colors">
-                  <TableCell className="align-top">
-                    <div className="font-bold text-slate-900 text-sm">{proj.name}</div>
+                  <TableCell>
+                    <div className="font-bold text-slate-900">{proj.name}</div>
                     {proj.description && (
-                      <p className="text-xs text-slate-500 line-clamp-2 mt-0.5 max-w-sm">{proj.description}</p>
-                    )}
-                  </TableCell>
-                  <TableCell className="align-top">
-                    <Badge variant="outline" className="font-bold text-xs bg-slate-50">{proj.status}</Badge>
-                  </TableCell>
-                  <TableCell className="align-top text-xs text-slate-700 font-medium">
-                    {proj.target_date ? new Date(proj.target_date).toLocaleDateString() : "No Deadline"}
-                  </TableCell>
-
-                  {/* Documentation Links & Attachments */}
-                  <TableCell className="align-top space-y-1.5">
-                    {proj.documentation_url ? (
-                      <a
-                        href={proj.documentation_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1.5 text-xs font-bold text-sky-600 hover:text-sky-800 hover:underline bg-sky-50 px-2 py-1 rounded-md border border-sky-200"
-                      >
-                        <ExternalLink className="h-3 w-3" /> Project Docs Link
-                      </a>
-                    ) : (
-                      !proj.attachments?.length && <span className="text-xs text-slate-400 italic">No docs linked</span>
-                    )}
-
-                    {proj.attachments && proj.attachments.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 pt-1">
-                        {proj.attachments.map((file: any, fIdx: number) => (
-                          <a
-                            key={fIdx}
-                            href={file.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 px-2 py-0.5 rounded border border-slate-300 transition-colors"
-                            title={`Download ${file.name}`}
-                          >
-                            {file.name?.endsWith(".xlsx") || file.name?.endsWith(".xls") ? (
-                              <FileSpreadsheet className="h-3 w-3 text-emerald-600" />
-                            ) : (
-                              <FileText className="h-3 w-3 text-sky-600" />
-                            )}
-                            <span className="truncate max-w-[130px]">{file.name}</span>
-                          </a>
-                        ))}
-                      </div>
+                      <p className="text-xs text-slate-500 max-w-sm line-clamp-1">{proj.description}</p>
                     )}
                   </TableCell>
 
-                  {/* Assigned Members */}
-                  <TableCell className="align-top">
-                    {proj.members && proj.members.length > 0 ? (
-                      <div className="flex flex-wrap gap-1">
-                        {proj.members.map((m: any, mIdx: number) => (
-                          <Badge
-                            key={mIdx}
-                            variant="secondary"
-                            className="text-[10px] font-semibold text-slate-700 bg-slate-100 border border-slate-200"
-                          >
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1 max-w-xs">
+                      {proj.members && proj.members.length > 0 ? (
+                        proj.members.map((m: any) => (
+                          <Badge key={m.id} variant="outline" className="text-[10px] bg-slate-50">
                             {m.name} ({m.role})
                           </Badge>
-                        ))}
-                      </div>
-                    ) : (
-                      <span className="text-xs text-slate-400 italic">Unassigned</span>
-                    )}
+                        ))
+                      ) : (
+                        <span className="text-xs text-slate-400">No members assigned</span>
+                      )}
+                    </div>
                   </TableCell>
+
+                  <TableCell className="text-xs text-slate-700 font-medium">
+                    {proj.target_date ? new Date(proj.target_date).toLocaleDateString() : "--"}
+                  </TableCell>
+
+                  <TableCell>
+                    <div className="space-y-1">
+                      {proj.documentation_url && (
+                        <a
+                          href={proj.documentation_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-xs text-sky-600 hover:underline font-semibold"
+                        >
+                          <ExternalLink className="h-3 w-3" /> Docs Link
+                        </a>
+                      )}
+
+                      {proj.attachments && proj.attachments.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {proj.attachments.map((file: any, i: number) => (
+                            <a
+                              key={i}
+                              href={file.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-medium transition-colors"
+                            >
+                              <Paperclip className="h-2.5 w-2.5" />
+                              <span className="truncate max-w-[100px]">{file.name}</span>
+                            </a>
+                          ))}
+                        </div>
+                      )}
+
+                      {!proj.documentation_url && (!proj.attachments || proj.attachments.length === 0) && (
+                        <span className="text-xs text-slate-400">None</span>
+                      )}
+                    </div>
+                  </TableCell>
+
+                  <TableCell>
+                    <Badge className="bg-sky-500 text-white font-bold">{proj.status || "Active"}</Badge>
+                  </TableCell>
+
+                  {canManageProject && (
+                    <TableCell className="text-right">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={(e) => handleDeleteProject(proj.id, e)}
+                        className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1.5 h-8 w-8"
+                        title="Delete Project"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  )}
                 </TableRow>
               ))
             )}

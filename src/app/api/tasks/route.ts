@@ -15,10 +15,7 @@ export async function GET() {
       SELECT t.*, 
         p.name as project_name, 
         u1.name as assignee_name, 
-        u2.name as creator_name,
-        (SELECT JSON_ARRAYAGG(JSON_OBJECT('id', tc.id, 'item_text', tc.item_text, 'is_completed', tc.is_completed))
-         FROM task_checklists tc 
-         WHERE tc.task_id = t.id) as checklists
+        u2.name as creator_name
       FROM tasks t
       LEFT JOIN projects p ON t.project_id = p.id
       LEFT JOIN users u1 ON t.assigned_to = u1.id
@@ -37,16 +34,22 @@ export async function GET() {
 
     const [rows]: any = await pool.query(query, params);
 
+    // Fetch checklists
+    const [checklistRows]: any = await pool.query("SELECT * FROM task_checklists ORDER BY id ASC");
+    const checklistMap: Record<number, any[]> = {};
+    checklistRows.forEach((c: any) => {
+      if (!checklistMap[c.task_id]) checklistMap[c.task_id] = [];
+      checklistMap[c.task_id].push({
+        id: c.id,
+        item_text: c.item_text,
+        is_completed: Boolean(c.is_completed),
+      });
+    });
+
     const formatted = rows.map((r: any) => {
-      let checklists = [];
-      if (typeof r.checklists === "string") {
-        try { checklists = JSON.parse(r.checklists); } catch (_) {}
-      } else if (Array.isArray(r.checklists)) {
-        checklists = r.checklists;
-      }
       return {
         ...r,
-        checklists: checklists || [],
+        checklists: checklistMap[r.id] || [],
       };
     });
 

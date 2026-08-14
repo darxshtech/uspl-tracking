@@ -11,14 +11,7 @@ export async function GET() {
     const role = (session.user as any).role;
     const userId = (session.user as any).id;
     
-    let query = `
-      SELECT p.*, 
-        (SELECT JSON_ARRAYAGG(JSON_OBJECT('id', u.id, 'name', u.name, 'role', u.role))
-         FROM project_members pm
-         JOIN users u ON pm.user_id = u.id
-         WHERE pm.project_id = p.id) AS members
-      FROM projects p
-    `;
+    let query = "SELECT * FROM projects p";
     let params: any[] = [];
     
     // Developer and Tester should only see assigned projects
@@ -35,7 +28,20 @@ export async function GET() {
 
     const [rows]: any = await pool.query(query, params);
 
-    // Format attachments & members if stored as JSON strings
+    // Fetch members for these projects
+    const [memberRows]: any = await pool.query(`
+      SELECT pm.project_id, u.id, u.name, u.role 
+      FROM project_members pm 
+      JOIN users u ON pm.user_id = u.id
+    `);
+
+    const memberMap: Record<number, any[]> = {};
+    memberRows.forEach((m: any) => {
+      if (!memberMap[m.project_id]) memberMap[m.project_id] = [];
+      memberMap[m.project_id].push({ id: m.id, name: m.name, role: m.role });
+    });
+
+    // Format attachments & members safely
     const formatted = rows.map((r: any) => {
       let attachments = [];
       if (typeof r.attachments === "string") {
@@ -44,17 +50,10 @@ export async function GET() {
         attachments = r.attachments;
       }
 
-      let members = [];
-      if (typeof r.members === "string") {
-        try { members = JSON.parse(r.members); } catch (_) {}
-      } else if (Array.isArray(r.members)) {
-        members = r.members;
-      }
-
       return {
         ...r,
-        attachments,
-        members: members || [],
+        attachments: attachments || [],
+        members: memberMap[r.id] || [],
       };
     });
 
