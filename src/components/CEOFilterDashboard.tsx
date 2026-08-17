@@ -5,6 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import DailyMonthlyProgressSummary from "@/components/DailyMonthlyProgressSummary";
 import { 
   Filter, 
   CheckCircle2, 
@@ -145,6 +146,9 @@ export default function CEOFilterDashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Real-time KPI Summary & Daily/Monthly Visual Progress Charts */}
+      <DailyMonthlyProgressSummary tasks={tasks} onRefresh={() => fetchData(false)} />
+
       {/* Filter Control Bar */}
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
@@ -207,6 +211,7 @@ export default function CEOFilterDashboard() {
                 <SelectItem value="Planning">Planning</SelectItem>
                 <SelectItem value="In Progress">In Progress</SelectItem>
                 <SelectItem value="Ready for Testing">Ready for Testing</SelectItem>
+                <SelectItem value="Testing">Testing</SelectItem>
                 <SelectItem value="Changes Required">Changes Required</SelectItem>
                 <SelectItem value="Tested (PASS)">Tested (PASS)</SelectItem>
                 <SelectItem value="Ready for Demo">Ready for Demo</SelectItem>
@@ -217,140 +222,164 @@ export default function CEOFilterDashboard() {
         </div>
       </div>
 
-      {/* Filtered Summary Metrics */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-        <div className="rounded-xl border border-slate-200 bg-white p-4 text-center shadow-xs">
-          <span className="text-[11px] font-bold text-slate-500 uppercase">Filtered Tasks</span>
-          <div className="text-2xl font-black text-slate-900 mt-1">{filteredTasks.length}</div>
-        </div>
-
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 text-center shadow-xs">
-          <span className="text-[11px] font-bold text-emerald-700 uppercase">Completed</span>
-          <div className="text-2xl font-black text-emerald-900 mt-1">{completedCount} ({completionRate}%)</div>
-        </div>
-
-        <div className="rounded-xl border border-sky-200 bg-sky-50/50 p-4 text-center shadow-xs">
-          <span className="text-[11px] font-bold text-sky-700 uppercase">In Progress</span>
-          <div className="text-2xl font-black text-sky-900 mt-1">{inProgressCount}</div>
-        </div>
-
-        <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 text-center shadow-xs">
-          <span className="text-[11px] font-bold text-amber-700 uppercase">In Testing</span>
-          <div className="text-2xl font-black text-amber-900 mt-1">{readyForTestingCount}</div>
-        </div>
-
-        <div className="rounded-xl border border-red-200 bg-red-50/50 p-4 text-center shadow-xs col-span-2 sm:col-span-1">
-          <span className="text-[11px] font-bold text-red-700 uppercase">QA Rejections</span>
-          <div className="text-2xl font-black text-red-900 mt-1">{changesRequiredCount}</div>
-        </div>
-      </div>
-
-      {/* EMPLOYEE PROGRESS MATRIX */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
+      {/* Employee Progress Breakdown Matrix */}
+      <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-            <TrendingUp className="h-5 w-5 text-sky-500" />
-            Team Member Progress & Initiative Completion Matrix
-          </h2>
-          <Badge variant="outline" className="text-xs font-semibold">
-            {employeeProgressList.length} Team Members
-          </Badge>
+          <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+            <Users className="h-5 w-5 text-sky-500" />
+            Live Employee Deliverables & Progress Matrix
+          </h3>
+          <span className="text-xs font-semibold text-slate-500">
+            {employeeProgressList.length} Team Members Tracked
+          </span>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {employeeProgressList.map((emp) => (
-            <div key={emp.id} className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="font-bold text-slate-900 text-sm">{emp.name}</div>
-                  <Badge variant="outline" className="text-[10px] mt-0.5">{emp.role}</Badge>
-                </div>
-                <div className="text-right">
-                  <div className="text-lg font-black text-sky-900">{emp.completionRate}%</div>
-                  <span className="text-[10px] font-semibold text-slate-500">Done</span>
-                </div>
-              </div>
-
-              {/* Progress Bar */}
-              <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden border border-slate-200">
-                <div
-                  className={`h-full transition-all duration-300 ${
-                    emp.completionRate === 100 ? "bg-emerald-500" : emp.completionRate >= 50 ? "bg-sky-500" : "bg-amber-500"
-                  }`}
-                  style={{ width: `${emp.completionRate}%` }}
-                />
-              </div>
-
-              {/* Metrics Pills */}
-              <div className="grid grid-cols-3 gap-1.5 text-center text-xs pt-1">
-                <div className="p-1.5 bg-white rounded border border-slate-200">
-                  <span className="text-[10px] text-slate-500 block">Tasks</span>
-                  <span className="font-bold text-slate-900">{emp.completedCount}/{emp.totalTasks}</span>
-                </div>
-                <div className="p-1.5 bg-white rounded border border-slate-200">
-                  <span className="text-[10px] text-slate-500 block">Projects</span>
-                  <span className="font-bold text-slate-900">{emp.assignedProjectsCount}</span>
-                </div>
-                <div className="p-1.5 bg-white rounded border border-slate-200">
-                  <span className="text-[10px] text-slate-500 block">Hours</span>
-                  <span className="font-bold text-slate-900">{emp.totalHours.toFixed(1)}</span>
-                </div>
-              </div>
-
-              {emp.blockedCount > 0 && (
-                <div className="p-1.5 rounded bg-red-50 border border-red-200 text-[11px] text-red-700 font-semibold flex items-center gap-1">
-                  <AlertTriangle className="h-3.5 w-3.5 text-red-600" />
-                  {emp.blockedCount} Task(s) Blocked
-                </div>
+        <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+          <Table>
+            <TableHeader className="bg-slate-50">
+              <TableRow>
+                <TableHead className="font-bold">Team Member</TableHead>
+                <TableHead className="font-bold">Role</TableHead>
+                <TableHead className="font-bold text-center">Projects</TableHead>
+                <TableHead className="font-bold text-center">Total Tasks</TableHead>
+                <TableHead className="font-bold text-center">Completed</TableHead>
+                <TableHead className="font-bold text-center">In Progress</TableHead>
+                <TableHead className="font-bold text-center">Blockers</TableHead>
+                <TableHead className="font-bold text-center">Hours Logged</TableHead>
+                <TableHead className="font-bold text-right">Completion Rate</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow><TableCell colSpan={9} className="text-center py-8">Calculating live team metrics...</TableCell></TableRow>
+              ) : employeeProgressList.length === 0 ? (
+                <TableRow><TableCell colSpan={9} className="text-center text-slate-500 py-10">No employees match filter.</TableCell></TableRow>
+              ) : (
+                employeeProgressList.map((emp) => (
+                  <TableRow key={emp.id} className="hover:bg-slate-50/80 transition-colors">
+                    <TableCell className="font-bold text-slate-900">{emp.name}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="font-semibold text-[11px]">{emp.role}</Badge>
+                    </TableCell>
+                    <TableCell className="text-center font-bold text-slate-800">{emp.assignedProjectsCount}</TableCell>
+                    <TableCell className="text-center font-bold text-slate-900">{emp.totalTasks}</TableCell>
+                    <TableCell className="text-center">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
+                        {emp.completedCount}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-sky-100 text-sky-800">
+                        {emp.inProgressCount}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {emp.blockedCount > 0 ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-800">
+                          {emp.blockedCount}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 text-xs">0</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center font-bold text-slate-900 text-xs">
+                      {emp.totalHours.toFixed(1)} hrs
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <div className="w-16 bg-slate-100 rounded-full h-2 overflow-hidden hidden sm:block">
+                          <div
+                            className={`h-full ${
+                              emp.completionRate === 100
+                                ? "bg-emerald-500"
+                                : emp.completionRate >= 50
+                                ? "bg-sky-500"
+                                : "bg-amber-500"
+                            }`}
+                            style={{ width: `${emp.completionRate}%` }}
+                          />
+                        </div>
+                        <span className="font-black text-slate-900 text-xs">{emp.completionRate}%</span>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
               )}
-            </div>
-          ))}
+            </TableBody>
+          </Table>
         </div>
       </div>
 
       {/* Filtered Tasks Table */}
-      <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-        <Table>
-          <TableHeader className="bg-slate-50">
-            <TableRow>
-              <TableHead className="font-bold">Task & Progress</TableHead>
-              <TableHead className="font-bold">Project</TableHead>
-              <TableHead className="font-bold">Assigned To</TableHead>
-              <TableHead className="font-bold">Priority</TableHead>
-              <TableHead className="font-bold">Status</TableHead>
-              <TableHead className="font-bold">Created By</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              <TableRow><TableCell colSpan={6} className="text-center py-6">Loading tasks...</TableCell></TableRow>
-            ) : filteredTasks.length === 0 ? (
-              <TableRow><TableCell colSpan={6} className="text-center text-slate-500 py-8">No tasks match the selected filters.</TableCell></TableRow>
-            ) : (
-              filteredTasks.map((t) => (
-                <TableRow key={t.id} className="hover:bg-slate-50/80 transition-colors">
-                  <TableCell>
-                    <div className="font-bold text-slate-900">{t.title}</div>
-                    <div className="text-xs text-slate-500 mt-0.5">
-                      Progress: <strong>{t.progress_percentage || 0}%</strong>
-                      {t.hours_spent > 0 && ` • ${t.hours_spent} hrs logged`}
-                    </div>
-                    {t.blockers && (
-                      <div className="text-[11px] text-red-600 font-semibold mt-0.5">
-                        ⚠️ Blocker: {t.blockers}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+            <Briefcase className="h-5 w-5 text-sky-500" />
+            Filtered Tasks & Deliverables ({filteredTasks.length})
+          </h3>
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+          <Table>
+            <TableHeader className="bg-slate-50">
+              <TableRow>
+                <TableHead className="font-bold">Task</TableHead>
+                <TableHead className="font-bold">Project</TableHead>
+                <TableHead className="font-bold">Assignee</TableHead>
+                <TableHead className="font-bold">Status</TableHead>
+                <TableHead className="font-bold">Progress</TableHead>
+                <TableHead className="font-bold">Hours</TableHead>
+                <TableHead className="font-bold">Blockers / Notes</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow><TableCell colSpan={7} className="text-center py-8">Loading tasks...</TableCell></TableRow>
+              ) : filteredTasks.length === 0 ? (
+                <TableRow><TableCell colSpan={7} className="text-center text-slate-500 py-10">No tasks match criteria.</TableCell></TableRow>
+              ) : (
+                filteredTasks.map((t) => (
+                  <TableRow key={t.id} className="hover:bg-slate-50/80 transition-colors">
+                    <TableCell className="max-w-xs align-top">
+                      <div className="font-bold text-slate-900 text-sm">{t.title}</div>
+                      {t.description && (
+                        <p className="text-xs text-slate-500 whitespace-pre-wrap break-words mt-0.5 leading-relaxed">
+                          {t.description}
+                        </p>
+                      )}
+                    </TableCell>
+                    <TableCell className="align-top text-xs font-semibold text-slate-800">{t.project_name || "N/A"}</TableCell>
+                    <TableCell className="align-top text-xs text-slate-700 font-medium">{t.assignee_name || "Unassigned"}</TableCell>
+                    <TableCell className="align-top">{getStatusBadge(t.status)}</TableCell>
+                    <TableCell className="align-top">
+                      <div className="flex items-center gap-2">
+                        <div className="w-14 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                          <div
+                            className="bg-sky-500 h-full"
+                            style={{ width: `${t.progress_percentage || 0}%` }}
+                          />
+                        </div>
+                        <span className="text-[11px] font-bold text-slate-700">{t.progress_percentage || 0}%</span>
                       </div>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-slate-600 font-medium text-xs">{t.project_name || "N/A"}</TableCell>
-                  <TableCell className="text-slate-700 font-semibold text-xs">{t.assignee_name || "Unassigned"}</TableCell>
-                  <TableCell><Badge variant="outline">{t.priority}</Badge></TableCell>
-                  <TableCell>{getStatusBadge(t.status)}</TableCell>
-                  <TableCell className="text-slate-500 text-xs">{t.creator_name || "System"} ({t.creator_role || "PM"})</TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+                    </TableCell>
+                    <TableCell className="align-top font-bold text-slate-900 text-xs">{parseFloat(t.hours_spent || 0).toFixed(1)} hrs</TableCell>
+                    <TableCell className="align-top max-w-xs text-xs">
+                      {t.blockers ? (
+                        <span className="text-red-700 font-semibold bg-red-50 px-2 py-0.5 rounded border border-red-200 inline-block">
+                          ⚠️ {t.blockers}
+                        </span>
+                      ) : t.daily_summary ? (
+                        <span className="text-slate-600">{t.daily_summary}</span>
+                      ) : (
+                        <span className="text-slate-400">None</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
       </div>
     </div>
   );
