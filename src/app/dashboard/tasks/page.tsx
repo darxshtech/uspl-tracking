@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -37,7 +37,10 @@ import {
   AlertTriangle,
   FileText,
   Link as LinkIcon,
-  RefreshCw
+  RefreshCw,
+  Filter,
+  Search,
+  Hash
 } from "lucide-react";
 
 export default function DailyTasksPage() {
@@ -52,6 +55,13 @@ export default function DailyTasksPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<"today" | "tomorrow" | "assigned_pm" | "assigned_ceo" | "from_tester" | "self_created" | "all">("today");
+
+  // Advanced Filters State
+  const [filterProject, setFilterProject] = useState<string>("ALL");
+  const [filterDateMode, setFilterDateMode] = useState<string>("ALL");
+  const [filterCustomDate, setFilterCustomDate] = useState<string>("");
+  const [filterEmployee, setFilterEmployee] = useState<string>("ALL");
+  const [searchQuery, setSearchQuery] = useState<string>("");
 
   // Create Task Modal state
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -73,7 +83,7 @@ export default function DailyTasksPage() {
   const [activeChecklistTaskId, setActiveChecklistTaskId] = useState<number | null>(null);
   const [newChecklistText, setNewChecklistText] = useState("");
 
-  // Update Task Progress Modal state (Status limited to Planning, In Progress, Completed)
+  // Update Task Progress Modal state
   const [progressModalOpen, setProgressModalOpen] = useState(false);
   const [selectedTaskForProgress, setSelectedTaskForProgress] = useState<any>(null);
   const [progressPercentage, setProgressPercentage] = useState<number>(0);
@@ -83,7 +93,7 @@ export default function DailyTasksPage() {
   const [progressStatus, setProgressStatus] = useState<string>("In Progress");
   const [submittingProgress, setSubmittingProgress] = useState(false);
 
-  // Dedicated Send to Testing Modal state (Multiple preview links)
+  // Dedicated Send to Testing Modal state
   const [testingModalOpen, setTestingModalOpen] = useState(false);
   const [selectedTaskForTesting, setSelectedTaskForTesting] = useState<any>(null);
   const [taskLinks, setTaskLinks] = useState<string[]>([""]);
@@ -154,6 +164,39 @@ export default function DailyTasksPage() {
       console.error(err);
     }
   };
+
+  // Compute Auto Sequential Task ID (1, 2, 3, 4...) for each employee
+  const employeeTaskSeqMap = useMemo(() => {
+    const map: Record<number, number> = {};
+    const empTaskGroups: Record<string, any[]> = {};
+
+    // Group tasks per employee
+    tasks.forEach((t) => {
+      const key = String(t.assigned_to || t.created_by || "unassigned");
+      if (!empTaskGroups[key]) empTaskGroups[key] = [];
+      empTaskGroups[key].push(t);
+    });
+
+    // Sort chronologically per employee (oldest first = Task #1, Task #2...)
+    Object.values(empTaskGroups).forEach((group) => {
+      group.sort((a, b) => {
+        const dateA = new Date(a.created_at || a.target_date || 0).getTime();
+        const dateB = new Date(b.created_at || b.target_date || 0).getTime();
+        return dateA - dateB || a.id - b.id;
+      });
+
+      group.forEach((task, idx) => {
+        map[task.id] = idx + 1; // 1, 2, 3, 4...
+      });
+    });
+
+    return map;
+  }, [tasks]);
+
+  const todayStr = new Date().toISOString().split("T")[0];
+  const tomorrowDate = new Date();
+  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+  const tomorrowStr = tomorrowDate.toISOString().split("T")[0];
 
   const handleAddInitialChecklist = () => {
     if (!newChecklistInput.trim()) return;
@@ -317,7 +360,6 @@ export default function DailyTasksPage() {
     setDailySummary(task.daily_summary || "");
     setBlockers(task.blockers || "");
     
-    // Only allow Planning, In Progress, Completed
     const validStatuses = ["Planning", "In Progress", "Completed"];
     setProgressStatus(validStatuses.includes(task.status) ? task.status : "In Progress");
     setProgressModalOpen(true);
@@ -495,11 +537,11 @@ export default function DailyTasksPage() {
       case "Testing":
         return <Badge className="bg-amber-600 text-white font-bold">Testing in Progress</Badge>;
       case "Changes Required":
-        return <Badge className="bg-red-600 text-white font-bold">Changes Required (QA Issues)</Badge>;
+        return <Badge className="bg-red-600 text-white font-bold">Changes Required</Badge>;
       case "Tested (PASS)":
-        return <Badge className="bg-emerald-600 text-white font-bold">QA Passed (Fully Fixed)</Badge>;
+        return <Badge className="bg-emerald-600 text-white font-bold">QA Passed</Badge>;
       case "Ready for Demo":
-        return <Badge className="bg-indigo-600 text-white font-bold shadow-md animate-pulse">🚀 Ready for Demo (Alert Sent)</Badge>;
+        return <Badge className="bg-indigo-600 text-white font-bold shadow-md animate-pulse">🚀 Ready for Demo</Badge>;
       case "Completed":
         return <Badge className="bg-emerald-500 text-white font-bold">Completed</Badge>;
       default:
@@ -507,33 +549,66 @@ export default function DailyTasksPage() {
     }
   };
 
-  const todayStr = new Date().toISOString().split("T")[0];
+  // Comprehensive Multi-dimensional Filter
+  const filteredTasks = useMemo(() => {
+    return tasks.filter((t) => {
+      const taskDate = t.target_date ? t.target_date.split("T")[0] : todayStr;
+      const isCompleted = t.status === "Completed" || t.status === "Ready for Demo";
 
-  // Filtering based on active category
-  const filteredTasks = tasks.filter((t) => {
-    const taskDate = t.target_date ? t.target_date.split("T")[0] : todayStr;
-    const isCompleted = t.status === "Completed" || t.status === "Ready for Demo";
+      // 1. Tab filtering
+      let matchTab = true;
+      if (activeTab === "today") {
+        matchTab = taskDate <= todayStr || !isCompleted;
+      } else if (activeTab === "tomorrow") {
+        matchTab = taskDate > todayStr;
+      } else if (activeTab === "assigned_pm") {
+        matchTab = t.assigned_by_type === "PM" || t.creator_role === "PM" || t.project_creator_role === "PM";
+      } else if (activeTab === "assigned_ceo") {
+        matchTab = t.assigned_by_type === "CEO" || t.creator_role === "CEO" || t.project_creator_role === "CEO";
+      } else if (activeTab === "from_tester") {
+        matchTab = t.assigned_by_type === "Tester" || t.status === "Changes Required" || t.creator_role === "Tester";
+      } else if (activeTab === "self_created") {
+        matchTab = t.assigned_by_type === "Self Tested" || t.created_by === currentUserId;
+      }
 
-    if (activeTab === "today") {
-      return taskDate <= todayStr || !isCompleted;
-    }
-    if (activeTab === "tomorrow") {
-      return taskDate > todayStr;
-    }
-    if (activeTab === "assigned_pm") {
-      return t.assigned_by_type === "PM" || t.creator_role === "PM" || t.project_creator_role === "PM";
-    }
-    if (activeTab === "assigned_ceo") {
-      return t.assigned_by_type === "CEO" || t.creator_role === "CEO" || t.project_creator_role === "CEO";
-    }
-    if (activeTab === "from_tester") {
-      return t.assigned_by_type === "Tester" || t.status === "Changes Required" || t.creator_role === "Tester";
-    }
-    if (activeTab === "self_created") {
-      return t.assigned_by_type === "Self Tested" || t.created_by === currentUserId;
-    }
-    return true;
-  });
+      if (!matchTab) return false;
+
+      // 2. Project filter
+      if (filterProject !== "ALL" && String(t.project_id) !== String(filterProject)) {
+        return false;
+      }
+
+      // 3. Employee / Developer Advance filter (for PM/CEO/Admin)
+      if (filterEmployee !== "ALL" && String(t.assigned_to) !== String(filterEmployee)) {
+        return false;
+      }
+
+      // 4. Date filter
+      if (filterDateMode === "TODAY" && taskDate !== todayStr) {
+        return false;
+      }
+      if (filterDateMode === "TOMORROW" && taskDate !== tomorrowStr) {
+        return false;
+      }
+      if (filterDateMode === "CUSTOM" && filterCustomDate && taskDate !== filterCustomDate) {
+        return false;
+      }
+
+      // 5. Search query filter (title, description, project name)
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchTitle = t.title?.toLowerCase().includes(q);
+        const matchDesc = t.description?.toLowerCase().includes(q);
+        const matchProj = t.project_name?.toLowerCase().includes(q);
+        const matchDev = t.assignee_name?.toLowerCase().includes(q);
+        if (!matchTitle && !matchDesc && !matchProj && !matchDev) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [tasks, activeTab, filterProject, filterEmployee, filterDateMode, filterCustomDate, searchQuery, todayStr, tomorrowStr, currentUserId]);
 
   const countToday = tasks.filter((t) => {
     const taskDate = t.target_date ? t.target_date.split("T")[0] : todayStr;
@@ -558,8 +633,8 @@ export default function DailyTasksPage() {
           </h1>
           <p className="text-slate-500 mt-1">
             {role === "Developer" || role === "Tester"
-              ? "Plan daily tasks, update progress (% done & hours spent), document blockers, and submit preview links for QA testing."
-              : "Manage and assign daily tasks for developers and testers, edit and review progress, and manage releases."}
+              ? "Auto-numbered daily tasks, target dates, progress tracking, and QA submissions."
+              : "Company-wide task hub: filter by developer, project, and date, edit task scopes, and manage releases."}
           </p>
         </div>
 
@@ -678,7 +753,7 @@ export default function DailyTasksPage() {
                   )}
                 </div>
 
-                {/* Special Mass Mock / Broadcast Assignment for CEO, PM, Admin */}
+                {/* Special Mass Assignment for CEO, PM, Admin */}
                 {canManageAllTasks && (
                   <div className="p-3 rounded-xl border border-sky-200 bg-gradient-to-r from-sky-50/90 via-indigo-50/60 to-purple-50/70 space-y-2">
                     <div className="flex items-center justify-between">
@@ -689,7 +764,7 @@ export default function DailyTasksPage() {
                             Assign to Everyone ({employees.length} Employees)
                           </span>
                           <span className="text-[10px] text-slate-500">
-                            Special Executive/PM Action: Creates an individual copy for each active team member.
+                            Creates an individual copy for each active team member.
                           </span>
                         </div>
                       </div>
@@ -703,30 +778,13 @@ export default function DailyTasksPage() {
                         <div className="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-sky-600"></div>
                       </label>
                     </div>
-
-                    {assignToAll && (
-                      <div className="pt-2 border-t border-sky-100/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 animate-fade-in">
-                        <p className="text-[11px] text-sky-900 font-medium">
-                          🔔 Instant Alert: Every employee will hear an alert chime and get notified upon creation.
-                        </p>
-                        <label className="flex items-center gap-1.5 text-xs font-bold text-purple-900 cursor-pointer bg-white/70 px-2 py-1 rounded-md border border-purple-200">
-                          <input
-                            type="checkbox"
-                            checked={isMockTask}
-                            onChange={(e) => setIsMockTask(e.target.checked)}
-                            className="rounded border-slate-300 text-purple-600 h-3.5 w-3.5"
-                          />
-                          <span>⚡ Mark as Mock / Drill Task</span>
-                        </label>
-                      </div>
-                    )}
                   </div>
                 )}
 
                 {/* Timeline Selection */}
                 <div className="space-y-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
                   <Label className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
-                    <Calendar className="h-4 w-4 text-sky-500" /> When will you work on this task?
+                    <Calendar className="h-4 w-4 text-sky-500" /> Target Date & Schedule
                   </Label>
                   <div className="grid grid-cols-3 gap-2 pt-1">
                     <button
@@ -841,6 +899,120 @@ export default function DailyTasksPage() {
         </div>
       </div>
 
+      {/* ADVANCED MULTI-FILTER BAR (Project, Date, Developer Name, Search) */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-sm font-bold text-slate-800">
+            <Filter className="h-4 w-4 text-sky-500" /> Filter & Search Tasks
+          </div>
+          {(filterProject !== "ALL" || filterEmployee !== "ALL" || filterDateMode !== "ALL" || searchQuery) && (
+            <button
+              onClick={() => {
+                setFilterProject("ALL");
+                setFilterEmployee("ALL");
+                setFilterDateMode("ALL");
+                setFilterCustomDate("");
+                setSearchQuery("");
+              }}
+              className="text-xs font-bold text-sky-600 hover:text-sky-800 underline"
+            >
+              Reset Filters
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-1">
+          {/* 1. Filter by Project */}
+          <div className="space-y-1">
+            <Label className="text-[11px] font-bold text-slate-600 uppercase">Project</Label>
+            <Select value={filterProject} onValueChange={(val) => setFilterProject(val || "ALL")}>
+              <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="All Projects" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All Projects ({projects.length})</SelectItem>
+                {projects.map((p) => (
+                  <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* 2. Advance Filter by Developer Name (PM, CEO, Admin) */}
+          {canManageAllTasks ? (
+            <div className="space-y-1">
+              <Label className="text-[11px] font-bold text-slate-600 uppercase">Team Member / Dev</Label>
+              <Select value={filterEmployee} onValueChange={(val) => setFilterEmployee(val || "ALL")}>
+                <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="All Developers" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All Team Members</SelectItem>
+                  {employees.map((e) => (
+                    <SelectItem key={e.id} value={e.id.toString()}>{e.name} ({e.role})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <Label className="text-[11px] font-bold text-slate-600 uppercase">Search</Label>
+              <div className="relative">
+                <Search className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 top-3" />
+                <Input
+                  placeholder="Search tasks..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-9 pl-8 text-xs bg-white"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* 3. Filter by Date */}
+          <div className="space-y-1">
+            <Label className="text-[11px] font-bold text-slate-600 uppercase">Date Filter</Label>
+            <Select 
+              value={filterDateMode} 
+              onValueChange={(val) => {
+                setFilterDateMode(val || "ALL");
+                if (val !== "CUSTOM") setFilterCustomDate("");
+              }}
+            >
+              <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="All Dates" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All Dates</SelectItem>
+                <SelectItem value="TODAY">Today ({todayStr})</SelectItem>
+                <SelectItem value="TOMORROW">Tomorrow ({tomorrowStr})</SelectItem>
+                <SelectItem value="CUSTOM">Pick Specific Date</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* 4. Custom Date Picker or Search */}
+          {filterDateMode === "CUSTOM" ? (
+            <div className="space-y-1 animate-fade-in">
+              <Label className="text-[11px] font-bold text-slate-600 uppercase">Select Specific Date</Label>
+              <Input
+                type="date"
+                value={filterCustomDate}
+                onChange={(e) => setFilterCustomDate(e.target.value)}
+                className="h-9 text-xs bg-white"
+              />
+            </div>
+          ) : canManageAllTasks ? (
+            <div className="space-y-1">
+              <Label className="text-[11px] font-bold text-slate-600 uppercase">Search Tasks</Label>
+              <div className="relative">
+                <Search className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 top-3" />
+                <Input
+                  placeholder="Task title, keywords..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-9 pl-8 text-xs bg-white"
+                />
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
       {/* Categorized Filter Tabs */}
       <div className="flex flex-wrap gap-2 p-1.5 bg-slate-100/80 rounded-xl border border-slate-200">
         <button
@@ -927,7 +1099,7 @@ export default function DailyTasksPage() {
         </button>
       </div>
 
-      {/* UPDATE TASK PROGRESS MODAL (Status: Planning, In Progress, Completed) */}
+      {/* UPDATE TASK PROGRESS MODAL */}
       <Dialog open={progressModalOpen} onOpenChange={setProgressModalOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -1056,9 +1228,6 @@ export default function DailyTasksPage() {
                   placeholder="e.g. Waiting for 3rd-party API credentials / complex db schema rework..."
                   className="bg-white text-xs"
                 />
-                <p className="text-[10px] text-amber-700">
-                  Management and team will see this blocker note on the daily dashboard.
-                </p>
               </div>
             )}
 
@@ -1073,7 +1242,7 @@ export default function DailyTasksPage() {
         </DialogContent>
       </Dialog>
 
-      {/* DEDICATED SEND TO TESTING MODAL (MULTIPLE PREVIEW LINKS) */}
+      {/* DEDICATED SEND TO TESTING MODAL */}
       <Dialog open={testingModalOpen} onOpenChange={setTestingModalOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -1089,7 +1258,6 @@ export default function DailyTasksPage() {
               <div className="text-slate-500">Project: {selectedTaskForTesting?.project_name || "N/A"}</div>
             </div>
 
-            {/* Multiple Task Links */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
@@ -1127,9 +1295,6 @@ export default function DailyTasksPage() {
                   </div>
                 ))}
               </div>
-              <p className="text-[11px] text-slate-500">
-                Testers will use these exact URLs on their QA dashboard during testing check-in.
-              </p>
             </div>
 
             <div className="space-y-1.5">
@@ -1320,7 +1485,7 @@ export default function DailyTasksPage() {
         </DialogContent>
       </Dialog>
 
-      {/* DELETE TASK CONFIRMATION MODAL (CEO, PM, Admin) */}
+      {/* DELETE TASK CONFIRMATION MODAL */}
       <Dialog open={!!deleteConfirmTask} onOpenChange={(open) => !open && setDeleteConfirmTask(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -1334,7 +1499,7 @@ export default function DailyTasksPage() {
                 Are you sure you want to permanently delete task <span className="font-bold text-slate-900">{deleteConfirmTask.title}</span>?
               </p>
               <div className="rounded-xl bg-red-50 p-3 text-xs text-red-700 border border-red-200">
-                ⚠️ This will permanently remove the task, checklists, and daily work log references. This action cannot be undone.
+                ⚠️ This will permanently remove the task and checklists. This action cannot be undone.
               </div>
               <div className="flex justify-end gap-2 pt-2">
                 <Button
@@ -1357,25 +1522,26 @@ export default function DailyTasksPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Task List Table */}
+      {/* Task List Table with Dedicated TASK ID and DATE Columns */}
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <Table>
           <TableHeader className="bg-slate-50">
             <TableRow>
+              <TableHead className="font-bold w-20 text-center">Task ID</TableHead>
               <TableHead className="font-bold">Task & Progress</TableHead>
               <TableHead className="font-bold">Project & Assigner</TableHead>
-              <TableHead className="font-bold">Schedule & QA Notes</TableHead>
+              <TableHead className="font-bold">Schedule Date</TableHead>
               <TableHead className="font-bold">Status</TableHead>
               <TableHead className="font-bold text-right">Daily Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={5} className="text-center py-8">Loading daily tasks...</TableCell></TableRow>
+              <TableRow><TableCell colSpan={6} className="text-center py-8">Loading daily tasks...</TableCell></TableRow>
             ) : filteredTasks.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center text-slate-500 py-10">
-                  No daily tasks found in this section.
+                <TableCell colSpan={6} className="text-center text-slate-500 py-10">
+                  No daily tasks found matching your filter selections.
                 </TableCell>
               </TableRow>
             ) : (
@@ -1386,7 +1552,9 @@ export default function DailyTasksPage() {
                 const isChecklistOpen = activeChecklistTaskId === task.id;
                 const taskDate = task.target_date ? task.target_date.split("T")[0] : todayStr;
                 const isToday = taskDate <= todayStr;
+                const isTomorrow = taskDate === tomorrowStr;
                 const pct = task.progress_percentage || (checklists.length > 0 ? checklistPct : 0);
+                const employeeSeqId = employeeTaskSeqMap[task.id] || task.id;
 
                 const taskLinksList: string[] = Array.isArray(task.task_links) && task.task_links.length > 0
                   ? task.task_links
@@ -1394,6 +1562,19 @@ export default function DailyTasksPage() {
 
                 return (
                   <TableRow key={task.id} className="hover:bg-slate-50/80 transition-colors">
+                    {/* DEDICATED AUTO-NUMBERED TASK ID COLUMN */}
+                    <TableCell className="align-top text-center">
+                      <div className="flex flex-col items-center gap-1">
+                        <Badge className="bg-sky-100 text-sky-900 border-sky-300 font-mono font-black text-xs px-2 py-0.5 shadow-2xs">
+                          #{employeeSeqId}
+                        </Badge>
+                        <span className="text-[9px] text-slate-400 font-mono font-semibold" title={`Database Task ID: ${task.id}`}>
+                          ID:{task.id}
+                        </span>
+                      </div>
+                    </TableCell>
+
+                    {/* Task Title, Description, and Checklist */}
                     <TableCell className="align-top max-w-sm">
                       <div className="font-bold text-slate-900 text-sm flex items-center gap-2">
                         <span>{task.title}</span>
@@ -1488,6 +1669,7 @@ export default function DailyTasksPage() {
                       </div>
                     </TableCell>
 
+                    {/* Project & Assigner */}
                     <TableCell className="align-top space-y-1">
                       <div className="font-bold text-slate-900 text-xs">{task.project_name || "N/A"}</div>
                       <div className="text-[11px] text-slate-500 flex items-center gap-1">
@@ -1526,15 +1708,25 @@ export default function DailyTasksPage() {
                       </div>
                     </TableCell>
 
+                    {/* DEDICATED SCHEDULE DATE COLUMN */}
                     <TableCell className="align-top space-y-1.5">
+                      <div className="font-bold text-slate-800 text-xs flex items-center gap-1">
+                        <Calendar className="h-3.5 w-3.5 text-sky-500" />
+                        {new Date(taskDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </div>
+
                       <div>
                         {isToday ? (
                           <Badge className="bg-amber-50 text-amber-800 border-amber-300 font-bold text-[10px] gap-1">
                             <Flame className="h-3 w-3 text-amber-600" /> Today's Task
                           </Badge>
-                        ) : (
+                        ) : isTomorrow ? (
                           <Badge className="bg-indigo-50 text-indigo-800 border-indigo-300 font-bold text-[10px] gap-1">
-                            <SunMedium className="h-3 w-3 text-indigo-600" /> Tomorrow ({taskDate})
+                            <SunMedium className="h-3 w-3 text-indigo-600" /> Tomorrow
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px] text-slate-600">
+                            Scheduled
                           </Badge>
                         )}
                       </div>
