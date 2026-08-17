@@ -79,7 +79,7 @@ export async function POST(req: Request) {
     const creatorRole = (session.user as any).role;
 
     const body = await req.json();
-    const { name, description, start_date, target_date, status, documentation_url, attachments, members } = body;
+    const { name, description, start_date, target_date, documentation_url, attachments, members } = body;
 
     if (!name) return NextResponse.json({ error: "Project name is required" }, { status: 400 });
 
@@ -90,14 +90,13 @@ export async function POST(req: Request) {
       const attachmentsJson = attachments ? JSON.stringify(attachments) : JSON.stringify([]);
 
       const [result]: any = await connection.query(
-        `INSERT INTO projects (name, description, start_date, target_date, status, documentation_url, attachments, created_by) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO projects (name, description, start_date, target_date, documentation_url, attachments, created_by) 
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [
           name,
           description || null,
           start_date || null,
           target_date || null,
-          status || "Planning",
           documentation_url || null,
           attachmentsJson,
           creatorId,
@@ -149,7 +148,7 @@ export async function PUT(req: Request) {
 
   try {
     const body = await req.json();
-    const { id, name, description, start_date, target_date, status, documentation_url, attachments, members } = body;
+    const { id, name, description, start_date, target_date, documentation_url, attachments, members } = body;
 
     if (!id || !name) return NextResponse.json({ error: "Project ID and name are required" }, { status: 400 });
 
@@ -161,14 +160,13 @@ export async function PUT(req: Request) {
 
       await connection.query(
         `UPDATE projects 
-         SET name = ?, description = ?, start_date = ?, target_date = ?, status = ?, documentation_url = ?, attachments = ?
+         SET name = ?, description = ?, start_date = ?, target_date = ?, documentation_url = ?, attachments = ?
          WHERE id = ?`,
         [
           name,
           description || null,
           start_date || null,
           target_date || null,
-          status || "Planning",
           documentation_url || null,
           attachmentsJson,
           id,
@@ -251,4 +249,3 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
-

@@ -28,11 +28,10 @@ export async function GET() {
     `;
     let params: any[] = [];
     
-    if (role === "Developer") {
-      query += " WHERE t.assigned_to = ?";
-      params = [userId];
-    } else if (role === "Tester") {
-      query += " WHERE t.status IN ('Ready for Testing', 'Testing', 'Tested (PASS)', 'Ready for Demo', 'Completed', 'Changes Required')";
+    // For Developers and Testers: fetch their own daily tasks (assigned or self-created)
+    if (role === "Developer" || role === "Tester") {
+      query += " WHERE (t.assigned_to = ? OR t.created_by = ?)";
+      params = [userId, userId];
     }
 
     query += " ORDER BY t.created_at DESC";
@@ -106,7 +105,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, id: result.insertId, task_id, item_text, is_completed: false });
     }
 
-    // 2. Main Task creation (Developers, PM, CEO, Tester)
+    // 2. Main Task creation (Developers, Testers, PM, CEO, Admin)
     const { 
       title, 
       description, 
@@ -140,7 +139,7 @@ export async function POST(req: Request) {
       taskTargetDate = todayStr;
     }
 
-    const finalAssignedByType = assigned_by_type || (role === "Developer" ? "Self Tested" : role);
+    const finalAssignedByType = assigned_by_type || (role === "Developer" || role === "Tester" ? "Self Tested" : role);
     const isExecutiveOrAdmin = ["Admin", "CEO", "PM"].includes(role);
 
     // MASS / MOCK TASK ASSIGNMENT TO ALL EMPLOYEES
@@ -203,8 +202,8 @@ export async function POST(req: Request) {
 
     // SINGLE TASK CREATION
     let finalAssignee = assigned_to;
-    if (role === "Developer" && !finalAssignee) {
-      finalAssignee = currentUserId; // Developer creates tasks for themselves
+    if ((role === "Developer" || role === "Tester") && !finalAssignee) {
+      finalAssignee = currentUserId; // Created for self
     }
 
     if (!finalAssignee) {
@@ -223,7 +222,7 @@ export async function POST(req: Request) {
         priority || "Medium",
         due_date || taskTargetDate,
         taskTargetDate,
-        role === "Developer" ? "In Progress" : "Assigned",
+        role === "Developer" || role === "Tester" ? "In Progress" : "Assigned",
         finalAssignedByType
       ]
     );
@@ -242,7 +241,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // Notify assigned developer if created by someone else
+    // Notify assigned developer/tester if created by someone else
     if (finalAssignee !== currentUserId) {
       await pool.query(
         `INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'task_assigned')`,
@@ -254,7 +253,12 @@ export async function POST(req: Request) {
       );
     }
 
-    return NextResponse.json({ id: taskId, title, status: role === "Developer" ? "In Progress" : "Assigned", target_date: taskTargetDate }, { status: 201 });
+    return NextResponse.json({ 
+      id: taskId, 
+      title, 
+      status: role === "Developer" || role === "Tester" ? "In Progress" : "Assigned", 
+      target_date: taskTargetDate 
+    }, { status: 201 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -280,6 +284,14 @@ export async function PATCH(req: Request) {
     const { 
       id, 
       action,
+      title,
+      description,
+      project_id,
+      assigned_to,
+      priority,
+      target_date,
+      due_date,
+      assigned_by_type,
       status, 
       remarks, 
       task_link, 
@@ -297,6 +309,8 @@ export async function PATCH(req: Request) {
     }
 
     const currentUserId = (session.user as any).id;
+    const currentRole = (session.user as any).role;
+    const isExecutiveOrAdmin = ["Admin", "CEO", "PM"].includes(currentRole);
 
     // Retrieve current task details
     const [taskRows]: any = await pool.query(
@@ -312,7 +326,50 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
     }
 
-    // 2. Action: Start Testing (Check-in by QA Tester)
+    // 2. Action: Admin / Executive Edit Task Details
+    if (action === "admin_edit") {
+      if (!isExecutiveOrAdmin) {
+        return NextResponse.json({ error: "Unauthorized: PM, CEO or Admin role required." }, { status: 403 });
+      }
+
+      await pool.query(
+        `UPDATE tasks 
+         SET title = IFNULL(?, title),
+             description = IFNULL(?, description),
+             project_id = IFNULL(?, project_id),
+             assigned_to = IFNULL(?, assigned_to),
+             priority = IFNULL(?, priority),
+             target_date = IFNULL(?, target_date),
+             due_date = IFNULL(?, due_date),
+             status = IFNULL(?, status),
+             assigned_by_type = IFNULL(?, assigned_by_type),
+             progress_percentage = IFNULL(?, progress_percentage),
+             hours_spent = IFNULL(?, hours_spent),
+             blockers = IFNULL(?, blockers),
+             remarks = IFNULL(?, remarks)
+         WHERE id = ?`,
+        [
+          title !== undefined ? title : null,
+          description !== undefined ? description : null,
+          project_id !== undefined ? project_id : null,
+          assigned_to !== undefined ? assigned_to : null,
+          priority !== undefined ? priority : null,
+          target_date !== undefined ? target_date : null,
+          due_date !== undefined ? due_date : null,
+          status !== undefined ? status : null,
+          assigned_by_type !== undefined ? assigned_by_type : null,
+          progress_percentage !== undefined ? progress_percentage : null,
+          hours_spent !== undefined ? hours_spent : null,
+          blockers !== undefined ? blockers : null,
+          remarks !== undefined ? remarks : null,
+          id
+        ]
+      );
+
+      return NextResponse.json({ success: true, id, message: "Task updated successfully by management." });
+    }
+
+    // 3. Action: Start Testing (Check-in by QA Tester)
     if (action === "start_testing") {
       await pool.query(
         "UPDATE tasks SET status = 'Testing', testing_started_at = NOW() WHERE id = ?",
@@ -321,7 +378,7 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ success: true, id, status: "Testing" });
     }
 
-    // 3. Action: Finish Testing (Check-out by QA Tester with issue count and test sheet)
+    // 4. Action: Finish Testing (Check-out by QA Tester with issue count and test sheet)
     if (action === "finish_testing") {
       const parsedIssuesCount = parseInt(issues_count) || 0;
       const finalTestStatus = parsedIssuesCount > 0 ? "Changes Required" : "Tested (PASS)";
@@ -336,6 +393,38 @@ export async function PATCH(req: Request) {
          WHERE id = ?`,
         [finalTestStatus, parsedIssuesCount, test_sheet_link || null, remarks || null, id]
       );
+
+      // Auto-record QA testing accomplishment in daily_work table for the Tester
+      try {
+        const todayStr = new Date().toISOString().split("T")[0];
+        let testingHours = 1.0;
+        if (currentTask.testing_started_at) {
+          const startTime = new Date(currentTask.testing_started_at).getTime();
+          const diffHours = Math.max(0.25, (Date.now() - startTime) / (1000 * 60 * 60));
+          testingHours = Math.round(diffHours * 10) / 10;
+        }
+
+        const workSummary = parsedIssuesCount === 0 
+          ? `QA Verification PASSED: "${currentTask.title}" in project "${currentTask.project_name || 'General'}" (0 issues). Verified and ready for Demo.`
+          : `QA Verification COMPLETED: "${currentTask.title}" in project "${currentTask.project_name || 'General'}" (${parsedIssuesCount} issues found). Returned to developer with test sheet: ${test_sheet_link || 'N/A'}`;
+
+        await pool.query(
+          `INSERT INTO daily_work (user_id, project_id, task_id, date, hours_worked, work_description, status, remarks)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            currentUserId,
+            currentTask.project_id || null,
+            id,
+            todayStr,
+            testingHours,
+            workSummary,
+            finalTestStatus === "Tested (PASS)" ? "Completed" : "In Progress",
+            remarks || (parsedIssuesCount > 0 ? `${parsedIssuesCount} issues reported` : "QA Verification Passed")
+          ]
+        );
+      } catch (logErr) {
+        console.error("Failed to auto-sync QA accomplishment to daily_work:", logErr);
+      }
 
       // Notify developer
       if (currentTask.assigned_to) {
@@ -371,7 +460,7 @@ export async function PATCH(req: Request) {
       });
     }
 
-    // 4. Action: Send to Testing (Developer submitting preview links)
+    // 5. Action: Send to Testing (Developer submitting preview links)
     if (action === "send_to_testing") {
       let finalLinksArray = task_links;
       if (!finalLinksArray && task_link) finalLinksArray = [task_link];
@@ -406,7 +495,7 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ success: true, id, status: "Ready for Testing", task_links: linksCleaned });
     }
 
-    // 5. Standard Progress / Lifecycle Status Update
+    // 6. Standard Progress / Lifecycle Status Update
     const newStatus = status || currentTask.status;
 
     let linksJson = undefined;
@@ -491,8 +580,9 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   const session = await getServerSession(authOptions);
-  if (!session || !["CEO", "PM"].includes((session.user as any).role)) {
-    return NextResponse.json({ error: "Unauthorized: PM or CEO role required" }, { status: 403 });
+  const role = (session?.user as any)?.role;
+  if (!session || !["Admin", "CEO", "PM"].includes(role)) {
+    return NextResponse.json({ error: "Unauthorized: PM, CEO or Admin role required" }, { status: 403 });
   }
 
   try {
@@ -504,6 +594,7 @@ export async function DELETE(req: Request) {
     }
 
     await pool.query("DELETE FROM task_checklists WHERE task_id = ?", [id]);
+    await pool.query("DELETE FROM daily_work WHERE task_id = ?", [id]);
     await pool.query("DELETE FROM tasks WHERE id = ?", [id]);
 
     return NextResponse.json({ success: true, message: "Task deleted successfully" });
@@ -511,5 +602,3 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
-
-

@@ -8,16 +8,42 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
 
   try {
-    // Testing queue: tasks that are Ready for Testing, Testing, or Tested (PASS)
-    const [rows] = await pool.query(`
-      SELECT t.*, p.name as project_name, u1.name as assignee_name 
+    // Testing queue: ONLY active tasks that are Ready for Testing or currently in Testing
+    const [rows]: any = await pool.query(`
+      SELECT t.*, 
+        p.name as project_name, 
+        p.created_by as project_created_by,
+        pu.name as project_creator_name,
+        pu.role as project_creator_role,
+        u1.name as assignee_name, 
+        u2.name as creator_name,
+        u2.role as creator_role
       FROM tasks t
       LEFT JOIN projects p ON t.project_id = p.id
+      LEFT JOIN users pu ON p.created_by = pu.id
       LEFT JOIN users u1 ON t.assigned_to = u1.id
-      WHERE t.status IN ('Ready for Testing', 'Testing', 'Tested (PASS)', 'Changes Required')
+      LEFT JOIN users u2 ON t.created_by = u2.id
+      WHERE t.status IN ('Ready for Testing', 'Testing')
       ORDER BY t.created_at DESC
     `);
-    return NextResponse.json(rows);
+
+    const formatted = rows.map((r: any) => {
+      let parsedLinks: string[] = [];
+      if (typeof r.task_links === "string") {
+        try { parsedLinks = JSON.parse(r.task_links); } catch (_) {}
+      } else if (Array.isArray(r.task_links)) {
+        parsedLinks = r.task_links;
+      } else if (r.task_link) {
+        parsedLinks = [r.task_link];
+      }
+
+      return {
+        ...r,
+        task_links: parsedLinks,
+      };
+    });
+
+    return NextResponse.json(formatted);
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -25,7 +51,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
-  if (!session || !["Tester", "CEO", "PM"].includes((session.user as any).role)) {
+  if (!session || !["Tester", "CEO", "PM", "Admin"].includes((session.user as any).role)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 

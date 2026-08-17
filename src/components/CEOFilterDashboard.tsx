@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { 
   Filter, 
@@ -14,30 +15,31 @@ import {
   TrendingUp, 
   AlertTriangle,
   Flame,
-  Users
+  Users,
+  RefreshCw
 } from "lucide-react";
+import { showToast } from "@/lib/swal";
 
 export default function CEOFilterDashboard() {
   const [tasks, setTasks] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
 
   // Filters
   const [selectedProject, setSelectedProject] = useState("ALL");
   const [selectedStatus, setSelectedStatus] = useState("ALL");
   const [selectedAssignee, setSelectedAssignee] = useState("ALL");
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async (isManual = false) => {
+    if (isManual) setRefreshing(true);
     try {
       const [tRes, pRes, eRes] = await Promise.all([
-        fetch("/api/tasks"),
-        fetch("/api/projects"),
-        fetch("/api/employees"),
+        fetch("/api/tasks?_=" + Date.now()),
+        fetch("/api/projects?_=" + Date.now()),
+        fetch("/api/employees?_=" + Date.now()),
       ]);
 
       const [tData, pData, eData] = await Promise.all([
@@ -49,34 +51,62 @@ export default function CEOFilterDashboard() {
       if (Array.isArray(tData)) setTasks(tData);
       if (Array.isArray(pData)) setProjects(pData);
       if (Array.isArray(eData)) setEmployees(eData);
+      setLastUpdated(new Date());
+
+      if (isManual) {
+        showToast("Dashboard metrics refreshed!");
+      }
     } catch (err) {
-      console.error(err);
+      console.error("Dashboard fetch error:", err);
     } finally {
       setLoading(false);
+      if (isManual) setRefreshing(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+
+    // Auto-refresh every 6 seconds to keep numbers live in real-time
+    const interval = setInterval(() => {
+      fetchData();
+    }, 6000);
+
+    // Refresh on window refocus
+    const handleFocus = () => fetchData();
+    window.addEventListener("focus", handleFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [fetchData]);
 
   // Filter tasks based on selections
   const filteredTasks = tasks.filter((t) => {
-    const matchProject = selectedProject === "ALL" || t.project_id?.toString() === selectedProject;
+    const matchProject = selectedProject === "ALL" || String(t.project_id) === String(selectedProject);
     const matchStatus = selectedStatus === "ALL" || t.status === selectedStatus;
-    const matchAssignee = selectedAssignee === "ALL" || t.assigned_to?.toString() === selectedAssignee;
+    const matchAssignee = selectedAssignee === "ALL" || String(t.assigned_to) === String(selectedAssignee);
     return matchProject && matchStatus && matchAssignee;
   });
 
-  const completedCount = filteredTasks.filter((t) => t.status === "Completed" || t.status === "Ready for Demo" || t.status === "Tested (PASS)").length;
+  const completedCount = filteredTasks.filter((t) => 
+    t.status === "Completed" || t.status === "Ready for Demo" || t.status === "Tested (PASS)"
+  ).length;
   const inProgressCount = filteredTasks.filter((t) => t.status === "In Progress" || t.status === "Planning").length;
   const readyForTestingCount = filteredTasks.filter((t) => t.status === "Ready for Testing" || t.status === "Testing").length;
   const changesRequiredCount = filteredTasks.filter((t) => t.status === "Changes Required").length;
   const completionRate = filteredTasks.length > 0 ? Math.round((completedCount / filteredTasks.length) * 100) : 0;
 
-  // Build Employee Progress Breakdown Matrix
+  // Build Employee Progress Breakdown Matrix with robust type matching
   const employeeProgressList = employees.map((emp) => {
-    const empTasks = tasks.filter((t) => t.assigned_to === emp.id);
+    const empTasks = tasks.filter((t) => String(t.assigned_to) === String(emp.id));
     const empProjectsCount = new Set(empTasks.map((t) => t.project_id).filter(Boolean)).size;
-    const empCompleted = empTasks.filter((t) => t.status === "Completed" || t.status === "Ready for Demo" || t.status === "Tested (PASS)").length;
+    const empCompleted = empTasks.filter((t) => 
+      t.status === "Completed" || t.status === "Ready for Demo" || t.status === "Tested (PASS)"
+    ).length;
     const empInProgress = empTasks.filter((t) => t.status === "In Progress" || t.status === "Planning").length;
-    const empBlocked = empTasks.filter((t) => t.blockers && t.status !== "Completed").length;
+    const empBlocked = empTasks.filter((t) => t.blockers && t.status !== "Completed" && t.status !== "Ready for Demo").length;
     const empTotalHours = empTasks.reduce((sum, t) => sum + (parseFloat(t.hours_spent) || 0), 0);
     const empRate = empTasks.length > 0 ? Math.round((empCompleted / empTasks.length) * 100) : 0;
 
@@ -90,7 +120,7 @@ export default function CEOFilterDashboard() {
       totalHours: empTotalHours,
       completionRate: empRate,
     };
-  }).filter((emp) => selectedAssignee === "ALL" || emp.id.toString() === selectedAssignee);
+  }).filter((emp) => selectedAssignee === "ALL" || String(emp.id) === String(selectedAssignee));
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -117,9 +147,28 @@ export default function CEOFilterDashboard() {
     <div className="space-y-6">
       {/* Filter Control Bar */}
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="flex items-center gap-2 text-sm font-bold text-slate-800 mb-4">
-          <Filter className="h-4 w-4 text-sky-500" />
-          Filter Projects, Tasks & Employee Progress Matrix
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
+          <div className="flex items-center gap-2 text-sm font-bold text-slate-800">
+            <Filter className="h-4 w-4 text-sky-500" />
+            Filter Projects, Tasks & Employee Progress Matrix
+          </div>
+
+          <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-1.5 text-xs text-slate-500 font-medium">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span suppressHydrationWarning>Live Sync: {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => fetchData(true)}
+              disabled={refreshing}
+              className="h-8 px-2.5 text-xs font-bold gap-1 text-slate-700 hover:text-sky-600 bg-white shadow-xs"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin text-sky-600" : ""}`} />
+              Refresh
+            </Button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

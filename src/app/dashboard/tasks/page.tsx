@@ -36,19 +36,21 @@ import {
   Edit3,
   AlertTriangle,
   FileText,
-  Link as LinkIcon
+  Link as LinkIcon,
+  RefreshCw
 } from "lucide-react";
 
 export default function DailyTasksPage() {
   const { data: session } = useSession();
   const role = (session?.user as any)?.role;
   const currentUserId = (session?.user as any)?.id;
-  const canManageAllTasks = role === "CEO" || role === "PM";
+  const canManageAllTasks = role === "CEO" || role === "PM" || role === "Admin";
 
   const [tasks, setTasks] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<"today" | "tomorrow" | "assigned_pm" | "assigned_ceo" | "from_tester" | "self_created" | "all">("today");
 
   // Create Task Modal state
@@ -88,27 +90,54 @@ export default function DailyTasksPage() {
   const [testingNotes, setTestingNotes] = useState<string>("");
   const [submittingTesting, setSubmittingTesting] = useState(false);
 
+  // Management Edit Task Modal State (CEO, PM, Admin)
+  const [editTaskModalOpen, setEditTaskModalOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState<any>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editProjectId, setEditProjectId] = useState("");
+  const [editAssignedTo, setEditAssignedTo] = useState("");
+  const [editPriority, setEditPriority] = useState("Medium");
+  const [editStatus, setEditStatus] = useState("In Progress");
+  const [editTargetDate, setEditTargetDate] = useState("");
+  const [editAssignedByType, setEditAssignedByType] = useState("PM");
+  const [editProgressPercentage, setEditProgressPercentage] = useState(0);
+  const [editHoursSpent, setEditHoursSpent] = useState(0);
+  const [editBlockers, setEditBlockers] = useState("");
+  const [editRemarks, setEditRemarks] = useState("");
+  const [savingEditTask, setSavingEditTask] = useState(false);
+
+  // Delete Task Confirmation State (CEO, PM, Admin)
+  const [deleteConfirmTask, setDeleteConfirmTask] = useState<any>(null);
+  const [deletingTask, setDeletingTask] = useState(false);
+
   useEffect(() => {
     fetchTasks();
     fetchProjects();
     fetchEmployees();
+
+    const interval = setInterval(fetchTasks, 6000);
+    return () => clearInterval(interval);
   }, []);
 
-  const fetchTasks = async () => {
+  const fetchTasks = async (isManual = false) => {
+    if (isManual) setRefreshing(true);
     try {
-      const res = await fetch("/api/tasks");
+      const res = await fetch("/api/tasks?_=" + Date.now());
       const data = await res.json();
       if (Array.isArray(data)) setTasks(data);
+      if (isManual) showToast("Daily tasks refreshed!");
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
+      if (isManual) setRefreshing(false);
     }
   };
 
   const fetchProjects = async () => {
     try {
-      const res = await fetch("/api/projects");
+      const res = await fetch("/api/projects?_=" + Date.now());
       const data = await res.json();
       if (Array.isArray(data)) setProjects(data);
     } catch (err) {
@@ -118,7 +147,7 @@ export default function DailyTasksPage() {
 
   const fetchEmployees = async () => {
     try {
-      const res = await fetch("/api/employees");
+      const res = await fetch("/api/employees?_=" + Date.now());
       const data = await res.json();
       if (Array.isArray(data)) setEmployees(data);
     } catch (err) {
@@ -188,6 +217,95 @@ export default function DailyTasksPage() {
       showError("Failed to submit task.");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  // Open Edit Task Modal (PM, CEO, Admin)
+  const openEditTaskModal = (task: any) => {
+    setEditingTask(task);
+    setEditTitle(task.title || "");
+    setEditDescription(task.description || "");
+    setEditProjectId(task.project_id ? task.project_id.toString() : "");
+    setEditAssignedTo(task.assigned_to ? task.assigned_to.toString() : "");
+    setEditPriority(task.priority || "Medium");
+    setEditStatus(task.status || "In Progress");
+    setEditTargetDate(task.target_date ? task.target_date.split("T")[0] : "");
+    setEditAssignedByType(task.assigned_by_type || "PM");
+    setEditProgressPercentage(task.progress_percentage || 0);
+    setEditHoursSpent(parseFloat(task.hours_spent) || 0);
+    setEditBlockers(task.blockers || "");
+    setEditRemarks(task.remarks || "");
+    setEditTaskModalOpen(true);
+  };
+
+  // Save Edit Task (PM, CEO, Admin)
+  const handleSaveEditTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTask) return;
+
+    setSavingEditTask(true);
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editingTask.id,
+          action: "admin_edit",
+          title: editTitle.trim(),
+          description: editDescription.trim() || null,
+          project_id: editProjectId ? parseInt(editProjectId) : undefined,
+          assigned_to: editAssignedTo ? parseInt(editAssignedTo) : undefined,
+          priority: editPriority,
+          status: editStatus,
+          target_date: editTargetDate || undefined,
+          assigned_by_type: editAssignedByType,
+          progress_percentage: editProgressPercentage,
+          hours_spent: editHoursSpent,
+          blockers: editBlockers.trim() || null,
+          remarks: editRemarks.trim() || null,
+        }),
+      });
+
+      if (res.ok) {
+        setEditTaskModalOpen(false);
+        setEditingTask(null);
+        fetchTasks();
+        showToast("Task updated successfully!");
+      } else {
+        const data = await res.json();
+        showError("Failed to Update Task", data.error || "Unknown error");
+      }
+    } catch (err) {
+      console.error(err);
+      showError("Error updating task.");
+    } finally {
+      setSavingEditTask(false);
+    }
+  };
+
+  // Confirm Delete Task (PM, CEO, Admin)
+  const confirmDeleteTask = async () => {
+    if (!deleteConfirmTask) return;
+
+    setDeletingTask(true);
+    try {
+      const res = await fetch(`/api/tasks?id=${deleteConfirmTask.id}`, {
+        method: "DELETE",
+      });
+
+      if (res.ok) {
+        setDeleteConfirmTask(null);
+        fetchTasks();
+        showToast("Task deleted successfully!");
+      } else {
+        const data = await res.json();
+        showError("Failed to Delete Task", data.error || "Unknown error");
+      }
+    } catch (err) {
+      console.error(err);
+      showError("Error deleting task.");
+    } finally {
+      setDeletingTask(false);
     }
   };
 
@@ -439,282 +557,288 @@ export default function DailyTasksPage() {
             Daily Tasks Hub & Progress Management
           </h1>
           <p className="text-slate-500 mt-1">
-            {role === "Developer"
+            {role === "Developer" || role === "Tester"
               ? "Plan daily tasks, update progress (% done & hours spent), document blockers, and submit preview links for QA testing."
-              : "Track developer daily tasks, review blockers, monitor QA verification cycles, and manage client demo releases."}
+              : "Manage and assign daily tasks for developers and testers, edit and review progress, and manage releases."}
           </p>
         </div>
 
-        {/* Create Task Button */}
-        <Dialog open={createModalOpen} onOpenChange={setCreateModalOpen}>
-          <DialogTrigger render={<Button className="bg-sky-600 hover:bg-sky-700 text-white font-bold shadow-md flex items-center gap-2" />}>
-            <Plus className="h-4 w-4" /> {role === "Developer" ? "Create Daily Task" : "Create & Assign Task"}
-          </DialogTrigger>
-          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle className="text-xl font-bold text-slate-900 flex items-center gap-2">
-                <CheckSquare className="h-5 w-5 text-sky-500" /> 
-                {role === "Developer" ? "Create Daily Task for Assigned Project" : "Create & Assign Task"}
-              </DialogTitle>
-            </DialogHeader>
+        {/* Top Right Action Buttons */}
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => fetchTasks(true)}
+            disabled={refreshing}
+            className="h-9 px-3 text-xs font-bold gap-1 text-slate-700 hover:text-sky-600 bg-white shadow-xs"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin text-sky-600" : ""}`} />
+            Refresh
+          </Button>
 
-            <form onSubmit={handleCreateTask} className="space-y-4 pt-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="title" className="font-semibold text-slate-700">Task Title *</Label>
-                <Input
-                  id="title"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="e.g. Implement Stripe Webhook Listener"
-                  required
-                />
-              </div>
+          {/* Create Task Button */}
+          <Dialog open={createModalOpen} onOpenChange={setCreateModalOpen}>
+            <DialogTrigger render={<Button className="bg-sky-600 hover:bg-sky-700 text-white font-bold shadow-md flex items-center gap-2" />}>
+              <Plus className="h-4 w-4" /> {canManageAllTasks ? "Create & Assign Task" : "Create Daily Task"}
+            </DialogTrigger>
+            <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                  <CheckSquare className="h-5 w-5 text-sky-500" /> 
+                  {canManageAllTasks ? "Create & Assign Task" : "Create Daily Task for Assigned Project"}
+                </DialogTitle>
+              </DialogHeader>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="description" className="font-semibold text-slate-700">Description / Goal</Label>
-                <Input
-                  id="description"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Brief summary of code deliverables"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <form onSubmit={handleCreateTask} className="space-y-4 pt-2">
                 <div className="space-y-1.5">
-                  <Label className="font-semibold text-slate-700">Project *</Label>
-                  <Select value={projectId} onValueChange={(val) => setProjectId(val || "")}>
-                    <SelectTrigger><SelectValue placeholder="Select Project" /></SelectTrigger>
-                    <SelectContent>
-                      {projects.map((p) => (
-                        <SelectItem key={p.id} value={p.id.toString()}>
-                          {p.name} {p.creator_name ? `(By: ${p.creator_name})` : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label htmlFor="title" className="font-semibold text-slate-700">Task Title *</Label>
+                  <Input
+                    id="title"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    placeholder="e.g. Implement Stripe Webhook Listener"
+                    required
+                  />
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label className="font-semibold text-slate-700">Task Assigned By *</Label>
-                  <Select value={assignedByType} onValueChange={(val: any) => setAssignedByType(val || "Self Tested")}>
-                    <SelectTrigger><SelectValue placeholder="Assigned By" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="PM">📋 PM (Project Manager)</SelectItem>
-                      <SelectItem value="CEO">👑 CEO (Executive)</SelectItem>
-                      <SelectItem value="Tester">🧪 Tester (QA Bug Fix)</SelectItem>
-                      <SelectItem value="Self Tested">✍️ Self Tested (Developer)</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Label htmlFor="description" className="font-semibold text-slate-700">Description / Goal</Label>
+                  <textarea
+                    id="description"
+                    rows={3}
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Detailed description of task deliverables and requirements..."
+                    className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500 leading-relaxed"
+                  />
                 </div>
 
-                {canManageAllTasks ? (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div className="space-y-1.5">
-                    <Label className="font-semibold text-slate-700">
-                      {assignToAll ? "Assignee Target" : "Assign Developer *"}
-                    </Label>
-                    {assignToAll ? (
-                      <div className="flex items-center gap-2 h-9 px-3 rounded-lg bg-sky-50 border border-sky-200 text-xs font-bold text-sky-900">
-                        <Sparkles className="h-3.5 w-3.5 text-sky-600 animate-pulse" />
-                        <span>All Available Employees ({employees.length} Members)</span>
-                      </div>
-                    ) : (
-                      <Select value={assignedTo} onValueChange={(val) => setAssignedTo(val || "")}>
-                        <SelectTrigger><SelectValue placeholder="Select Developer" /></SelectTrigger>
-                        <SelectContent>
-                          {employees
-                            .filter((e) => e.role === "Developer" || e.role === "Tester")
-                            .map((e) => (
-                              <SelectItem key={e.id} value={e.id.toString()}>{e.name} ({e.role})</SelectItem>
-                            ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </div>
-                ) : (
-                  <div className="space-y-1.5">
-                    <Label className="font-semibold text-slate-700">Priority</Label>
-                    <Select value={priority} onValueChange={(val) => setPriority(val || "Medium")}>
-                      <SelectTrigger><SelectValue placeholder="Priority" /></SelectTrigger>
+                    <Label className="font-semibold text-slate-700">Project *</Label>
+                    <Select value={projectId} onValueChange={(val) => setProjectId(val || "")}>
+                      <SelectTrigger><SelectValue placeholder="Select Project" /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Low">Low</SelectItem>
-                        <SelectItem value="Medium">Medium</SelectItem>
-                        <SelectItem value="High">High</SelectItem>
-                        <SelectItem value="Urgent">Urgent</SelectItem>
+                        {projects.map((p) => (
+                          <SelectItem key={p.id} value={p.id.toString()}>
+                            {p.name} {p.creator_name ? `(By: ${p.creator_name})` : ""}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
-                )}
-              </div>
 
-              {/* Special Mass Mock / Broadcast Assignment for CEO, PM, Admin */}
-              {canManageAllTasks && (
-                <div className="p-3 rounded-xl border border-sky-200 bg-gradient-to-r from-sky-50/90 via-indigo-50/60 to-purple-50/70 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Sparkles className="h-4 w-4 text-sky-600" />
-                      <div>
-                        <span className="text-xs font-bold text-slate-900 block">
-                          Assign to Everyone ({employees.length} Employees)
-                        </span>
-                        <span className="text-[10px] text-slate-500">
-                          Special Executive/PM Action: Creates an individual copy for each active team member.
-                        </span>
-                      </div>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                      <input
-                        type="checkbox"
-                        checked={assignToAll}
-                        onChange={(e) => setAssignToAll(e.target.checked)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-sky-600"></div>
-                    </label>
+                  <div className="space-y-1.5">
+                    <Label className="font-semibold text-slate-700">Task Assigned By *</Label>
+                    <Select value={assignedByType} onValueChange={(val: any) => setAssignedByType(val || "Self Tested")}>
+                      <SelectTrigger><SelectValue placeholder="Assigned By" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="PM">📋 PM (Project Manager)</SelectItem>
+                        <SelectItem value="CEO">👑 CEO (Executive)</SelectItem>
+                        <SelectItem value="Tester">🧪 Tester (QA Bug Fix)</SelectItem>
+                        <SelectItem value="Self Tested">✍️ Self Tested</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
 
-                  {assignToAll && (
-                    <div className="pt-2 border-t border-sky-100/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 animate-fade-in">
-                      <p className="text-[11px] text-sky-900 font-medium">
-                        🔔 Instant Alert: Every employee will hear an alert chime and get notified upon creation.
-                      </p>
-                      <label className="flex items-center gap-1.5 text-xs font-bold text-purple-900 cursor-pointer bg-white/70 px-2 py-1 rounded-md border border-purple-200">
-                        <input
-                          type="checkbox"
-                          checked={isMockTask}
-                          onChange={(e) => setIsMockTask(e.target.checked)}
-                          className="rounded border-slate-300 text-purple-600 h-3.5 w-3.5"
-                        />
-                        <span>⚡ Mark as Mock / Drill Task</span>
-                      </label>
+                  {canManageAllTasks ? (
+                    <div className="space-y-1.5">
+                      <Label className="font-semibold text-slate-700">
+                        {assignToAll ? "Assignee Target" : "Assign Team Member *"}
+                      </Label>
+                      {assignToAll ? (
+                        <div className="flex items-center gap-2 h-9 px-3 rounded-lg bg-sky-50 border border-sky-200 text-xs font-bold text-sky-900">
+                          <Sparkles className="h-3.5 w-3.5 text-sky-600 animate-pulse" />
+                          <span>All Available Employees ({employees.length} Members)</span>
+                        </div>
+                      ) : (
+                        <Select value={assignedTo} onValueChange={(val) => setAssignedTo(val || "")}>
+                          <SelectTrigger><SelectValue placeholder="Select Employee" /></SelectTrigger>
+                          <SelectContent>
+                            {employees.map((e) => (
+                              <SelectItem key={e.id} value={e.id.toString()}>{e.name} ({e.role})</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <Label className="font-semibold text-slate-700">Priority</Label>
+                      <Select value={priority} onValueChange={(val) => setPriority(val || "Medium")}>
+                        <SelectTrigger><SelectValue placeholder="Priority" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Low">Low</SelectItem>
+                          <SelectItem value="Medium">Medium</SelectItem>
+                          <SelectItem value="High">High</SelectItem>
+                          <SelectItem value="Urgent">Urgent</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                   )}
                 </div>
-              )}
 
-              {/* Timeline Selection */}
-              <div className="space-y-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
-                <Label className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
-                  <Calendar className="h-4 w-4 text-sky-500" /> When will you work on this task?
-                </Label>
-                <div className="grid grid-cols-3 gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setTimeline("today")}
-                    className={`p-2 rounded-lg border text-xs font-bold transition-all flex flex-col items-center gap-1 ${
-                      timeline === "today"
-                        ? "bg-sky-50 border-sky-400 text-sky-900 shadow-xs"
-                        : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                    }`}
-                  >
-                    <Flame className="h-4 w-4 text-amber-500" />
-                    <span>⚡ To Do Today</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setTimeline("tomorrow")}
-                    className={`p-2 rounded-lg border text-xs font-bold transition-all flex flex-col items-center gap-1 ${
-                      timeline === "tomorrow"
-                        ? "bg-indigo-50 border-indigo-400 text-indigo-900 shadow-xs"
-                        : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                    }`}
-                  >
-                    <SunMedium className="h-4 w-4 text-indigo-500" />
-                    <span>🌅 For Tomorrow</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setTimeline("custom")}
-                    className={`p-2 rounded-lg border text-xs font-bold transition-all flex flex-col items-center gap-1 ${
-                      timeline === "custom"
-                        ? "bg-purple-50 border-purple-400 text-purple-900 shadow-xs"
-                        : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                    }`}
-                  >
-                    <Calendar className="h-4 w-4 text-purple-500" />
-                    <span>📅 Specific Date</span>
-                  </button>
-                </div>
-
-                {timeline === "custom" && (
-                  <div className="pt-2">
-                    <Input
-                      type="date"
-                      value={customDate}
-                      onChange={(e) => setCustomDate(e.target.value)}
-                      className="bg-white text-xs"
-                      required
-                    />
-                  </div>
-                )}
-
-                <p className="text-[11px] text-slate-500 mt-1">
-                  {timeline === "today"
-                    ? "✓ Active today. If not finished 100%, it will automatically roll over to tomorrow's tasks."
-                    : timeline === "tomorrow"
-                    ? "✓ Scheduled for tomorrow. When you check in tomorrow, it will automatically show in Today's Tasks."
-                    : "✓ Scheduled for selected date."}
-                </p>
-              </div>
-
-              {/* Subtasks / Checklist */}
-              <div className="space-y-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
-                <Label className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
-                  <ListTodo className="h-4 w-4 text-sky-500" /> Add Checklist Sub-tasks (Optional)
-                </Label>
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="e.g. Write unit test cases"
-                    value={newChecklistInput}
-                    onChange={(e) => setNewChecklistInput(e.target.value)}
-                    className="bg-white text-xs h-8"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        handleAddInitialChecklist();
-                      }
-                    }}
-                  />
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={handleAddInitialChecklist}
-                    className="h-8 bg-sky-600 text-white font-semibold text-xs"
-                  >
-                    Add
-                  </Button>
-                </div>
-
-                {initialChecklists.length > 0 && (
-                  <div className="space-y-1.5 pt-1">
-                    {initialChecklists.map((item, idx) => (
-                      <div key={idx} className="flex items-center justify-between p-1.5 bg-white rounded border border-slate-200 text-xs">
-                        <span className="text-slate-800 font-medium">✓ {item}</span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveInitialChecklist(idx)}
-                          className="text-red-500 hover:text-red-700 p-0.5"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </button>
+                {/* Special Mass Mock / Broadcast Assignment for CEO, PM, Admin */}
+                {canManageAllTasks && (
+                  <div className="p-3 rounded-xl border border-sky-200 bg-gradient-to-r from-sky-50/90 via-indigo-50/60 to-purple-50/70 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="h-4 w-4 text-sky-600" />
+                        <div>
+                          <span className="text-xs font-bold text-slate-900 block">
+                            Assign to Everyone ({employees.length} Employees)
+                          </span>
+                          <span className="text-[10px] text-slate-500">
+                            Special Executive/PM Action: Creates an individual copy for each active team member.
+                          </span>
+                        </div>
                       </div>
-                    ))}
+                      <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                        <input
+                          type="checkbox"
+                          checked={assignToAll}
+                          onChange={(e) => setAssignToAll(e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-sky-600"></div>
+                      </label>
+                    </div>
+
+                    {assignToAll && (
+                      <div className="pt-2 border-t border-sky-100/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 animate-fade-in">
+                        <p className="text-[11px] text-sky-900 font-medium">
+                          🔔 Instant Alert: Every employee will hear an alert chime and get notified upon creation.
+                        </p>
+                        <label className="flex items-center gap-1.5 text-xs font-bold text-purple-900 cursor-pointer bg-white/70 px-2 py-1 rounded-md border border-purple-200">
+                          <input
+                            type="checkbox"
+                            checked={isMockTask}
+                            onChange={(e) => setIsMockTask(e.target.checked)}
+                            className="rounded border-slate-300 text-purple-600 h-3.5 w-3.5"
+                          />
+                          <span>⚡ Mark as Mock / Drill Task</span>
+                        </label>
+                      </div>
+                    )}
                   </div>
                 )}
-              </div>
 
-              <Button
-                type="submit"
-                disabled={submitting}
-                className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 mt-2"
-              >
-                {submitting ? "Creating Task..." : "Create Task"}
-              </Button>
-            </form>
-          </DialogContent>
-        </Dialog>
+                {/* Timeline Selection */}
+                <div className="space-y-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                  <Label className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
+                    <Calendar className="h-4 w-4 text-sky-500" /> When will you work on this task?
+                  </Label>
+                  <div className="grid grid-cols-3 gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setTimeline("today")}
+                      className={`p-2 rounded-lg border text-xs font-bold transition-all flex flex-col items-center gap-1 ${
+                        timeline === "today"
+                          ? "bg-sky-50 border-sky-400 text-sky-900 shadow-xs"
+                          : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      <Flame className="h-4 w-4 text-amber-500" />
+                      <span>⚡ To Do Today</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setTimeline("tomorrow")}
+                      className={`p-2 rounded-lg border text-xs font-bold transition-all flex flex-col items-center gap-1 ${
+                        timeline === "tomorrow"
+                          ? "bg-indigo-50 border-indigo-400 text-indigo-900 shadow-xs"
+                          : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      <SunMedium className="h-4 w-4 text-indigo-500" />
+                      <span>🌅 For Tomorrow</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setTimeline("custom")}
+                      className={`p-2 rounded-lg border text-xs font-bold transition-all flex flex-col items-center gap-1 ${
+                        timeline === "custom"
+                          ? "bg-purple-50 border-purple-400 text-purple-900 shadow-xs"
+                          : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      <Calendar className="h-4 w-4 text-purple-500" />
+                      <span>📅 Specific Date</span>
+                    </button>
+                  </div>
+
+                  {timeline === "custom" && (
+                    <div className="pt-2">
+                      <Input
+                        type="date"
+                        value={customDate}
+                        onChange={(e) => setCustomDate(e.target.value)}
+                        className="bg-white text-xs"
+                        required
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Subtasks / Checklist */}
+                <div className="space-y-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                  <Label className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
+                    <ListTodo className="h-4 w-4 text-sky-500" /> Add Checklist Sub-tasks (Optional)
+                  </Label>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="e.g. Write unit test cases"
+                      value={newChecklistInput}
+                      onChange={(e) => setNewChecklistInput(e.target.value)}
+                      className="bg-white text-xs h-8"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          handleAddInitialChecklist();
+                        }
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={handleAddInitialChecklist}
+                      className="h-8 bg-sky-600 text-white font-semibold text-xs"
+                    >
+                      Add
+                    </Button>
+                  </div>
+
+                  {initialChecklists.length > 0 && (
+                    <div className="space-y-1.5 pt-1">
+                      {initialChecklists.map((item, idx) => (
+                        <div key={idx} className="flex items-center justify-between p-1.5 bg-white rounded border border-slate-200 text-xs">
+                          <span className="text-slate-800 font-medium">✓ {item}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveInitialChecklist(idx)}
+                            className="text-red-500 hover:text-red-700 p-0.5"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <Button
+                  type="submit"
+                  disabled={submitting}
+                  className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 mt-2"
+                >
+                  {submitting ? "Creating Task..." : "Create Task"}
+                </Button>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       {/* Categorized Filter Tabs */}
@@ -867,7 +991,7 @@ export default function DailyTasksPage() {
               </div>
             </div>
 
-            {/* Hours Spent (Non-negative) & Status */}
+            {/* Hours Spent & Status */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="hoursSpent" className="font-semibold text-slate-700 text-xs">
@@ -1032,6 +1156,207 @@ export default function DailyTasksPage() {
         </DialogContent>
       </Dialog>
 
+      {/* MANAGEMENT EDIT TASK MODAL (CEO, PM, Admin) */}
+      <Dialog open={editTaskModalOpen} onOpenChange={setEditTaskModalOpen}>
+        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg font-bold text-slate-900">
+              <Edit3 className="h-5 w-5 text-sky-500" />
+              Edit Task Details (Management Action)
+            </DialogTitle>
+          </DialogHeader>
+
+          <form onSubmit={handleSaveEditTask} className="space-y-4 pt-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="editTaskTitle" className="font-semibold text-slate-700 text-xs">Task Title *</Label>
+              <Input
+                id="editTaskTitle"
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                required
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="editTaskDescription" className="font-semibold text-slate-700 text-xs">Description & Scope</Label>
+              <textarea
+                id="editTaskDescription"
+                rows={3}
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500 leading-relaxed"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <Label className="font-semibold text-slate-700 text-xs">Project</Label>
+                <Select value={editProjectId} onValueChange={(val) => setEditProjectId(val || "")}>
+                  <SelectTrigger><SelectValue placeholder="Project" /></SelectTrigger>
+                  <SelectContent>
+                    {projects.map((p) => (
+                      <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="font-semibold text-slate-700 text-xs">Assigned Member</Label>
+                <Select value={editAssignedTo} onValueChange={(val) => setEditAssignedTo(val || "")}>
+                  <SelectTrigger><SelectValue placeholder="Assignee" /></SelectTrigger>
+                  <SelectContent>
+                    {employees.map((e) => (
+                      <SelectItem key={e.id} value={e.id.toString()}>{e.name} ({e.role})</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="font-semibold text-slate-700 text-xs">Priority</Label>
+                <Select value={editPriority} onValueChange={(val) => setEditPriority(val || "Medium")}>
+                  <SelectTrigger><SelectValue placeholder="Priority" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Low">Low</SelectItem>
+                    <SelectItem value="Medium">Medium</SelectItem>
+                    <SelectItem value="High">High</SelectItem>
+                    <SelectItem value="Urgent">Urgent</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <Label className="font-semibold text-slate-700 text-xs">Status</Label>
+                <Select value={editStatus} onValueChange={(val) => setEditStatus(val || "In Progress")}>
+                  <SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Planning">Planning</SelectItem>
+                    <SelectItem value="In Progress">In Progress</SelectItem>
+                    <SelectItem value="Ready for Testing">Ready for Testing</SelectItem>
+                    <SelectItem value="Testing">Testing</SelectItem>
+                    <SelectItem value="Changes Required">Changes Required</SelectItem>
+                    <SelectItem value="Tested (PASS)">Tested (PASS)</SelectItem>
+                    <SelectItem value="Ready for Demo">Ready for Demo</SelectItem>
+                    <SelectItem value="Completed">Completed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="editTaskTargetDate" className="font-semibold text-slate-700 text-xs">Scheduled Target Date</Label>
+                <Input
+                  id="editTaskTargetDate"
+                  type="date"
+                  value={editTargetDate}
+                  onChange={(e) => setEditTargetDate(e.target.value)}
+                  className="text-xs"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="font-semibold text-slate-700 text-xs">Assigned By Tag</Label>
+                <Select value={editAssignedByType} onValueChange={(val) => setEditAssignedByType(val || "PM")}>
+                  <SelectTrigger><SelectValue placeholder="Assigned By" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PM">📋 PM</SelectItem>
+                    <SelectItem value="CEO">👑 CEO</SelectItem>
+                    <SelectItem value="Tester">🧪 Tester</SelectItem>
+                    <SelectItem value="Self Tested">✍️ Self Tested</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="editProgressPct" className="font-semibold text-slate-700 text-xs">Progress (% Done)</Label>
+                <Input
+                  id="editProgressPct"
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={editProgressPercentage}
+                  onChange={(e) => setEditProgressPercentage(parseInt(e.target.value) || 0)}
+                  className="text-xs"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="editHours" className="font-semibold text-slate-700 text-xs">Hours Logged</Label>
+                <Input
+                  id="editHours"
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={editHoursSpent}
+                  onChange={(e) => setEditHoursSpent(parseFloat(e.target.value) || 0)}
+                  className="text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="editBlockersInput" className="font-semibold text-slate-700 text-xs">Blockers (Optional)</Label>
+              <Input
+                id="editBlockersInput"
+                value={editBlockers}
+                onChange={(e) => setEditBlockers(e.target.value)}
+                placeholder="Blockers or pending dependencies..."
+                className="text-xs"
+              />
+            </div>
+
+            <Button
+              type="submit"
+              disabled={savingEditTask}
+              className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 shadow-md mt-2"
+            >
+              {savingEditTask ? "Saving Changes..." : "Save Task Changes"}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* DELETE TASK CONFIRMATION MODAL (CEO, PM, Admin) */}
+      <Dialog open={!!deleteConfirmTask} onOpenChange={(open) => !open && setDeleteConfirmTask(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg font-bold text-red-600">
+              <AlertTriangle className="h-5 w-5 text-red-500" /> Confirm Task Deletion
+            </DialogTitle>
+          </DialogHeader>
+          {deleteConfirmTask && (
+            <div className="space-y-4 pt-2">
+              <p className="text-sm text-slate-600">
+                Are you sure you want to permanently delete task <span className="font-bold text-slate-900">{deleteConfirmTask.title}</span>?
+              </p>
+              <div className="rounded-xl bg-red-50 p-3 text-xs text-red-700 border border-red-200">
+                ⚠️ This will permanently remove the task, checklists, and daily work log references. This action cannot be undone.
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setDeleteConfirmTask(null)}
+                  disabled={deletingTask}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="bg-red-600 hover:bg-red-700 text-white font-bold"
+                  onClick={confirmDeleteTask}
+                  disabled={deletingTask}
+                >
+                  {deletingTask ? "Deleting..." : "Permanently Delete"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Task List Table */}
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <Table>
@@ -1074,7 +1399,13 @@ export default function DailyTasksPage() {
                         <span>{task.title}</span>
                         <Badge variant="outline" className="text-[10px] py-0 px-1.5">{task.priority}</Badge>
                       </div>
-                      {task.description && <p className="text-xs text-slate-500 mt-0.5">{task.description}</p>}
+                      
+                      {/* Text-wrapped task description */}
+                      {task.description && (
+                        <p className="text-xs text-slate-600 whitespace-pre-wrap break-words mt-1 leading-relaxed max-w-md">
+                          {task.description}
+                        </p>
+                      )}
 
                       {/* Visual Progress Bar */}
                       <div className="mt-2 space-y-1">
@@ -1191,7 +1522,7 @@ export default function DailyTasksPage() {
                         )}
                       </div>
                       <div className="text-[11px] text-slate-500">
-                        Dev: <span className="font-medium text-slate-700">{task.assignee_name || "Unassigned"}</span>
+                        Assignee: <span className="font-medium text-slate-700">{task.assignee_name || "Unassigned"}</span>
                       </div>
                     </TableCell>
 
@@ -1316,6 +1647,30 @@ export default function DailyTasksPage() {
                         <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded-md border border-indigo-200 inline-block">
                           ✨ Demo Flagged (Alert Sent)
                         </span>
+                      )}
+
+                      {/* PM, CEO, Admin Edit & Delete Options */}
+                      {canManageAllTasks && (
+                        <div className="flex items-center justify-end gap-1 pt-1 border-t border-slate-100 mt-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => openEditTaskModal(task)}
+                            className="text-sky-600 hover:text-sky-800 hover:bg-sky-50 h-7 px-2 text-xs font-semibold gap-1"
+                            title="Edit Task Details"
+                          >
+                            <Edit3 className="h-3 w-3" /> Edit
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setDeleteConfirmTask(task)}
+                            className="text-red-500 hover:text-red-700 hover:bg-red-50 h-7 px-2 text-xs font-semibold gap-1"
+                            title="Delete Task"
+                          >
+                            <Trash2 className="h-3 w-3" /> Delete
+                          </Button>
+                        </div>
                       )}
                     </TableCell>
                   </TableRow>

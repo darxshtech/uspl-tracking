@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,43 +12,67 @@ import {
   Calendar, 
   ExternalLink, 
   UserCheck, 
-  AlertTriangle,
-  CheckCircle2,
-  TrendingUp
+  AlertTriangle, 
+  CheckCircle2, 
+  TrendingUp,
+  RefreshCw 
 } from "lucide-react";
 import Link from "next/link";
+import { showToast } from "@/lib/swal";
 
 export default function EmployeePersonalProgress() {
   const [tasks, setTasks] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async (isManual = false) => {
+    if (isManual) setRefreshing(true);
     try {
       const [tasksRes, projectsRes] = await Promise.all([
-        fetch("/api/tasks"),
-        fetch("/api/projects"),
+        fetch("/api/tasks?_=" + Date.now()),
+        fetch("/api/projects?_=" + Date.now()),
       ]);
       const tasksData = await tasksRes.json();
       const projectsData = await projectsRes.json();
 
       if (Array.isArray(tasksData)) setTasks(tasksData);
       if (Array.isArray(projectsData)) setProjects(projectsData);
+      setLastUpdated(new Date());
+
+      if (isManual) {
+        showToast("Progress report refreshed!");
+      }
     } catch (err) {
-      console.error(err);
+      console.error("Personal progress fetch error:", err);
     } finally {
       setLoading(false);
+      if (isManual) setRefreshing(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+
+    // Auto-refresh every 6 seconds
+    const interval = setInterval(() => {
+      fetchData();
+    }, 6000);
+
+    const handleFocus = () => fetchData();
+    window.addEventListener("focus", handleFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [fetchData]);
 
   // Group tasks by project
-  const projectMap: Record<number, any> = {};
+  const projectMap: Record<string, any> = {};
   projects.forEach((p) => {
-    projectMap[p.id] = {
+    projectMap[String(p.id)] = {
       ...p,
       tasks: [],
       completedCount: 0,
@@ -59,12 +83,12 @@ export default function EmployeePersonalProgress() {
   });
 
   tasks.forEach((t) => {
-    const pId = t.project_id;
+    const pId = String(t.project_id);
     if (projectMap[pId]) {
       projectMap[pId].tasks.push(t);
       if (t.status === "Completed" || t.status === "Ready for Demo" || t.status === "Tested (PASS)") {
         projectMap[pId].completedCount += 1;
-      } else if (t.blockers) {
+      } else if (t.blockers && t.status !== "Completed") {
         projectMap[pId].blockedCount += 1;
       } else {
         projectMap[pId].inProgressCount += 1;
@@ -97,15 +121,32 @@ export default function EmployeePersonalProgress() {
               <TrendingUp className="h-5 w-5 text-sky-500" />
               My Daily Progress & Deliverables Summary
             </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Real-time breakdown of tasks completed across all your assigned projects
-            </p>
+            <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5">
+              <span>Real-time breakdown of tasks completed across all your assigned projects</span>
+              <span>•</span>
+              <span className="flex items-center gap-1 font-medium text-emerald-700">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span suppressHydrationWarning>Live Sync: {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+              </span>
+            </div>
           </div>
-          <Link href="/dashboard/tasks">
-            <Button size="sm" className="bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs gap-1.5 shadow-xs">
-              <CheckSquare className="h-4 w-4" /> Go to Daily Tasks
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => fetchData(true)}
+              disabled={refreshing}
+              className="h-8 px-2.5 text-xs font-bold gap-1 text-slate-700 hover:text-sky-600 bg-white shadow-xs"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin text-sky-600" : ""}`} />
+              Refresh
             </Button>
-          </Link>
+            <Link href="/dashboard/tasks">
+              <Button size="sm" className="h-8 bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs gap-1.5 shadow-xs">
+                <CheckSquare className="h-4 w-4" /> Go to Daily Tasks
+              </Button>
+            </Link>
+          </div>
         </div>
 
         {/* Metric Pills */}
@@ -176,9 +217,6 @@ export default function EmployeePersonalProgress() {
                   <div>
                     <div className="font-bold text-slate-900 text-base flex items-center gap-2">
                       <span>{p.name}</span>
-                      <Badge className={p.status === "Completed" ? "bg-emerald-500 text-white" : "bg-sky-500 text-white"}>
-                        {p.status || "In Progress"}
-                      </Badge>
                     </div>
                     <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-1">
                       <UserCheck className="h-3 w-3 text-sky-500" />

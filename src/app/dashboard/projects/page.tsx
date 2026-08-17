@@ -58,7 +58,6 @@ export default function ProjectsPage() {
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editTargetDate, setEditTargetDate] = useState("");
-  const [editStatus, setEditStatus] = useState("In Progress");
   const [editDocUrl, setEditDocUrl] = useState("");
   const [editAttachments, setEditAttachments] = useState<any[]>([]);
   const [editMembers, setEditMembers] = useState<number[]>([]);
@@ -210,7 +209,6 @@ export default function ProjectsPage() {
     setEditName(proj.name || "");
     setEditDescription(proj.description || "");
     setEditTargetDate(proj.target_date ? proj.target_date.split("T")[0] : "");
-    setEditStatus(proj.status || "In Progress");
     setEditDocUrl(proj.documentation_url || "");
     setEditAttachments(Array.isArray(proj.attachments) ? proj.attachments : []);
     const memberIds = (proj.members || []).map((m: any) => m.id);
@@ -232,7 +230,6 @@ export default function ProjectsPage() {
           name: editName,
           description: editDescription,
           target_date: editTargetDate || null,
-          status: editStatus,
           documentation_url: editDocUrl || null,
           attachments: editAttachments,
           members: editMembers,
@@ -465,8 +462,8 @@ export default function ProjectsPage() {
           </DialogHeader>
 
           <form onSubmit={handleUpdateProject} className="space-y-4 pt-3">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div className="space-y-1.5 md:col-span-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
                 <Label htmlFor="editName" className="font-semibold text-slate-700">Project Name *</Label>
                 <Input
                   id="editName"
@@ -477,22 +474,6 @@ export default function ProjectsPage() {
               </div>
 
               <div className="space-y-1.5">
-                <Label className="font-semibold text-slate-700">Project Status</Label>
-                <Select value={editStatus} onValueChange={(val) => setEditStatus(val || "In Progress")}>
-                  <SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Planning">Planning</SelectItem>
-                    <SelectItem value="In Progress">In Progress</SelectItem>
-                    <SelectItem value="On Hold">On Hold</SelectItem>
-                    <SelectItem value="Completed">Completed</SelectItem>
-                    <SelectItem value="Cancelled">Cancelled</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
                 <Label htmlFor="editTargetDate" className="font-semibold text-slate-700">Target Delivery Date</Label>
                 <Input
                   id="editTargetDate"
@@ -501,19 +482,19 @@ export default function ProjectsPage() {
                   onChange={(e) => setEditTargetDate(e.target.value)}
                 />
               </div>
+            </div>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="editDocUrl" className="font-semibold text-slate-700 flex items-center gap-1">
-                  <FileText className="h-4 w-4 text-sky-500" /> Documentation Link
-                </Label>
-                <Input
-                  id="editDocUrl"
-                  type="url"
-                  value={editDocUrl}
-                  onChange={(e) => setEditDocUrl(e.target.value)}
-                  placeholder="https://docs.google.com/... or Notion URL"
-                />
-              </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="editDocUrl" className="font-semibold text-slate-700 flex items-center gap-1">
+                <FileText className="h-4 w-4 text-sky-500" /> Documentation Link
+              </Label>
+              <Input
+                id="editDocUrl"
+                type="url"
+                value={editDocUrl}
+                onChange={(e) => setEditDocUrl(e.target.value)}
+                placeholder="https://docs.google.com/... or Notion URL"
+              />
             </div>
 
             <div className="space-y-1.5">
@@ -612,15 +593,14 @@ export default function ProjectsPage() {
               <TableHead className="font-bold">Assigned Team</TableHead>
               <TableHead className="font-bold">Target Date</TableHead>
               <TableHead className="font-bold">Documentation & Files</TableHead>
-              <TableHead className="font-bold">Status</TableHead>
               {canManageProject && <TableHead className="font-bold text-right">Actions</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={6} className="text-center py-8">Loading projects...</TableCell></TableRow>
+              <TableRow><TableCell colSpan={canManageProject ? 5 : 4} className="text-center py-8">Loading projects...</TableCell></TableRow>
             ) : projects.length === 0 ? (
-              <TableRow><TableCell colSpan={6} className="text-center text-slate-500 py-10">No projects created yet. Click "Create New Project" to begin.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={canManageProject ? 5 : 4} className="text-center text-slate-500 py-10">No projects created yet. Click "Create New Project" to begin.</TableCell></TableRow>
             ) : (
               projects.map((proj) => (
                 <TableRow key={proj.id} className="hover:bg-slate-50/80 transition-colors">
@@ -687,18 +667,6 @@ export default function ProjectsPage() {
                         <span className="text-xs text-slate-400">None</span>
                       )}
                     </div>
-                  </TableCell>
-
-                  <TableCell>
-                    <Badge className={
-                      proj.status === "Completed" 
-                        ? "bg-emerald-500 text-white font-bold" 
-                        : proj.status === "On Hold"
-                        ? "bg-amber-500 text-white font-bold"
-                        : "bg-sky-500 text-white font-bold"
-                    }>
-                      {proj.status || "In Progress"}
-                    </Badge>
                   </TableCell>
 
                   {canManageProject && (

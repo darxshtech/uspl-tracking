@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { showError, showSuccess, showWarning } from "@/lib/swal";
+import { showError, showSuccess, showWarning, showToast } from "@/lib/swal";
 import { 
   CheckCircle2, 
   XCircle, 
@@ -22,7 +22,8 @@ import {
   Clock,
   FileSpreadsheet,
   AlertCircle,
-  Link as LinkIcon
+  Link as LinkIcon,
+  RefreshCw
 } from "lucide-react";
 
 import { useSession } from "next-auth/react";
@@ -35,6 +36,7 @@ export default function TestingQueuePage() {
 
   const [tasks, setTasks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   
   // Finish Testing Modal State
   const [finishModalOpen, setFinishModalOpen] = useState(false);
@@ -47,22 +49,27 @@ export default function TestingQueuePage() {
   useEffect(() => {
     if (isTesterOrAdmin) {
       fetchTestingQueue();
+      const interval = setInterval(fetchTestingQueue, 5000);
+      return () => clearInterval(interval);
     } else if (role) {
       setLoading(false);
     }
   }, [role, isTesterOrAdmin]);
 
-  const fetchTestingQueue = async () => {
+  const fetchTestingQueue = async (isManual = false) => {
+    if (isManual) setRefreshing(true);
     try {
-      const res = await fetch("/api/tasks");
+      const res = await fetch("/api/testing?_=" + Date.now());
       const data = await res.json();
       if (Array.isArray(data)) {
         setTasks(data);
       }
+      if (isManual) showToast("Testing queue refreshed!");
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
+      if (isManual) setRefreshing(false);
     }
   };
 
@@ -76,6 +83,7 @@ export default function TestingQueuePage() {
       });
       if (res.ok) {
         fetchTestingQueue();
+        showToast("Testing session started!");
       } else {
         showError("Failed to Start Session", "Failed to start testing session.");
       }
@@ -126,6 +134,11 @@ export default function TestingQueuePage() {
         setTestSheetLink("");
         setRemarks("");
         fetchTestingQueue();
+        if (parsedCount === 0) {
+          showSuccess("Testing Complete", "Task verified with 0 issues! Logged to Work Accomplishments.");
+        } else {
+          showToast(`Returned to developer with ${parsedCount} issues.`);
+        }
       } else {
         const data = await res.json();
         showError("Audit Failed", data.error || "Unknown error");
@@ -135,22 +148,6 @@ export default function TestingQueuePage() {
       showError("Audit Failed", "Failed to complete testing audit.");
     } finally {
       setSubmittingAudit(false);
-    }
-  };
-
-  // 4. Submit to Demo (Only when QA fully passed) -> Alert CEO & PM
-  const handleDirectDemoSubmit = async (taskId: number) => {
-    try {
-      const res = await fetch("/api/tasks", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: taskId, status: "Ready for Demo" }),
-      });
-      if (res.ok) {
-        fetchTestingQueue();
-      }
-    } catch (err) {
-      console.error(err);
     }
   };
 
@@ -175,15 +172,33 @@ export default function TestingQueuePage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-900 flex items-center gap-3">
             <ShieldCheck className="h-8 w-8 text-sky-500" />
-            QA Verification & Testing Station
+            QA Verification & Active Testing Station
           </h1>
           <p className="text-slate-500 mt-1">
-            Start testing sessions (timed check-in), audit multiple developer deliverable links, record issue counts with test sheet links, and pass fully fixed features for Demo release.
+            Active testing tasks submitted by developers. Completed verifications automatically log to Work Accomplishments & Audit Log.
           </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => fetchTestingQueue(true)}
+            disabled={refreshing}
+            className="h-8 px-2.5 text-xs font-bold gap-1 text-slate-700 hover:text-sky-600 bg-white shadow-xs"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin text-sky-600" : ""}`} />
+            Refresh Queue
+          </Button>
+          <Link href="/dashboard/work">
+            <Button size="sm" className="h-8 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs gap-1.5 shadow-xs">
+              <Clock className="h-3.5 w-3.5" /> View Logged Accomplishments
+            </Button>
+          </Link>
         </div>
       </div>
 
@@ -232,7 +247,7 @@ export default function TestingQueuePage() {
                 required
               />
               <p className="text-[11px] text-slate-500">
-                If issues are greater than 0, task will be returned to the developer for fixes and will NOT go to PM or CEO.
+                If issues are greater than 0, task will be returned to the developer for fixes. If 0, it passes and is logged as completed.
               </p>
             </div>
 
@@ -304,7 +319,7 @@ export default function TestingQueuePage() {
               <TableHead className="font-bold">Task & Preview Links</TableHead>
               <TableHead className="font-bold">Project & Assigner</TableHead>
               <TableHead className="font-bold">Developer</TableHead>
-              <TableHead className="font-bold">QA Status & Audit</TableHead>
+              <TableHead className="font-bold">QA Status</TableHead>
               <TableHead className="font-bold text-right">Testing Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -312,7 +327,17 @@ export default function TestingQueuePage() {
             {loading ? (
               <TableRow><TableCell colSpan={5} className="text-center py-8">Loading QA station...</TableCell></TableRow>
             ) : tasks.length === 0 ? (
-              <TableRow><TableCell colSpan={5} className="text-center text-slate-500 py-10">No tasks in QA queue.</TableCell></TableRow>
+              <TableRow>
+                <TableCell colSpan={5} className="text-center text-slate-500 py-12">
+                  <div className="max-w-sm mx-auto space-y-2">
+                    <CheckCircle2 className="h-10 w-10 text-emerald-500 mx-auto opacity-70" />
+                    <p className="font-bold text-slate-800">All Testing Tasks Clear!</p>
+                    <p className="text-xs text-slate-500">
+                      No active tasks awaiting QA verification. Completed testing records are preserved in Work Accomplishments.
+                    </p>
+                  </div>
+                </TableCell>
+              </TableRow>
             ) : (
               tasks.map((task) => {
                 const taskLinksList: string[] = Array.isArray(task.task_links) && task.task_links.length > 0
@@ -323,7 +348,11 @@ export default function TestingQueuePage() {
                   <TableRow key={task.id} className="hover:bg-slate-50/80 transition-colors">
                     <TableCell className="align-top max-w-sm">
                       <div className="font-bold text-slate-900 text-sm">{task.title}</div>
-                      {task.description && <p className="text-xs text-slate-500 line-clamp-1 mt-0.5">{task.description}</p>}
+                      {task.description && (
+                        <p className="text-xs text-slate-600 whitespace-pre-wrap break-words mt-1 leading-relaxed max-w-md">
+                          {task.description}
+                        </p>
+                      )}
                       
                       {/* Multiple Developer Preview Links */}
                       {taskLinksList.length > 0 ? (
@@ -375,21 +404,6 @@ export default function TestingQueuePage() {
                             <Clock className="h-3 w-3" /> Testing In Progress
                           </Badge>
                         )}
-                        {task.status === "Tested (PASS)" && (
-                          <Badge className="bg-emerald-600 text-white font-bold">QA Passed (Fully Fixed)</Badge>
-                        )}
-                        {task.status === "Ready for Demo" && (
-                          <Badge className="bg-indigo-600 text-white font-bold shadow-xs animate-pulse">🚀 Demo Ready (PM/CEO Alerted)</Badge>
-                        )}
-                        {task.status === "Changes Required" && (
-                          <Badge className="bg-red-500 text-white font-bold">Changes Required ({task.issues_count || 1} Issues)</Badge>
-                        )}
-                        {task.status === "Completed" && (
-                          <Badge className="bg-emerald-500 text-white font-bold">Completed</Badge>
-                        )}
-                        {!["Ready for Testing", "Testing", "Tested (PASS)", "Ready for Demo", "Changes Required", "Completed"].includes(task.status) && (
-                          <Badge variant="outline">{task.status}</Badge>
-                        )}
                       </div>
 
                       {task.testing_started_at && (
@@ -434,34 +448,6 @@ export default function TestingQueuePage() {
                         >
                           <ShieldCheck className="h-3.5 w-3.5" /> Finish Testing & Submit
                         </Button>
-                      )}
-
-                      {/* Re-test if changes were requested and dev resubmitted */}
-                      {task.status === "Changes Required" && (
-                        <Button
-                          size="sm"
-                          onClick={() => handleStartTesting(task.id)}
-                          className="bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs gap-1.5 shadow-xs"
-                        >
-                          <Play className="h-3.5 w-3.5" /> Re-test Task
-                        </Button>
-                      )}
-
-                      {/* Step 3: Tested (PASS) -> Submit to Demo (Alert CEO & PM) */}
-                      {task.status === "Tested (PASS)" && (
-                        <Button
-                          size="sm"
-                          onClick={() => handleDirectDemoSubmit(task.id)}
-                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs gap-1.5 shadow-md animate-bounce"
-                        >
-                          <Rocket className="h-3.5 w-3.5" /> Submit to Demo
-                        </Button>
-                      )}
-
-                      {task.status === "Ready for Demo" && (
-                        <span className="text-xs font-semibold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-md border border-indigo-200 inline-block">
-                          Demo Alert Sent to CEO/PM
-                        </span>
                       )}
                     </TableCell>
                   </TableRow>

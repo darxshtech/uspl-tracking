@@ -5,11 +5,15 @@ import CEOFilterDashboard from "@/components/CEOFilterDashboard";
 import EmployeePersonalProgress from "@/components/EmployeePersonalProgress";
 import { Briefcase, CheckCircle, Clock, ShieldAlert } from "lucide-react";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
   const role = (session?.user as any)?.role || "User";
   const userId = (session?.user as any)?.id;
   const isExecutive = ["Admin", "CEO", "PM"].includes(role);
+  const isTester = role === "Tester";
 
   let projectCount = 0;
   let taskCount = 0;
@@ -29,10 +33,28 @@ export default async function DashboardPage() {
 
       const [cRows]: any = await pool.query("SELECT COUNT(*) as cnt FROM tasks WHERE status IN ('Completed', 'Tested (PASS)', 'Ready for Demo')");
       completedCount = cRows[0]?.cnt || 0;
-    } else {
+    } else if (isTester) {
       const [pRows]: any = await pool.query(
-        "SELECT COUNT(DISTINCT project_id) as cnt FROM tasks WHERE assigned_to = ?",
+        "SELECT COUNT(DISTINCT project_id) as cnt FROM project_members WHERE user_id = ?",
         [userId]
+      );
+      projectCount = pRows[0]?.cnt || 0;
+
+      const [tRows]: any = await pool.query(
+        "SELECT COUNT(*) as cnt FROM tasks WHERE status IN ('Ready for Testing', 'Testing', 'Changes Required', 'Tested (PASS)', 'Ready for Demo')"
+      );
+      taskCount = tRows[0]?.cnt || 0;
+
+      const [rRows]: any = await pool.query("SELECT COUNT(*) as cnt FROM tasks WHERE status = 'Ready for Testing'");
+      readyForTestCount = rRows[0]?.cnt || 0;
+
+      const [cRows]: any = await pool.query("SELECT COUNT(*) as cnt FROM tasks WHERE status IN ('Tested (PASS)', 'Ready for Demo', 'Completed')");
+      completedCount = cRows[0]?.cnt || 0;
+    } else {
+      // Developer / regular team member
+      const [pRows]: any = await pool.query(
+        "SELECT COUNT(DISTINCT project_id) as cnt FROM (SELECT project_id FROM project_members WHERE user_id = ? UNION SELECT project_id FROM tasks WHERE assigned_to = ?) as combined",
+        [userId, userId]
       );
       projectCount = pRows[0]?.cnt || 0;
 
@@ -52,7 +74,7 @@ export default async function DashboardPage() {
       completedCount = cRows[0]?.cnt || 0;
     }
   } catch (err) {
-    console.error(err);
+    console.error("Error fetching dashboard counts:", err);
   }
 
   return (
@@ -69,7 +91,7 @@ export default async function DashboardPage() {
           </h1>
           <p className="text-slate-300 text-sm max-w-2xl">
             {isExecutive
-              ? "Unitglo Solutions Executive Dashboard: Monitor project progress, review developer task deliverables, and audit QA verification pipelines."
+              ? "Unitglo Solutions Executive Dashboard: Monitor project initiatives, review developer deliverables, and audit QA verification pipelines."
               : "Track your active initiatives, manage daily task completion, and coordinate testing hand-offs."}
           </p>
         </div>
@@ -95,7 +117,7 @@ export default async function DashboardPage() {
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md transition-all group">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-              {isExecutive ? "Total Tasks" : "My Tasks"}
+              {isExecutive ? "Total Tasks" : isTester ? "Testing Queue Tasks" : "My Tasks"}
             </span>
             <div className="p-2.5 rounded-xl bg-slate-100 text-slate-700 group-hover:bg-slate-900 group-hover:text-white transition-colors">
               <Clock className="h-5 w-5" />
@@ -103,7 +125,7 @@ export default async function DashboardPage() {
           </div>
           <div className="text-3xl font-extrabold text-slate-900 mt-4">{taskCount}</div>
           <p className="text-xs text-slate-500 mt-1">
-            {isExecutive ? "Managed tasks across team" : "Tasks assigned / created"}
+            {isExecutive ? "Managed tasks across team" : isTester ? "Tasks in QA testing pipeline" : "Tasks assigned / created"}
           </p>
         </div>
 
