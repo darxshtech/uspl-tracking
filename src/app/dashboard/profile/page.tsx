@@ -21,6 +21,7 @@ import {
   Sparkles 
 } from "lucide-react";
 import { getRoleDisplayName, getRoleBadgeClass, getRoleIconEmoji } from "@/lib/roleUtils";
+import { formatHoursAndMinutes } from "@/lib/timeUtils";
 
 export default function ProfilePage() {
   const { data: session, update } = useSession();
@@ -245,7 +246,7 @@ export default function ProfilePage() {
 
         <div className="p-4 rounded-xl border border-sky-200 bg-sky-50/60">
           <span className="text-xs font-bold text-sky-700 uppercase">Work Hours Logged</span>
-          <div className="text-2xl font-black text-sky-900 mt-1">{stats?.workHours || "0.0"} hrs</div>
+          <div className="text-2xl font-black text-sky-900 mt-1">{formatHoursAndMinutes(stats?.workHours)}</div>
           <span className="text-[11px] text-sky-600 font-medium">In Daily Work Hub</span>
         </div>
 

@@ -100,3 +100,24 @@ export function validateCheckoutTimeBuffer(
 
   return true; // Past or current time is always allowed
 }
+
+/**
+ * Formats decimal hours into a clean "X hrs Y mins" string.
+ * Example: 8.28 -> "8 hrs 17 mins", 8.0 -> "8 hrs", 0.5 -> "30 mins"
+ */
+export function formatHoursAndMinutes(hours: number | string | null | undefined): string {
+  const numericHours = typeof hours === 'string' ? parseFloat(hours) : Number(hours || 0);
+  if (isNaN(numericHours) || numericHours <= 0) return '0 hrs';
+
+  const totalMinutes = Math.round(numericHours * 60);
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+
+  if (h === 0) {
+    return `${m} min${m === 1 ? '' : 's'}`;
+  }
+  if (m === 0) {
+    return `${h} hr${h === 1 ? '' : 's'}`;
+  }
+  return `${h} hr${h === 1 ? '' : 's'} ${m} min${m === 1 ? '' : 's'}`;
+}

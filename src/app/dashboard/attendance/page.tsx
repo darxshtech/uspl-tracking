@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { showError, showInfo, showToast } from "@/lib/swal";
 import PMAttendanceManager from "@/components/PMAttendanceManager";
 import AttendanceCalendarView from "@/components/AttendanceCalendarView";
-import { calculateHoursDifference, getCurrentISTTime12 } from "@/lib/timeUtils";
+import { calculateHoursDifference, getCurrentISTTime12, formatHoursAndMinutes } from "@/lib/timeUtils";
 import { 
   CalendarDays, 
   LogIn, 
@@ -300,7 +300,7 @@ export default function AttendancePage() {
               )}
               {isCurrentlyCheckedOut && (
                 <Badge className="bg-slate-100 text-slate-700 border-slate-300 font-bold text-xs">
-                  ✓ Shift Done ({userTodayRecord?.total_hours || 0} hrs)
+                  ✓ Shift Done ({formatHoursAndMinutes(userTodayRecord?.total_hours)})
                 </Badge>
               )}
             </div>
@@ -478,13 +478,13 @@ export default function AttendancePage() {
                           <TableCell className="font-bold text-slate-900 text-xs">
                             {isActiveShift ? (
                               <div className="flex items-center gap-1.5">
-                                <span className="text-emerald-700 font-black">{displayHours.toFixed(2)} hrs</span>
+                                <span className="text-emerald-700 font-black">{formatHoursAndMinutes(displayHours)}</span>
                                 <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300 text-[9px] py-0 px-1 font-bold animate-pulse">
                                   Live ⏱️
                                 </Badge>
                               </div>
                             ) : (
-                              <span>{displayHours.toFixed(2)} hrs</span>
+                              <span>{formatHoursAndMinutes(displayHours)}</span>
                             )}
                           </TableCell>
                           <TableCell>
@@ -545,8 +545,8 @@ export default function AttendancePage() {
                 <span className="text-[10px] text-emerald-800 block uppercase font-bold">Total Shift Duration</span>
                 <span className="font-bold text-emerald-900 text-sm">
                   {selectedRecord.login_time && !selectedRecord.logout_time
-                    ? `${calculateHoursDifference(selectedRecord.login_time, currentISTTime || getCurrentISTTime12()).toFixed(2)} hrs (Active In Shift)`
-                    : `${parseFloat(selectedRecord.total_hours || 0).toFixed(2)} hours`}
+                    ? `${formatHoursAndMinutes(calculateHoursDifference(selectedRecord.login_time, currentISTTime || getCurrentISTTime12()))} (Active In Shift)`
+                    : formatHoursAndMinutes(selectedRecord.total_hours)}
                 </span>
               </div>
 

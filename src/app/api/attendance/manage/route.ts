@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import pool from "@/lib/db";
-import { calculateHoursDifference } from "@/lib/timeUtils";
+import { calculateHoursDifference, formatHoursAndMinutes } from "@/lib/timeUtils";
 
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
@@ -91,7 +91,7 @@ export async function PUT(req: Request) {
         [
           record.user_id,
           "Attendance Record Updated by PM",
-          `Your attendance for ${recordDate} was updated by Project Management (${status}, ${finalHours || 0} hrs).`
+          `Your attendance for ${recordDate} was updated by Project Management (${status}, ${formatHoursAndMinutes(finalHours)}).`
         ]
       );
     }

@@ -6,7 +6,8 @@ import {
   getCurrentISTDate, 
   getCurrentISTTime12, 
   calculateHoursDifference, 
-  validateCheckoutTimeBuffer 
+  validateCheckoutTimeBuffer,
+  formatHoursAndMinutes
 } from "@/lib/timeUtils";
 import { sendEmail } from "@/lib/mailer";
 
@@ -197,7 +198,7 @@ export async function POST(req: Request) {
         shiftDate: activeShift.date,
         login_time: activeShift.login_time,
         logout_time: nowTime12,
-        message: `Checked OUT successfully at ${nowTime12}. Total: ${totalHours.toFixed(2)} hrs (${status}).`,
+        message: `Checked OUT successfully at ${nowTime12}. Total: ${formatHoursAndMinutes(totalHours)} (${status}).`,
       });
     }
 

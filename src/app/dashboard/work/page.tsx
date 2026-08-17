@@ -16,6 +16,7 @@ import {
   CheckCircle2, 
   Filter 
 } from "lucide-react";
+import { formatHoursAndMinutes } from "@/lib/timeUtils";
 
 export default function DailyWorkPage() {
   const { data: session } = useSession();
@@ -169,7 +170,7 @@ export default function DailyWorkPage() {
                       </div>
                     )}
                   </TableCell>
-                  <TableCell className="font-bold text-slate-900 text-xs align-top">{parseFloat(log.hours_worked).toFixed(1)} hrs</TableCell>
+                  <TableCell className="font-bold text-slate-900 text-xs align-top">{formatHoursAndMinutes(log.hours_worked)}</TableCell>
                   <TableCell className="align-top">
                     <p className="text-xs text-slate-800 font-medium whitespace-pre-line max-w-md">{log.work_description}</p>
                     {log.remarks && (

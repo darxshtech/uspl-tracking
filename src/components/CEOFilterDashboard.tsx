@@ -20,6 +20,7 @@ import {
   RefreshCw
 } from "lucide-react";
 import { showToast } from "@/lib/swal";
+import { formatHoursAndMinutes } from "@/lib/timeUtils";
 
 export default function CEOFilterDashboard() {
   const [tasks, setTasks] = useState<any[]>([]);
@@ -283,7 +284,7 @@ export default function CEOFilterDashboard() {
                       )}
                     </TableCell>
                     <TableCell className="text-center font-bold text-slate-900 text-xs">
-                      {emp.totalHours.toFixed(1)} hrs
+                      {formatHoursAndMinutes(emp.totalHours)}
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
@@ -362,7 +363,7 @@ export default function CEOFilterDashboard() {
                         <span className="text-[11px] font-bold text-slate-700">{t.progress_percentage || 0}%</span>
                       </div>
                     </TableCell>
-                    <TableCell className="align-top font-bold text-slate-900 text-xs">{parseFloat(t.hours_spent || 0).toFixed(1)} hrs</TableCell>
+                    <TableCell className="align-top font-bold text-slate-900 text-xs">{formatHoursAndMinutes(t.hours_spent)}</TableCell>
                     <TableCell className="align-top max-w-xs text-xs">
                       {t.blockers ? (
                         <span className="text-red-700 font-semibold bg-red-50 px-2 py-0.5 rounded border border-red-200 inline-block">

@@ -326,10 +326,16 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
     }
 
-    // 2. Action: Admin / Executive Edit Task Details
+    // 2. Action: Edit Task Details (PM/CEO/Admin always, Developer/Tester before Completed)
     if (action === "admin_edit") {
+      const isDevOrTester = ["Developer", "Tester"].includes(currentRole);
       if (!isExecutiveOrAdmin) {
-        return NextResponse.json({ error: "Unauthorized: PM, CEO or Admin role required." }, { status: 403 });
+        if (!isDevOrTester) {
+          return NextResponse.json({ error: "Unauthorized: PM, CEO, Admin, Developer or Tester role required." }, { status: 403 });
+        }
+        if (currentTask.status === "Completed") {
+          return NextResponse.json({ error: "Developers and testers cannot edit a task after it is marked Completed." }, { status: 403 });
+        }
       }
 
       await pool.query(
@@ -580,9 +586,16 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   const session = await getServerSession(authOptions);
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const role = (session?.user as any)?.role;
-  if (!session || !["Admin", "CEO", "PM"].includes(role)) {
-    return NextResponse.json({ error: "Unauthorized: PM, CEO or Admin role required" }, { status: 403 });
+  const isManagement = ["Admin", "CEO", "PM"].includes(role);
+  const isDevOrTester = ["Developer", "Tester"].includes(role);
+
+  if (!isManagement && !isDevOrTester) {
+    return NextResponse.json({ error: "Unauthorized: PM, CEO, Admin, Developer or Tester role required" }, { status: 403 });
   }
 
   try {
@@ -591,6 +604,17 @@ export async function DELETE(req: Request) {
 
     if (!id) {
       return NextResponse.json({ error: "Task ID is required" }, { status: 400 });
+    }
+
+    const [taskRows]: any = await pool.query("SELECT * FROM tasks WHERE id = ?", [id]);
+    if (!taskRows || taskRows.length === 0) {
+      return NextResponse.json({ error: "Task not found" }, { status: 404 });
+    }
+    const currentTask = taskRows[0];
+
+    // Developers and testers can only delete tasks before completed status
+    if (!isManagement && isDevOrTester && currentTask.status === "Completed") {
+      return NextResponse.json({ error: "Developers and testers cannot delete a task after it is marked Completed." }, { status: 403 });
     }
 
     await pool.query("DELETE FROM task_checklists WHERE task_id = ?", [id]);

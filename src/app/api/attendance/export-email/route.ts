@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import pool from "@/lib/db";
 import { sendEmail } from "@/lib/mailer";
+import { formatHoursAndMinutes } from "@/lib/timeUtils";
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
@@ -31,7 +32,7 @@ export async function POST(req: Request) {
             <td style="padding: 8px; border: 1px solid #e2e8f0;">${new Date(r.date).toLocaleDateString()}</td>
             <td style="padding: 8px; border: 1px solid #e2e8f0; font-family: monospace;">${r.login_time || "--:--"}</td>
             <td style="padding: 8px; border: 1px solid #e2e8f0; font-family: monospace;">${r.logout_time || "--:--"}</td>
-            <td style="padding: 8px; border: 1px solid #e2e8f0; font-weight: bold;">${r.total_hours || 0} hrs</td>
+            <td style="padding: 8px; border: 1px solid #e2e8f0; font-weight: bold;">${formatHoursAndMinutes(r.total_hours)}</td>
             <td style="padding: 8px; border: 1px solid #e2e8f0;">${r.status || "Present"}</td>
           </tr>`
         )
@@ -53,7 +54,7 @@ export async function POST(req: Request) {
         <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin: 15px 0; border: 1px solid #cbd5e1;">
           <h4 style="margin: 0 0 8px 0; color: #0f172a;">Monthly Summary:</h4>
           <p style="margin: 3px 0; font-size: 13px;"><strong>Total Days Logged:</strong> ${summary?.totalDays || records?.length || 0}</p>
-          <p style="margin: 3px 0; font-size: 13px;"><strong>Total Working Hours:</strong> ${summary?.totalHours || 0} hrs</p>
+          <p style="margin: 3px 0; font-size: 13px;"><strong>Total Working Hours:</strong> ${formatHoursAndMinutes(summary?.totalHours)}</p>
           <p style="margin: 3px 0; font-size: 13px;"><strong>Present Days:</strong> ${summary?.presentDays || 0}</p>
           <p style="margin: 3px 0; font-size: 13px;"><strong>Half Days:</strong> ${summary?.halfDays || 0}</p>
         </div>

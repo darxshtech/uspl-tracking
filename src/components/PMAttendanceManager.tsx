@@ -27,6 +27,7 @@ import {
   UserCheck
 } from "lucide-react";
 import AttendanceCalendarView from "@/components/AttendanceCalendarView";
+import { formatHoursAndMinutes } from "@/lib/timeUtils";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -232,7 +233,7 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
     doc.setFontSize(10);
     doc.setTextColor(100, 116, 139);
     doc.text(empText, 14, 25);
-    doc.text(`Total Days: ${totalDays} | Total Working Hours: ${totalHours.toFixed(1)} hrs | Present: ${presentDays} | Half Days: ${halfDays} | Leaves: ${leaveDays}`, 14, 31);
+    doc.text(`Total Days: ${totalDays} | Total Working Hours: ${formatHoursAndMinutes(totalHours)} | Present: ${presentDays} | Half Days: ${halfDays} | Leaves: ${leaveDays}`, 14, 31);
 
     const tableHeaders = [["#", "Employee", "Date", "Login (IST)", "Logout (IST)", "Hours", "Status"]];
     const tableBody = records.map((r, i) => [
@@ -241,7 +242,7 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
       new Date(r.date).toLocaleDateString(),
       r.login_time || "--:--",
       r.logout_time || "--:--",
-      `${r.total_hours || 0} hrs`,
+      formatHoursAndMinutes(r.total_hours),
       r.status,
     ]);
 
@@ -499,8 +500,8 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
 
         <div className="p-4 rounded-xl border border-sky-200 bg-sky-50/60">
           <span className="text-xs font-bold text-sky-700 uppercase tracking-wider">Total Working Hours</span>
-          <div className="text-2xl font-black text-sky-900 mt-1">{totalHours.toFixed(1)} hrs</div>
-          <span className="text-[11px] text-sky-600 font-semibold">{avgHours} hrs/day average</span>
+          <div className="text-2xl font-black text-sky-900 mt-1">{formatHoursAndMinutes(totalHours)}</div>
+          <span className="text-[11px] text-sky-600 font-semibold">{formatHoursAndMinutes(avgHours)}/day avg</span>
         </div>
 
         <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/60">
@@ -661,7 +662,7 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
                   <TableCell className="text-xs text-slate-700 font-medium">{new Date(rec.date).toLocaleDateString()}</TableCell>
                   <TableCell className="font-mono text-xs text-slate-800 font-semibold">{rec.login_time || "--:--"}</TableCell>
                   <TableCell className="font-mono text-xs text-slate-800 font-semibold">{rec.logout_time || "--:--"}</TableCell>
-                  <TableCell className="font-bold text-xs text-slate-900">{parseFloat(rec.total_hours || 0).toFixed(2)} hrs</TableCell>
+                  <TableCell className="font-bold text-xs text-slate-900">{formatHoursAndMinutes(rec.total_hours)}</TableCell>
                   <TableCell>
                     {rec.status === "Present" && <Badge className="bg-emerald-500 text-white font-bold">Present</Badge>}
                     {rec.status === "Half Day" && <Badge className="bg-amber-500 text-white font-bold">Half Day</Badge>}

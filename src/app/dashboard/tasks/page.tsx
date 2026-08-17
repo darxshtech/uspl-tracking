@@ -42,6 +42,7 @@ import {
   Search,
   Hash
 } from "lucide-react";
+import { formatHoursAndMinutes } from "@/lib/timeUtils";
 
 export default function DailyTasksPage() {
   const { data: session } = useSession();
@@ -869,16 +870,19 @@ export default function DailyTasksPage() {
                   </div>
 
                   {initialChecklists.length > 0 && (
-                    <div className="space-y-1.5 pt-1">
+                    <div className="space-y-1.5 pt-1 max-h-48 overflow-y-auto pr-1">
                       {initialChecklists.map((item, idx) => (
-                        <div key={idx} className="flex items-center justify-between p-1.5 bg-white rounded border border-slate-200 text-xs">
-                          <span className="text-slate-800 font-medium">✓ {item}</span>
+                        <div key={idx} className="flex items-start justify-between gap-2 p-2 bg-white rounded-lg border border-slate-200 text-xs">
+                          <span className="text-slate-800 font-medium whitespace-pre-wrap break-words [overflow-wrap:anywhere] flex-1 leading-relaxed">
+                            ✓ {item}
+                          </span>
                           <button
                             type="button"
                             onClick={() => handleRemoveInitialChecklist(idx)}
-                            className="text-red-500 hover:text-red-700 p-0.5"
+                            className="text-red-500 hover:text-red-700 p-0.5 shrink-0 mt-0.5"
+                            title="Remove sub-task"
                           >
-                            <Trash2 className="h-3 w-3" />
+                            <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
                       ))}
@@ -1321,13 +1325,13 @@ export default function DailyTasksPage() {
         </DialogContent>
       </Dialog>
 
-      {/* MANAGEMENT EDIT TASK MODAL (CEO, PM, Admin) */}
+      {/* EDIT TASK MODAL */}
       <Dialog open={editTaskModalOpen} onOpenChange={setEditTaskModalOpen}>
         <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-lg font-bold text-slate-900">
               <Edit3 className="h-5 w-5 text-sky-500" />
-              Edit Task Details (Management Action)
+              Edit Task Details
             </DialogTitle>
           </DialogHeader>
 
@@ -1575,17 +1579,17 @@ export default function DailyTasksPage() {
                     </TableCell>
 
                     {/* Task Title, Description, and Checklist */}
-                    <TableCell className="align-top max-w-sm">
-                      <div className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                        <span>{task.title}</span>
-                        <Badge variant="outline" className="text-[10px] py-0 px-1.5">{task.priority}</Badge>
+                    <TableCell className="align-top max-w-md">
+                      <div className="font-bold text-slate-900 text-sm flex items-center gap-2 flex-wrap">
+                        <span className="break-words [overflow-wrap:anywhere]">{task.title}</span>
+                        <Badge variant="outline" className="text-[10px] py-0 px-1.5 shrink-0">{task.priority}</Badge>
                       </div>
                       
                       {/* Text-wrapped task description */}
                       {task.description && (
-                        <p className="text-xs text-slate-600 whitespace-pre-wrap break-words mt-1 leading-relaxed max-w-md">
+                        <div className="text-xs text-slate-600 whitespace-pre-wrap break-words [overflow-wrap:anywhere] mt-1 leading-relaxed max-w-md bg-slate-50/50 p-2 rounded-lg border border-slate-100">
                           {task.description}
-                        </p>
+                        </div>
                       )}
 
                       {/* Visual Progress Bar */}
@@ -1594,7 +1598,7 @@ export default function DailyTasksPage() {
                           <span className="font-bold text-slate-700">Progress: {pct}% Done</span>
                           {task.hours_spent > 0 && (
                             <span className="text-slate-500 font-semibold flex items-center gap-1">
-                              <Clock className="h-3 w-3 text-sky-500" /> {task.hours_spent} hrs logged
+                              <Clock className="h-3 w-3 text-sky-500" /> {formatHoursAndMinutes(task.hours_spent)} logged
                             </span>
                           )}
                         </div>
@@ -1618,7 +1622,7 @@ export default function DailyTasksPage() {
                           <button
                             type="button"
                             onClick={() => setActiveChecklistTaskId(isChecklistOpen ? null : task.id)}
-                            className="inline-flex items-center gap-1 text-xs font-bold text-slate-700 hover:text-sky-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200"
+                            className="inline-flex items-center gap-1 text-xs font-bold text-slate-700 hover:text-sky-600 bg-slate-100 hover:bg-slate-200 px-2 py-0.5 rounded-md border border-slate-200 transition-colors"
                           >
                             <ListTodo className="h-3 w-3 text-sky-500" />
                             {checklists.length > 0 ? `${completedChecklists}/${checklists.length} Checklist Items` : "+ Add Sub-tasks"}
@@ -1627,39 +1631,47 @@ export default function DailyTasksPage() {
 
                         {/* Expandable Checklist */}
                         {isChecklistOpen && (
-                          <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-2 mt-1 max-w-md">
-                            <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Sub-tasks & Checklist</span>
-                            {checklists.map((c) => (
-                              <div
-                                key={c.id}
-                                onClick={() => handleToggleChecklist(c.id, c.is_completed)}
-                                className="flex items-center gap-2 text-xs cursor-pointer text-slate-800 hover:text-sky-700"
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={c.is_completed}
-                                  onChange={() => {}}
-                                  className="rounded border-slate-300 text-sky-600 h-3.5 w-3.5"
-                                />
-                                <span className={c.is_completed ? "line-through text-slate-400" : "font-medium"}>
-                                  {c.item_text}
-                                </span>
-                              </div>
-                            ))}
+                          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2 mt-1 max-w-md w-full shadow-xs">
+                            <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block border-b border-slate-200 pb-1">
+                              Sub-tasks & Checklist
+                            </span>
+                            <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                              {checklists.length === 0 ? (
+                                <p className="text-[11px] text-slate-400 italic">No checklist sub-tasks yet.</p>
+                              ) : (
+                                checklists.map((c) => (
+                                  <div
+                                    key={c.id}
+                                    onClick={() => handleToggleChecklist(c.id, c.is_completed)}
+                                    className="flex items-start gap-2 text-xs cursor-pointer text-slate-800 hover:text-sky-700 p-1.5 rounded-lg hover:bg-white border border-transparent hover:border-slate-200 transition-all"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={c.is_completed}
+                                      onChange={() => {}}
+                                      className="rounded border-slate-300 text-sky-600 h-3.5 w-3.5 mt-0.5 shrink-0 cursor-pointer"
+                                    />
+                                    <span className={`whitespace-pre-wrap break-words [overflow-wrap:anywhere] flex-1 leading-snug ${c.is_completed ? "line-through text-slate-400" : "font-medium"}`}>
+                                      {c.item_text}
+                                    </span>
+                                  </div>
+                                ))
+                              )}
+                            </div>
 
                             <div className="flex items-center gap-1.5 pt-1">
                               <Input
                                 placeholder="New daily sub-task..."
                                 value={newChecklistText}
                                 onChange={(e) => setNewChecklistText(e.target.value)}
-                                className="h-7 text-xs bg-white"
+                                className="h-7 text-xs bg-white flex-1"
                                 onKeyDown={(e) => e.key === "Enter" && handleAddChecklist(task.id)}
                               />
                               <Button
                                 size="sm"
                                 type="button"
                                 onClick={() => handleAddChecklist(task.id)}
-                                className="h-7 px-2 text-xs bg-sky-600 hover:bg-sky-700 text-white font-semibold"
+                                className="h-7 px-2.5 text-xs bg-sky-600 hover:bg-sky-700 text-white font-semibold shrink-0"
                               >
                                 Add
                               </Button>
@@ -1841,8 +1853,8 @@ export default function DailyTasksPage() {
                         </span>
                       )}
 
-                      {/* PM, CEO, Admin Edit & Delete Options */}
-                      {canManageAllTasks && (
+                      {/* Edit & Delete Options: PM/CEO/Admin always; Developers & Testers before completed status */}
+                      {(canManageAllTasks || ((role === "Developer" || role === "Tester") && task.status !== "Completed")) && (
                         <div className="flex items-center justify-end gap-1 pt-1 border-t border-slate-100 mt-1">
                           <Button
                             size="sm"

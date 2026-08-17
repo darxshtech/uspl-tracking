@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { calculateHoursDifference, getCurrentISTTime12 } from "@/lib/timeUtils";
+import { calculateHoursDifference, getCurrentISTTime12, formatHoursAndMinutes } from "@/lib/timeUtils";
 import { 
   TrendingUp, 
   CheckSquare, 
@@ -268,19 +268,19 @@ export default function DailyMonthlyProgressSummary({ tasks: propTasks, onRefres
           <div className="text-2xl font-black text-emerald-900 mt-1">
             {isCheckedIn ? (
               <span className="flex items-center gap-1">
-                {liveShiftHours.toFixed(1)} hrs
+                {formatHoursAndMinutes(liveShiftHours)}
                 <span className="text-[10px] bg-emerald-600 text-white font-bold px-1.5 py-0.2 rounded-full animate-pulse">
                   Live
                 </span>
               </span>
             ) : (
-              `${(liveShiftHours || totalTaskHoursLogged).toFixed(1)} hrs`
+              formatHoursAndMinutes(liveShiftHours || totalTaskHoursLogged)
             )}
           </div>
           <p className="text-[11px] text-emerald-700 mt-0.5">
             {isCheckedIn 
               ? `In Shift since ${activeShiftRecord.login_time}`
-              : `${totalTaskHoursLogged.toFixed(1)} hrs logged on tasks`}
+              : `${formatHoursAndMinutes(totalTaskHoursLogged)} logged on tasks`}
           </p>
         </div>
 

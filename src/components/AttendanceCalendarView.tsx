@@ -21,6 +21,7 @@ import {
   Coffee, 
   Users 
 } from "lucide-react";
+import { formatHoursAndMinutes } from "@/lib/timeUtils";
 
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
@@ -432,7 +433,7 @@ export default function AttendanceCalendarView({
                         >
                           <div className="font-bold flex items-center justify-between">
                             <span className="truncate">{rec.employee_name || "Shift"}</span>
-                            <span>{parseFloat(rec.total_hours || 0).toFixed(1)}h</span>
+                            <span>{formatHoursAndMinutes(rec.total_hours)}</span>
                           </div>
                           <div className="text-[9px] font-mono text-slate-500 mt-0.5 truncate">
                             {rec.login_time || "--"} &rarr; {rec.logout_time || "--"}
