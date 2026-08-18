@@ -37,6 +37,12 @@ export default function DailyMonthlyProgressSummary({ tasks: propTasks, onRefres
   const [internalTasks, setInternalTasks] = useState<any[]>([]);
   const [activeShiftRecord, setActiveShiftRecord] = useState<any>(null);
   const [attendanceHistory, setAttendanceHistory] = useState<any[]>([]);
+  const [qaStats, setQaStats] = useState<{
+    readyForTesting: number;
+    inTesting: number;
+    testedPass: number;
+    changesRequired: number;
+  } | null>(null);
   const [chartView, setChartView] = useState<"daily" | "monthly">("daily");
   const [refreshing, setRefreshing] = useState(false);
   const [lastSync, setLastSync] = useState<Date>(new Date());
@@ -47,10 +53,11 @@ export default function DailyMonthlyProgressSummary({ tasks: propTasks, onRefres
   const fetchLiveStatus = useCallback(async (isManual = false) => {
     if (isManual) setRefreshing(true);
     try {
-      const [tasksRes, shiftRes, attRes] = await Promise.all([
+      const [tasksRes, shiftRes, attRes, qaStatsRes] = await Promise.all([
         !propTasks ? fetch("/api/tasks?_=" + Date.now()) : Promise.resolve(null),
         fetch("/api/attendance/active?_=" + Date.now()),
         fetch("/api/attendance?_=" + Date.now()),
+        fetch("/api/testing?mode=stats&_=" + Date.now()),
       ]);
 
       if (tasksRes) {
@@ -71,6 +78,11 @@ export default function DailyMonthlyProgressSummary({ tasks: propTasks, onRefres
       }
       if (attData && attData.currentTime) {
         setCurrentTime(attData.currentTime);
+      }
+
+      if (qaStatsRes && qaStatsRes.ok) {
+        const qaData = await qaStatsRes.json();
+        setQaStats(qaData);
       }
 
       setLastSync(new Date());
@@ -108,10 +120,19 @@ export default function DailyMonthlyProgressSummary({ tasks: propTasks, onRefres
   const totalTaskHoursLogged = tasks.reduce((sum, t) => sum + (parseFloat(t.hours_spent) || 0), 0);
 
   // Testing report metrics
-  const readyForTesting = tasks.filter((t) => t.status === "Ready for Testing").length;
-  const inTesting = tasks.filter((t) => t.status === "Testing").length;
-  const testedPass = tasks.filter((t) => t.status === "Tested (PASS)" || t.status === "Ready for Demo").length;
-  const changesRequired = tasks.filter((t) => t.status === "Changes Required").length;
+  const isTesterRole = role === "Tester";
+  const readyForTesting = (isTesterRole && qaStats) 
+    ? qaStats.readyForTesting 
+    : tasks.filter((t) => t.status === "Ready for Testing").length;
+  const inTesting = (isTesterRole && qaStats) 
+    ? qaStats.inTesting 
+    : tasks.filter((t) => t.status === "Testing").length;
+  const testedPass = (isTesterRole && qaStats) 
+    ? qaStats.testedPass 
+    : tasks.filter((t) => t.status === "Tested (PASS)" || t.status === "Ready for Demo").length;
+  const changesRequired = (isTesterRole && qaStats) 
+    ? qaStats.changesRequired 
+    : tasks.filter((t) => t.status === "Changes Required").length;
 
   // Build Daily Chart Data (Last 7 Days)
   const last7Days: { label: string; dateStr: string; completed: number; total: number; hours: number }[] = [];

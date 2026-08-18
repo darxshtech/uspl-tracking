@@ -3,11 +3,35 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import pool from "@/lib/db";
 
-export async function GET() {
+export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
 
   try {
+    const { searchParams } = new URL(req.url);
+    if (searchParams.get("mode") === "stats") {
+      const [rRows]: any = await pool.query("SELECT COUNT(*) as cnt FROM tasks WHERE status = 'Ready for Testing'");
+      const [tRows]: any = await pool.query("SELECT COUNT(*) as cnt FROM tasks WHERE status = 'Testing'");
+      const [pRows]: any = await pool.query("SELECT COUNT(*) as cnt FROM tasks WHERE status IN ('Tested (PASS)', 'Ready for Demo')");
+      const [cRows]: any = await pool.query("SELECT COUNT(*) as cnt FROM tasks WHERE status = 'Changes Required'");
+
+      let trPassCount = 0;
+      let trFailCount = 0;
+      try {
+        const [trPass]: any = await pool.query("SELECT COUNT(*) as cnt FROM testing_records WHERE result = 'PASS'");
+        const [trFail]: any = await pool.query("SELECT COUNT(*) as cnt FROM testing_records WHERE result = 'FAIL'");
+        trPassCount = trPass[0]?.cnt || 0;
+        trFailCount = trFail[0]?.cnt || 0;
+      } catch (_) {}
+
+      return NextResponse.json({
+        readyForTesting: rRows[0]?.cnt || 0,
+        inTesting: tRows[0]?.cnt || 0,
+        testedPass: Math.max(pRows[0]?.cnt || 0, trPassCount),
+        changesRequired: Math.max(cRows[0]?.cnt || 0, trFailCount),
+      });
+    }
+
     // Testing queue: ONLY active tasks that are Ready for Testing or currently in Testing
     const [rows]: any = await pool.query(`
       SELECT t.*, 
