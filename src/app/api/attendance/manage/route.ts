@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import pool from "@/lib/db";
-import { calculateHoursDifference, formatHoursAndMinutes } from "@/lib/timeUtils";
+import { calculateHoursDifference, formatHoursAndMinutes, getCurrentISTTime12 } from "@/lib/timeUtils";
 
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
@@ -62,11 +62,12 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: "Attendance record ID is required" }, { status: 400 });
     }
 
-    // Auto-calculate total hours if both login and logout time are provided, or use override
-    let finalHours = manualHours !== undefined && manualHours !== "" ? parseFloat(manualHours) : null;
+    // Auto-calculate total hours based on in time and out time or current time, or use override
+    let finalHours = manualHours !== undefined && manualHours !== "" && manualHours !== null ? parseFloat(manualHours) : null;
 
-    if (finalHours === null && login_time && logout_time) {
-      finalHours = calculateHoursDifference(login_time, logout_time);
+    if (finalHours === null && login_time) {
+      const endTime = logout_time || getCurrentISTTime12();
+      finalHours = calculateHoursDifference(login_time, endTime);
     }
 
     await pool.query(
