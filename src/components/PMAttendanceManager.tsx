@@ -24,7 +24,8 @@ import {
   Plus,
   Palmtree,
   Sparkles,
-  UserCheck
+  UserCheck,
+  Sliders
 } from "lucide-react";
 import AttendanceCalendarView from "@/components/AttendanceCalendarView";
 import { formatHoursAndMinutes } from "@/lib/timeUtils";
@@ -60,6 +61,12 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
   const [emailing, setEmailing] = useState(false);
   const [feedback, setFeedback] = useState("");
 
+  // Shift Working Hours Policy State (Full-Day threshold e.g. 9 or 8)
+  const [fullDayPolicyHours, setFullDayPolicyHours] = useState<number>(9);
+  const [policyInputHours, setPolicyInputHours] = useState<string>("9");
+  const [policyModalOpen, setPolicyModalOpen] = useState(false);
+  const [savingPolicy, setSavingPolicy] = useState(false);
+
   // Edit Modal State
   const [editingRecord, setEditingRecord] = useState<any>(null);
   const [editLoginTime, setEditLoginTime] = useState("");
@@ -79,6 +86,52 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
   const [leaveType, setLeaveType] = useState("Leave");
   const [leaveReason, setLeaveReason] = useState("");
   const [submittingLeave, setSubmittingLeave] = useState(false);
+
+  useEffect(() => {
+    fetchPolicy();
+  }, []);
+
+  const fetchPolicy = async () => {
+    try {
+      const res = await fetch("/api/settings");
+      const data = await res.json();
+      if (data && data.full_day_hours) {
+        setFullDayPolicyHours(data.full_day_hours);
+        setPolicyInputHours(data.full_day_hours.toString());
+      }
+    } catch (_) {}
+  };
+
+  const handleSavePolicy = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const parsed = parseFloat(policyInputHours);
+    if (isNaN(parsed) || parsed <= 0 || parsed > 24) {
+      showWarning("Invalid Value", "Please enter a valid number between 1 and 24 hours.");
+      return;
+    }
+
+    setSavingPolicy(true);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ full_day_hours: parsed }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setFullDayPolicyHours(parsed);
+        setPolicyModalOpen(false);
+        showSuccess("Policy Updated", `Full-day required working hours set to ${parsed} hours for all employees.`);
+        fetchRecords();
+      } else {
+        showError("Update Failed", data.error || "Failed to update settings");
+      }
+    } catch (err) {
+      showError("Error", "Could not save policy setting.");
+    } finally {
+      setSavingPolicy(false);
+    }
+  };
 
   useEffect(() => {
     fetchRecords();
@@ -399,6 +452,58 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
                     className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 mt-2"
                   >
                     {submittingLeave ? "Logging Leave..." : "Confirm & Record Leave"}
+                  </Button>
+                </form>
+              </DialogContent>
+            </Dialog>
+
+            {/* Shift Working Hours Policy Config Modal (PM / CEO / Admin) */}
+            <Dialog open={policyModalOpen} onOpenChange={setPolicyModalOpen}>
+              <DialogTrigger render={<Button size="sm" variant="outline" className="bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs gap-1.5 shadow-xs border-slate-300" />}>
+                <Sliders className="h-3.5 w-3.5 text-sky-600" /> Shift Policy ({fullDayPolicyHours}h)
+              </DialogTrigger>
+              <DialogContent className="max-w-sm">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2 text-base font-bold text-slate-900">
+                    <Sliders className="h-5 w-5 text-sky-600" />
+                    Configure Full-Day Shift Policy
+                  </DialogTitle>
+                </DialogHeader>
+
+                <form onSubmit={handleSavePolicy} className="space-y-4 pt-2">
+                  <div className="p-3 rounded-xl bg-sky-50/80 border border-sky-200 text-xs text-sky-900 space-y-1">
+                    <span className="font-bold block">Company Attendance Policy</span>
+                    <p className="text-[11px] text-sky-800 leading-snug">
+                      Shifts completed below this threshold will automatically be recorded as <strong>Half Day</strong> and alert the employee.
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="policyHours" className="font-bold text-slate-900 text-xs">
+                      Required Full-Day Working Hours (e.g. 9 or 8) *
+                    </Label>
+                    <Input
+                      id="policyHours"
+                      type="number"
+                      step="0.5"
+                      min="1"
+                      max="24"
+                      value={policyInputHours}
+                      onChange={(e) => setPolicyInputHours(e.target.value)}
+                      className="text-base font-bold"
+                      required
+                    />
+                    <p className="text-[11px] text-slate-500">
+                      Currently active threshold: <strong>{fullDayPolicyHours} hours / day</strong>
+                    </p>
+                  </div>
+
+                  <Button
+                    type="submit"
+                    disabled={savingPolicy}
+                    className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2 shadow-sm"
+                  >
+                    {savingPolicy ? "Saving Policy..." : "Update Full-Day Policy"}
                   </Button>
                 </form>
               </DialogContent>

@@ -10,7 +10,8 @@ import {
   Sparkles, 
   BellRing, 
   BellOff, 
-  Send 
+  Send,
+  AlertTriangle 
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { playBellChime } from "@/lib/audio";
@@ -60,7 +61,7 @@ export default function NotificationBell() {
             let targetUrl = "/dashboard";
             if (latest.type?.includes("task")) targetUrl = "/dashboard/tasks";
             if (latest.type?.includes("demo")) targetUrl = "/dashboard";
-            if (latest.type?.includes("attendance")) targetUrl = "/dashboard/attendance";
+            if (latest.type?.includes("attendance") || latest.type?.includes("warning")) targetUrl = "/dashboard/attendance";
 
             sendWebPushNotification({
               title: latest.title || "Unitglo Task Notification",
@@ -224,34 +225,47 @@ export default function NotificationBell() {
             {notifications.length === 0 ? (
               <p className="text-xs text-center text-slate-400 py-6">No notifications yet</p>
             ) : (
-              notifications.map((n) => (
-                <div
-                  key={n.id}
-                  onClick={() => markAsRead(n.id)}
-                  className={`p-2.5 rounded-xl border text-xs cursor-pointer transition-colors ${
-                    n.is_read
-                      ? "bg-slate-50 border-slate-100 opacity-75 hover:opacity-100"
-                      : "bg-sky-50/70 border-sky-200 font-medium shadow-xs hover:bg-sky-50"
-                  }`}
-                >
-                  <div className="flex items-center gap-1.5 text-slate-900 font-bold mb-1">
-                    {n.type === "task_pass" ? (
-                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                    ) : n.type === "task_fail" ? (
-                      <XCircle className="h-3.5 w-3.5 text-red-500 shrink-0" />
-                    ) : n.type === "task_assigned" ? (
-                      <Sparkles className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
-                    ) : (
-                      <Info className="h-3.5 w-3.5 text-sky-500 shrink-0" />
-                    )}
-                    <span className="truncate">{n.title}</span>
+              notifications.map((n) => {
+                const isWarning = n.type === "warning";
+                return (
+                  <div
+                    key={n.id}
+                    onClick={() => markAsRead(n.id)}
+                    className={`p-2.5 rounded-xl border text-xs cursor-pointer transition-colors ${
+                      isWarning
+                        ? n.is_read
+                          ? "bg-amber-50/50 border-amber-200/60 opacity-80 hover:opacity-100"
+                          : "bg-amber-50 border-amber-300 font-medium shadow-xs hover:bg-amber-100/70"
+                        : n.is_read
+                        ? "bg-slate-50 border-slate-100 opacity-75 hover:opacity-100"
+                        : "bg-sky-50/70 border-sky-200 font-medium shadow-xs hover:bg-sky-50"
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-bold mb-1">
+                      {isWarning ? (
+                        <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                      ) : n.type === "task_pass" ? (
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                      ) : n.type === "task_fail" ? (
+                        <XCircle className="h-3.5 w-3.5 text-red-500 shrink-0" />
+                      ) : n.type === "task_assigned" ? (
+                        <Sparkles className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
+                      ) : (
+                        <Info className="h-3.5 w-3.5 text-sky-500 shrink-0" />
+                      )}
+                      <span className={`truncate ${isWarning ? "text-amber-900 font-bold" : "text-slate-900"}`}>
+                        {n.title}
+                      </span>
+                    </div>
+                    <p className={`text-[11px] leading-relaxed ${isWarning ? "text-amber-950 font-medium" : "text-slate-600"}`}>
+                      {n.message}
+                    </p>
+                    <span suppressHydrationWarning className="text-[9px] text-slate-400 mt-1 block">
+                      {new Date(n.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </span>
                   </div>
-                  <p className="text-slate-600 text-[11px] leading-relaxed">{n.message}</p>
-                  <span suppressHydrationWarning className="text-[9px] text-slate-400 mt-1 block">
-                    {new Date(n.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                  </span>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>

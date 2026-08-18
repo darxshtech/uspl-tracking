@@ -9,7 +9,7 @@ import {
   validateCheckoutTimeBuffer,
   formatHoursAndMinutes
 } from "@/lib/timeUtils";
-import { sendEmail } from "@/lib/mailer";
+import { getFullDayHours } from "@/lib/settings";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -18,17 +18,40 @@ export async function GET() {
   try {
     const role = (session.user as any).role;
     const userId = (session.user as any).id;
+    const fullDayHours = await getFullDayHours();
 
     // CEO is completely exempt from attendance tracking
     if (role === "CEO") {
       return NextResponse.json({
         isCeo: true,
         todayRecord: null,
+        fullDayHours,
+        yesterdayHalfDay: null,
         message: "CEO is exempt from attendance tracking",
       });
     }
 
     const todayIST = getCurrentISTDate();
+
+    // Fetch previous completed shift to check if yesterday was Half Day
+    const [prevRows]: any = await pool.query(
+      "SELECT * FROM attendance WHERE user_id = ? AND date < ? AND logout_time IS NOT NULL ORDER BY date DESC, id DESC LIMIT 1",
+      [userId, todayIST]
+    );
+
+    let yesterdayHalfDay: any = null;
+    if (prevRows.length > 0) {
+      const prevShift = prevRows[0];
+      const prevHours = parseFloat(prevShift.total_hours || 0);
+      if (prevShift.status === "Half Day" || (prevShift.total_hours !== null && prevHours < fullDayHours)) {
+        yesterdayHalfDay = {
+          date: prevShift.date,
+          hours: prevHours,
+          status: prevShift.status,
+          requiredHours: fullDayHours,
+        };
+      }
+    }
 
     // 1. First check if there is an unclosed active shift (even if started on a previous day/yesterday)
     const [openRows]: any = await pool.query(
@@ -46,6 +69,8 @@ export async function GET() {
           ...activeShift,
           isOvernightShift: isShiftFromPreviousDay,
         },
+        fullDayHours,
+        yesterdayHalfDay,
         currentDate: todayIST,
         currentTime: getCurrentISTTime12(),
       });
@@ -62,6 +87,8 @@ export async function GET() {
     return NextResponse.json({
       isCeo: false,
       todayRecord,
+      fullDayHours,
+      yesterdayHalfDay,
       currentDate: todayIST,
       currentTime: getCurrentISTTime12(),
     });
@@ -79,6 +106,7 @@ export async function POST(req: Request) {
     const userId = (session.user as any).id;
     const userEmail = session.user?.email || "";
     const userName = session.user?.name || "Employee";
+    const fullDayHours = await getFullDayHours();
 
     // 1. CEO cannot punch or log attendance
     if (role === "CEO") {
@@ -119,11 +147,47 @@ export async function POST(req: Request) {
         [userId, todayIST, nowTime12, nowTime12]
       );
 
+      // Check if previous shift was a Half Day to dispatch alert notification
+      const [prevRows]: any = await pool.query(
+        "SELECT * FROM attendance WHERE user_id = ? AND date < ? AND logout_time IS NOT NULL ORDER BY date DESC, id DESC LIMIT 1",
+        [userId, todayIST]
+      );
+
+      let yesterdayNotice: any = null;
+      if (prevRows.length > 0) {
+        const prevShift = prevRows[0];
+        const prevHours = parseFloat(prevShift.total_hours || 0);
+        if (prevShift.status === "Half Day" || (prevShift.total_hours !== null && prevHours < fullDayHours)) {
+          yesterdayNotice = {
+            date: prevShift.date,
+            hours: prevHours,
+            requiredHours: fullDayHours,
+          };
+
+          const notifTitle = `⚠️ Half Day Alert (${prevShift.date})`;
+          const notifMsg = `Your previous shift on ${prevShift.date} was recorded as a Half Day (${prevHours.toFixed(1)} hrs completed, <${fullDayHours} hrs required). Please ensure you complete your full ${fullDayHours} hours today!`;
+
+          const [existingNotif]: any = await pool.query(
+            "SELECT id FROM notifications WHERE user_id = ? AND title = ? LIMIT 1",
+            [userId, notifTitle]
+          );
+
+          if (!existingNotif || existingNotif.length === 0) {
+            await pool.query(
+              "INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'warning')",
+              [userId, notifTitle, notifMsg]
+            );
+          }
+        }
+      }
+
       return NextResponse.json({
         success: true,
         message: `Checked IN successfully at ${nowTime12} (India Time IST)${offline_time ? ' [Synced from offline session]' : ''}`,
         login_time: nowTime12,
         date: todayIST,
+        yesterdayNotice,
+        fullDayHours,
       });
     }
 
@@ -166,10 +230,10 @@ export async function POST(req: Request) {
         );
       }
 
-      // 4. Calculate total hours with overnight awareness
+      // 4. Calculate total hours with overnight awareness & configurable fullDayHours
       const totalHours = calculateHoursDifference(activeShift.login_time, nowTime12, isCrossDay);
-      const isHalfDay = totalHours < 9;
-      const isOvertime = totalHours >= 12;
+      const isHalfDay = totalHours < fullDayHours;
+      const isOvertime = totalHours >= (fullDayHours + 3);
 
       let status = "Present";
       if (isHalfDay) status = "Half Day";
@@ -183,10 +247,10 @@ export async function POST(req: Request) {
       );
 
       if (isHalfDay) {
-        const warningMsg = `You completed ${totalHours.toFixed(2)} hours for shift ${activeShift.date} (<9 hours required). Recorded as HALF DAY.`;
+        const warningMsg = `You completed ${totalHours.toFixed(2)} hours for shift ${activeShift.date} (<${fullDayHours} hours required). Recorded as HALF DAY.`;
         await pool.query(
           "INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'warning')",
-          [userId, "Half Day Notice (<9 Hours)", warningMsg]
+          [userId, `Half Day Notice (<${fullDayHours} Hours)`, warningMsg]
         );
       }
 
@@ -194,6 +258,7 @@ export async function POST(req: Request) {
         success: true,
         isHalfDay,
         isOvertime,
+        fullDayHours,
         totalHours: totalHours.toFixed(2),
         shiftDate: activeShift.date,
         login_time: activeShift.login_time,

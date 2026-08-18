@@ -24,6 +24,9 @@ import { showToast } from "@/lib/swal";
 export default function EmployeePersonalProgress() {
   const [tasks, setTasks] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
+  const [yesterdayHalfDay, setYesterdayHalfDay] = useState<any>(null);
+  const [fullDayHours, setFullDayHours] = useState<number>(9);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
@@ -31,15 +34,22 @@ export default function EmployeePersonalProgress() {
   const fetchData = useCallback(async (isManual = false) => {
     if (isManual) setRefreshing(true);
     try {
-      const [tasksRes, projectsRes] = await Promise.all([
+      const [tasksRes, projectsRes, attActiveRes] = await Promise.all([
         fetch("/api/tasks?_=" + Date.now()),
         fetch("/api/projects?_=" + Date.now()),
+        fetch("/api/attendance/active?_=" + Date.now()),
       ]);
       const tasksData = await tasksRes.json();
       const projectsData = await projectsRes.json();
+      const attActiveData = await attActiveRes.json();
 
       if (Array.isArray(tasksData)) setTasks(tasksData);
       if (Array.isArray(projectsData)) setProjects(projectsData);
+      if (attActiveData) {
+        if (attActiveData.fullDayHours) setFullDayHours(attActiveData.fullDayHours);
+        if (attActiveData.yesterdayHalfDay) setYesterdayHalfDay(attActiveData.yesterdayHalfDay);
+        else setYesterdayHalfDay(null);
+      }
       setLastUpdated(new Date());
 
       if (isManual) {
@@ -110,6 +120,50 @@ export default function EmployeePersonalProgress() {
 
   return (
     <div className="space-y-6">
+      {/* Yesterday's / Previous Shift Half Day Warning Banner */}
+      {yesterdayHalfDay && !bannerDismissed && (
+        <div className="rounded-2xl border border-amber-300 bg-gradient-to-r from-amber-50 via-orange-50/80 to-amber-50 p-4 sm:p-5 shadow-sm animate-fade-in relative">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-3.5">
+              <div className="p-2.5 rounded-xl bg-amber-100 text-amber-800 shrink-0 border border-amber-300 shadow-2xs">
+                <AlertTriangle className="h-6 w-6 text-amber-600 animate-pulse" />
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-200/90 text-amber-900 border border-amber-300">
+                    ⚠️ Attendance Notice
+                  </span>
+                  <span className="text-xs font-bold text-amber-900">
+                    Previous Shift ({yesterdayHalfDay.date})
+                  </span>
+                </div>
+                <h4 className="text-sm sm:text-base font-extrabold text-amber-950">
+                  You received a Half Day on your last shift ({parseFloat(yesterdayHalfDay.hours).toFixed(1)} hrs completed, &lt;{fullDayHours} hrs required).
+                </h4>
+                <p className="text-xs text-amber-800 font-medium">
+                  Please make sure to complete your full <strong>{fullDayHours} hours</strong> today to maintain full day attendance.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+              <Link href="/dashboard/attendance">
+                <Button size="sm" className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-xs">
+                  View Attendance
+                </Button>
+              </Link>
+              <button
+                type="button"
+                onClick={() => setBannerDismissed(true)}
+                className="text-xs text-amber-700 hover:text-amber-950 font-bold px-2 py-1 hover:underline"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Real-time Progress Summary & Daily/Monthly Visual Charts */}
       <DailyMonthlyProgressSummary tasks={tasks} onRefresh={() => fetchData(false)} />
 

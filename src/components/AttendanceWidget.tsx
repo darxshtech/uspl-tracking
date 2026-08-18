@@ -25,6 +25,8 @@ export default function AttendanceWidget() {
   const userId = (session?.user as any)?.id;
 
   const [record, setRecord] = useState<any>(null);
+  const [yesterdayHalfDay, setYesterdayHalfDay] = useState<any>(null);
+  const [fullDayHours, setFullDayHours] = useState<number>(9);
   const [loading, setLoading] = useState(false);
   const [warningModal, setWarningModal] = useState<string | null>(null);
   const [isOfflineMode, setIsOfflineMode] = useState(false);
@@ -119,13 +121,19 @@ export default function AttendanceWidget() {
       if (!res.ok) throw new Error("Network response not ok");
 
       const data = await res.json();
-      if (data && data.todayRecord !== undefined) {
-        if (data.todayRecord) {
-          setRecord(data.todayRecord);
-          localStorage.setItem(getShiftKey(), JSON.stringify(data.todayRecord));
-        } else {
-          setRecord(null);
-          localStorage.removeItem(getShiftKey());
+      if (data) {
+        if (data.fullDayHours) setFullDayHours(data.fullDayHours);
+        if (data.yesterdayHalfDay) setYesterdayHalfDay(data.yesterdayHalfDay);
+        else setYesterdayHalfDay(null);
+
+        if (data.todayRecord !== undefined) {
+          if (data.todayRecord) {
+            setRecord(data.todayRecord);
+            localStorage.setItem(getShiftKey(), JSON.stringify(data.todayRecord));
+          } else {
+            setRecord(null);
+            localStorage.removeItem(getShiftKey());
+          }
         }
       }
 
@@ -287,7 +295,7 @@ export default function AttendanceWidget() {
 
       if (data.isHalfDay) {
         setWarningModal(
-          `You completed ${data.totalHours} hours today. Recorded as HALF DAY (<9 hours required).`
+          `You completed ${data.totalHours} hours today. Recorded as HALF DAY (<${data.fullDayHours || fullDayHours} hours required).`
         );
       }
       fetchActiveAttendance();
@@ -348,7 +356,7 @@ export default function AttendanceWidget() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-amber-800 font-bold">
               <AlertTriangle className="h-5 w-5 text-amber-600" />
-              Early Checkout Notice (&lt; 9 Hours)
+              Early Checkout Notice (&lt; {fullDayHours} Hours)
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3 pt-2 text-xs text-amber-900">
@@ -376,12 +384,28 @@ export default function AttendanceWidget() {
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleConfirmCheckIn} className="space-y-3 pt-2">
+            {/* Yesterday / Previous Shift Half Day Warning Alert */}
+            {yesterdayHalfDay && (
+              <div className="p-3 rounded-xl bg-amber-50 border border-amber-300 text-xs text-amber-950 space-y-1 shadow-xs">
+                <div className="flex items-center gap-1.5 font-bold text-amber-900">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+                  <span>Previous Shift Notice: Half Day</span>
+                </div>
+                <p className="text-[11px] text-amber-900 leading-relaxed font-medium">
+                  Your shift on <strong>{yesterdayHalfDay.date}</strong> was marked as <strong>Half Day</strong> ({parseFloat(yesterdayHalfDay.hours).toFixed(1)} hrs completed, &lt;{fullDayHours} hrs required).
+                </p>
+                <div className="text-[11px] font-bold text-amber-900 bg-amber-100/80 px-2 py-1 rounded-lg border border-amber-200 mt-1">
+                  ⏱️ Make sure to complete your required {fullDayHours} hours today!
+                </div>
+              </div>
+            )}
+
             <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700 space-y-1">
               <div className="flex items-center gap-1 font-bold text-slate-900">
                 <Calendar className="h-3.5 w-3.5 text-sky-500" /> Date: Today ({getTodayDateStr()})
               </div>
               <p className="text-slate-500 text-[11px]">
-                Enter your exact punch-in time below:
+                Required working hours: <strong>{fullDayHours} hrs</strong>. Enter your punch-in time below:
               </p>
             </div>
 
