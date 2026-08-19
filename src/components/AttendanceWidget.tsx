@@ -151,7 +151,7 @@ export default function AttendanceWidget() {
   };
 
   useEffect(() => {
-    if (role === "CEO") return;
+    if (role === "CEO" || role === "Admin") return;
 
     fetchActiveAttendance();
     const interval = setInterval(fetchActiveAttendance, 15000);

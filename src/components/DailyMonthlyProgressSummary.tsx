@@ -99,7 +99,10 @@ export default function DailyMonthlyProgressSummary({ tasks: propTasks, onRefres
 
   useEffect(() => {
     fetchLiveStatus();
-    const interval = setInterval(fetchLiveStatus, 6000);
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      fetchLiveStatus();
+    }, 20000);
     return () => clearInterval(interval);
   }, [fetchLiveStatus]);
 

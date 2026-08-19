@@ -35,7 +35,9 @@ export default function AttendancePage() {
   const currentUserId = (session?.user as any)?.id;
   const isCEO = role === "CEO";
   const isPM = role === "PM";
-  const canManageHolidays = isCEO || isPM;
+  const isAdmin = role === "Admin";
+  const isManagement = ["Admin", "CEO", "PM"].includes(role);
+  const canManageHolidays = isManagement;
 
   const [mounted, setMounted] = useState(false);
   const [viewMode, setViewMode] = useState<"table" | "calendar">("table");
@@ -62,13 +64,16 @@ export default function AttendancePage() {
   useEffect(() => {
     setMounted(true);
     fetchAttendance();
-    if (isPM || isCEO) {
+    if (isManagement) {
       fetchEmployees();
     }
 
-    const interval = setInterval(fetchAttendance, 10000);
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      fetchAttendance();
+    }, 25000);
     return () => clearInterval(interval);
-  }, [isPM, isCEO]);
+  }, [isManagement]);
 
   const fetchAttendance = async () => {
     try {
@@ -107,8 +112,8 @@ export default function AttendancePage() {
   const isCurrentlyCheckedOut = Boolean(userTodayRecord && userTodayRecord.logout_time);
 
   const handlePunch = async (action: "check-in" | "check-out") => {
-    if (isCEO) {
-      showInfo("Attendance Not Required", "CEO role does not require attendance logging.");
+    if (isCEO || isAdmin) {
+      showInfo("Attendance Not Required", "Admin and CEO roles do not require attendance logging.");
       return;
     }
 
@@ -272,23 +277,23 @@ export default function AttendancePage() {
         </div>
       </div>
 
-      {/* CEO Executive Exemption Notice */}
-      {isCEO && (
+      {/* Executive / Admin Exemption Notice */}
+      {(isCEO || isAdmin) && (
         <div className="p-6 rounded-2xl border border-sky-200 bg-gradient-to-r from-sky-50 to-indigo-50 shadow-sm flex items-center gap-4">
           <div className="p-3 bg-sky-500 text-white rounded-xl shadow-xs">
             <Crown className="h-7 w-7" />
           </div>
           <div>
-            <h3 className="font-bold text-slate-900 text-lg">Executive Exemption Policy (CEO)</h3>
+            <h3 className="font-bold text-slate-900 text-lg">Executive Exemption Policy ({role === "Admin" ? "Company Admin" : "CEO"})</h3>
             <p className="text-sm text-slate-600 mt-0.5">
-              As Chief Executive Officer, your account is exempt from check-in, check-out, and daily shift logging. You have full oversight into company timesheets and holiday planning below.
+              As {role === "Admin" ? "Company Administrator" : "Chief Executive Officer"}, your account is exempt from check-in, check-out, and daily shift logging. You have full oversight into company timesheets, shift policy configuration, and holiday planning below.
             </p>
           </div>
         </div>
       )}
 
-      {/* Employee Daily Attendance Punch Card (for Developer & Tester) */}
-      {!isCEO && !isPM && (
+      {/* Employee Daily Attendance Punch Card (for Developer, Tester, PM) */}
+      {!isCEO && !isAdmin && (
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
@@ -422,15 +427,15 @@ export default function AttendancePage() {
         <AttendanceCalendarView
           canAddHoliday={canManageHolidays}
           employees={employees}
-          initialEmployeeId={isPM || isCEO ? "ALL" : (session?.user as any)?.id?.toString()}
+          initialEmployeeId={isManagement ? "ALL" : (session?.user as any)?.id?.toString()}
         />
       )}
 
-      {/* VIEW MODE 2: TABLE LIST VIEW & PM MANAGER */}
+      {/* VIEW MODE 2: TABLE LIST VIEW & MANAGEMENT ATTENDANCE MANAGER */}
       {viewMode === "table" && (
         <>
-          {/* PM Executive Attendance Manager Section */}
-          {isPM && <PMAttendanceManager employees={employees} />}
+          {/* Executive Attendance Manager Section (Shift Policy, Reports, Logs) */}
+          {isManagement && <PMAttendanceManager employees={employees} />}
 
           {/* Attendance History Table */}
           <div className="space-y-3">

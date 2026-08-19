@@ -6,7 +6,7 @@ import { calculateHoursDifference, formatHoursAndMinutes, getCurrentISTTime12 } 
 
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
-  if (!session || !["CEO", "PM"].includes((session.user as any).role)) {
+  if (!session || !["Admin", "CEO", "PM"].includes((session.user as any).role)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
@@ -50,8 +50,8 @@ export async function GET(req: Request) {
 
 export async function PUT(req: Request) {
   const session = await getServerSession(authOptions);
-  if (!session || !["CEO", "PM"].includes((session.user as any).role)) {
-    return NextResponse.json({ error: "Unauthorized: PM or CEO role required" }, { status: 403 });
+  if (!session || !["Admin", "CEO", "PM"].includes((session.user as any).role)) {
+    return NextResponse.json({ error: "Unauthorized: PM, CEO or Admin role required" }, { status: 403 });
   }
 
   try {
@@ -91,8 +91,8 @@ export async function PUT(req: Request) {
         "INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'info')",
         [
           record.user_id,
-          "Attendance Record Updated by PM",
-          `Your attendance for ${recordDate} was updated by Project Management (${status}, ${formatHoursAndMinutes(finalHours)}).`
+          "Attendance Record Updated by Management",
+          `Your attendance for ${recordDate} was updated by Management (${status}, ${formatHoursAndMinutes(finalHours)}).`
         ]
       );
     }
@@ -109,8 +109,8 @@ export async function PUT(req: Request) {
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
-  if (!session || !["CEO", "PM"].includes((session.user as any).role)) {
-    return NextResponse.json({ error: "Unauthorized: PM or CEO role required" }, { status: 403 });
+  if (!session || !["Admin", "CEO", "PM"].includes((session.user as any).role)) {
+    return NextResponse.json({ error: "Unauthorized: PM, CEO or Admin role required" }, { status: 403 });
   }
 
   try {

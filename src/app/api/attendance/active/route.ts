@@ -157,15 +157,19 @@ export async function POST(req: Request) {
       if (prevRows.length > 0) {
         const prevShift = prevRows[0];
         const prevHours = parseFloat(prevShift.total_hours || 0);
+        const shiftDateStr = prevShift.date instanceof Date 
+          ? prevShift.date.toISOString().split("T")[0] 
+          : String(prevShift.date).split("T")[0];
+
         if (prevShift.status === "Half Day" || (prevShift.total_hours !== null && prevHours < fullDayHours)) {
           yesterdayNotice = {
-            date: prevShift.date,
+            date: shiftDateStr,
             hours: prevHours,
             requiredHours: fullDayHours,
           };
 
-          const notifTitle = `⚠️ Half Day Alert (${prevShift.date})`;
-          const notifMsg = `Your previous shift on ${prevShift.date} was recorded as a Half Day (${prevHours.toFixed(1)} hrs completed, <${fullDayHours} hrs required). Please ensure you complete your full ${fullDayHours} hours today!`;
+          const notifTitle = `⚠️ Half Day Alert (${shiftDateStr})`;
+          const notifMsg = `Your previous shift on ${shiftDateStr} was recorded as a Half Day (${prevHours.toFixed(1)} hrs completed, <${fullDayHours} hrs required). Please ensure you complete your full ${fullDayHours} hours today!`;
 
           const [existingNotif]: any = await pool.query(
             "SELECT id FROM notifications WHERE user_id = ? AND title = ? LIMIT 1",
@@ -247,7 +251,10 @@ export async function POST(req: Request) {
       );
 
       if (isHalfDay) {
-        const warningMsg = `You completed ${totalHours.toFixed(2)} hours for shift ${activeShift.date} (<${fullDayHours} hours required). Recorded as HALF DAY.`;
+        const shiftDateStr = activeShift.date instanceof Date 
+          ? activeShift.date.toISOString().split("T")[0] 
+          : String(activeShift.date).split("T")[0];
+        const warningMsg = `You completed ${totalHours.toFixed(2)} hours for shift ${shiftDateStr} (<${fullDayHours} hours required). Recorded as HALF DAY.`;
         await pool.query(
           "INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'warning')",
           [userId, `Half Day Notice (<${fullDayHours} Hours)`, warningMsg]

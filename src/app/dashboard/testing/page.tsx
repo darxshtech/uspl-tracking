@@ -48,8 +48,10 @@ export default function TestingQueuePage() {
 
   useEffect(() => {
     if (isTesterOrAdmin) {
-      fetchTestingQueue();
-      const interval = setInterval(fetchTestingQueue, 5000);
+      const interval = setInterval(() => {
+        if (typeof document !== "undefined" && document.hidden) return;
+        fetchTestingQueue();
+      }, 20000);
       return () => clearInterval(interval);
     } else if (role) {
       setLoading(false);

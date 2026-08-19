@@ -14,6 +14,7 @@ import {
   Activity, 
   CalendarDays, 
   Clock,
+  AlertTriangle,
   LogOut,
   Menu,
   X,
@@ -69,6 +70,7 @@ export default function DashboardClientShell({ children, user }: DashboardClient
     { name: "Testing Queue", href: "/dashboard/testing", icon: Activity, roles: ["Tester", "Admin"] },
     { name: "Work Accomplishments", href: "/dashboard/work", icon: Clock, roles: ["Admin", "CEO", "PM", "Developer", "Tester"] },
     { name: "Attendance", href: "/dashboard/attendance", icon: CalendarDays, roles: ["Admin", "CEO", "PM", "Developer", "Tester"] },
+    { name: "Shift Warnings", href: "/dashboard/warnings", icon: AlertTriangle, roles: ["Admin", "CEO", "PM"] },
     { name: "Profile & Tenure", href: "/dashboard/profile", icon: Users, roles: ["Admin", "CEO", "PM", "Developer", "Tester"] },
   ];
 

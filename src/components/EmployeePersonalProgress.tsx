@@ -66,10 +66,11 @@ export default function EmployeePersonalProgress() {
   useEffect(() => {
     fetchData();
 
-    // Auto-refresh every 6 seconds
+    // Auto-refresh every 20 seconds
     const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
       fetchData();
-    }, 6000);
+    }, 20000);
 
     const handleFocus = () => fetchData();
     window.addEventListener("focus", handleFocus);

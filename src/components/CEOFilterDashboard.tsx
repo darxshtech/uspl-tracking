@@ -1,10 +1,14 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import DailyMonthlyProgressSummary from "@/components/DailyMonthlyProgressSummary";
 import { 
   Filter, 
@@ -17,42 +21,145 @@ import {
   AlertTriangle,
   Flame,
   Users,
-  RefreshCw
+  RefreshCw,
+  Sliders
 } from "lucide-react";
-import { showToast } from "@/lib/swal";
+import { showToast, showError, showSuccess, showWarning } from "@/lib/swal";
 import { formatHoursAndMinutes } from "@/lib/timeUtils";
 
 export default function CEOFilterDashboard() {
   const [tasks, setTasks] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
+  const [halfDayWarnings, setHalfDayWarnings] = useState<any[]>([]);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+
+  // Shift Working Hours Policy State (Full-Day threshold e.g. 9 or 8)
+  const [fullDayPolicyHours, setFullDayPolicyHours] = useState<number>(9);
+  const [policyInputHours, setPolicyInputHours] = useState<string>("9");
+  const [policyModalOpen, setPolicyModalOpen] = useState(false);
+  const [savingPolicy, setSavingPolicy] = useState(false);
 
   // Filters
   const [selectedProject, setSelectedProject] = useState("ALL");
   const [selectedStatus, setSelectedStatus] = useState("ALL");
   const [selectedAssignee, setSelectedAssignee] = useState("ALL");
 
+  useEffect(() => {
+    fetchPolicy();
+  }, []);
+
+  const fetchPolicy = async () => {
+    try {
+      const res = await fetch("/api/settings");
+      const data = await res.json();
+      if (data && data.full_day_hours) {
+        setFullDayPolicyHours(data.full_day_hours);
+        setPolicyInputHours(data.full_day_hours.toString());
+      }
+    } catch (_) {}
+  };
+
+  const handleSavePolicy = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const parsed = parseFloat(policyInputHours);
+    if (isNaN(parsed) || parsed <= 0 || parsed > 24) {
+      showWarning("Invalid Value", "Please enter a valid number between 1 and 24 hours.");
+      return;
+    }
+
+    setSavingPolicy(true);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ full_day_hours: parsed }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setFullDayPolicyHours(parsed);
+        setPolicyModalOpen(false);
+        showSuccess("Policy Updated", `Full-day required working hours set to ${parsed} hours for all employees.`);
+      } else {
+        showError("Update Failed", data.error || "Failed to update settings");
+      }
+    } catch (err) {
+      showError("Error", "Could not save policy setting.");
+    } finally {
+      setSavingPolicy(false);
+    }
+  };
+
   const fetchData = useCallback(async (isManual = false) => {
     if (isManual) setRefreshing(true);
     try {
-      const [tRes, pRes, eRes] = await Promise.all([
+      const [tRes, pRes, eRes, aRes, sRes] = await Promise.all([
         fetch("/api/tasks?_=" + Date.now()),
         fetch("/api/projects?_=" + Date.now()),
         fetch("/api/employees?_=" + Date.now()),
+        fetch("/api/attendance?_=" + Date.now()),
+        fetch("/api/settings?_=" + Date.now()),
       ]);
 
-      const [tData, pData, eData] = await Promise.all([
+      const [tData, pData, eData, aData, sData] = await Promise.all([
         tRes.json(),
         pRes.json(),
         eRes.json(),
+        aRes.json(),
+        sRes.json(),
       ]);
+
+      let policyHours = 9;
+      if (sData && sData.full_day_hours) {
+        policyHours = sData.full_day_hours;
+        setFullDayPolicyHours(sData.full_day_hours);
+        setPolicyInputHours(sData.full_day_hours.toString());
+      }
 
       if (Array.isArray(tData)) setTasks(tData);
       if (Array.isArray(pData)) setProjects(pData);
       if (Array.isArray(eData)) setEmployees(eData);
+
+      // Compute Half Day Shift Warnings for all employees from their previous shift
+      if (aData && Array.isArray(aData.attendance) && Array.isArray(eData)) {
+        const currentDate = aData.currentDate || new Date().toISOString().split("T")[0];
+        const warnings: any[] = [];
+
+        eData.forEach((emp: any) => {
+          if (emp.role === "CEO") return;
+          const empLogs = aData.attendance.filter(
+            (rec: any) =>
+              (String(rec.user_id) === String(emp.id) || String(rec.employee_id) === String(emp.id)) &&
+              rec.logout_time &&
+              rec.date &&
+              !rec.date.startsWith(currentDate)
+          );
+
+          if (empLogs.length > 0) {
+            const latestClosed = empLogs[0]; // ordered by date DESC
+            const hours = parseFloat(latestClosed.total_hours || 0);
+            if (latestClosed.status === "Half Day" || (latestClosed.total_hours !== null && hours < policyHours)) {
+              const dateStr = latestClosed.date instanceof Date 
+                ? latestClosed.date.toISOString().split("T")[0] 
+                : String(latestClosed.date).split("T")[0];
+              warnings.push({
+                employeeId: emp.id,
+                employeeName: emp.name,
+                employeeRole: emp.role,
+                date: dateStr,
+                hours: hours,
+                status: latestClosed.status,
+              });
+            }
+          }
+        });
+
+        setHalfDayWarnings(warnings);
+      }
+
       setLastUpdated(new Date());
 
       if (isManual) {
@@ -69,10 +176,11 @@ export default function CEOFilterDashboard() {
   useEffect(() => {
     fetchData();
 
-    // Auto-refresh every 6 seconds to keep numbers live in real-time
+    // Auto-refresh every 15 seconds to keep numbers live in real-time
     const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
       fetchData();
-    }, 6000);
+    }, 15000);
 
     // Refresh on window refocus
     const handleFocus = () => fetchData();
@@ -147,6 +255,81 @@ export default function CEOFilterDashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Yesterday's / Previous Shift Half Day Warning Highlighting Banner */}
+      {!bannerDismissed && halfDayWarnings.length > 0 && (
+        <div className="rounded-2xl border-2 border-amber-400 bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-amber-500/15 p-5 shadow-lg shadow-amber-500/10 animate-fade-in relative overflow-hidden backdrop-blur-xs">
+          <div className="absolute right-0 top-0 w-80 h-80 bg-amber-400/15 rounded-full blur-3xl pointer-events-none"></div>
+          
+          <div className="relative z-10 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-5">
+            <div className="flex items-start gap-4">
+              <div className="p-3 rounded-2xl bg-amber-500 text-white shrink-0 shadow-md shadow-amber-500/30 ring-4 ring-amber-100">
+                <AlertTriangle className="h-6 w-6 animate-pulse" />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[11px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-amber-500 text-white shadow-xs">
+                    ⚠️ Half-Day Shift Alert
+                  </span>
+                  <span className="text-xs font-bold text-amber-950 bg-amber-200/80 px-2.5 py-0.5 rounded-md border border-amber-300">
+                    {halfDayWarnings.length} {halfDayWarnings.length === 1 ? "Team Member" : "Team Members"} Recorded &lt;{fullDayPolicyHours}h on Previous Shift
+                  </span>
+                </div>
+
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900 leading-snug">
+                    Previous Shift Attendance Warning: Shift threshold (&lt;{fullDayPolicyHours} hrs) not reached
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-0.5">
+                    The following employees completed less than the required full-day <strong>{fullDayPolicyHours} hours</strong> on their last shift:
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  {halfDayWarnings.map((w, idx) => (
+                    <span 
+                      key={idx} 
+                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white border border-amber-300 text-xs font-bold text-slate-800 shadow-xs hover:border-amber-400 transition-colors"
+                    >
+                      <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
+                      <span className="text-slate-900 font-extrabold">{w.employeeName}</span>
+                      <span className="text-slate-500 text-[11px] font-normal">({w.employeeRole})</span>
+                      <span className="text-amber-800 font-extrabold bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200 text-[11px]">
+                        {w.hours.toFixed(1)} hrs completed ({w.date})
+                      </span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5 shrink-0 self-end lg:self-center">
+              <Link href="/dashboard/warnings">
+                <Button size="sm" className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs gap-1.5 shadow-md shadow-amber-600/20">
+                  <AlertTriangle className="h-3.5 w-3.5" /> Manage & Resend Warnings
+                </Button>
+              </Link>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setPolicyModalOpen(true)}
+                className="bg-white hover:bg-slate-50 text-slate-900 font-bold text-xs gap-1.5 shadow-xs border-slate-300"
+              >
+                <Sliders className="h-3.5 w-3.5 text-sky-600" />
+                Adjust Policy ({fullDayPolicyHours}h)
+              </Button>
+              <button
+                type="button"
+                onClick={() => setBannerDismissed(true)}
+                className="text-xs text-slate-500 hover:text-slate-800 font-bold px-2 py-1 hover:underline"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Real-time KPI Summary & Daily/Monthly Visual Progress Charts */}
       <DailyMonthlyProgressSummary tasks={tasks} onRefresh={() => fetchData(false)} />
 
@@ -158,11 +341,64 @@ export default function CEOFilterDashboard() {
             Filter Projects, Tasks & Employee Progress Matrix
           </div>
 
-          <div className="flex items-center gap-2.5">
-            <div className="flex items-center gap-1.5 text-xs text-slate-500 font-medium">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <div className="flex items-center gap-1.5 text-xs text-slate-500 font-medium mr-1">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
               <span suppressHydrationWarning>Live Sync: {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
             </div>
+
+            {/* Shift Working Hours Policy Config Modal */}
+            <Dialog open={policyModalOpen} onOpenChange={setPolicyModalOpen}>
+              <DialogTrigger render={<Button size="sm" variant="outline" className="h-8 px-2.5 bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs gap-1.5 shadow-xs border-slate-300" />}>
+                <Sliders className="h-3.5 w-3.5 text-sky-600" /> Shift Policy ({fullDayPolicyHours}h)
+              </DialogTrigger>
+              <DialogContent className="max-w-sm">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2 text-base font-bold text-slate-900">
+                    <Sliders className="h-5 w-5 text-sky-600" />
+                    Configure Full-Day Shift Policy
+                  </DialogTitle>
+                </DialogHeader>
+
+                <form onSubmit={handleSavePolicy} className="space-y-4 pt-2">
+                  <div className="p-3 rounded-xl bg-sky-50/80 border border-sky-200 text-xs text-sky-900 space-y-1">
+                    <span className="font-bold block">Company Attendance Policy</span>
+                    <p className="text-[11px] text-sky-800 leading-snug">
+                      Shifts completed below this threshold will automatically be recorded as <strong>Half Day</strong> and alert the employee.
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="policyHours" className="font-bold text-slate-900 text-xs">
+                      Required Full-Day Working Hours (e.g. 9 or 8) *
+                    </Label>
+                    <Input
+                      id="policyHours"
+                      type="number"
+                      step="0.5"
+                      min="1"
+                      max="24"
+                      value={policyInputHours}
+                      onChange={(e) => setPolicyInputHours(e.target.value)}
+                      className="text-base font-bold"
+                      required
+                    />
+                    <p className="text-[11px] text-slate-500">
+                      Currently active threshold: <strong>{fullDayPolicyHours} hours / day</strong>
+                    </p>
+                  </div>
+
+                  <Button
+                    type="submit"
+                    disabled={savingPolicy}
+                    className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2 shadow-sm"
+                  >
+                    {savingPolicy ? "Saving Policy..." : "Update Full-Day Policy"}
+                  </Button>
+                </form>
+              </DialogContent>
+            </Dialog>
+
             <Button
               size="sm"
               variant="outline"

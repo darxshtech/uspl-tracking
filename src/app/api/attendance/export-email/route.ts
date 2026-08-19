@@ -7,7 +7,7 @@ import { formatHoursAndMinutes } from "@/lib/timeUtils";
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
-  if (!session || !["CEO", "PM"].includes((session.user as any).role)) {
+  if (!session || !["Admin", "CEO", "PM"].includes((session.user as any).role)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 

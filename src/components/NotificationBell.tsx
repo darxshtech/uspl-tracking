@@ -7,17 +7,12 @@ import {
   XCircle, 
   Info, 
   Volume2, 
-  Sparkles, 
-  BellRing, 
-  BellOff, 
-  Send,
+  Sparkles,
   AlertTriangle 
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { playBellChime } from "@/lib/audio";
 import { 
-  getNotificationPermission, 
-  requestNotificationPermission, 
   sendWebPushNotification, 
   isNotificationSupported 
 } from "@/lib/pushNotification";
@@ -26,18 +21,16 @@ import { showToast } from "@/lib/swal";
 export default function NotificationBell() {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
-  const [pushPermission, setPushPermission] = useState<NotificationPermission>("default");
   const initialLoadRef = useRef(true);
   const prevUnreadCountRef = useRef(0);
   const seenIdsRef = useRef<Set<number>>(new Set());
 
   useEffect(() => {
-    if (isNotificationSupported()) {
-      setPushPermission(getNotificationPermission());
-    }
-
     fetchNotifications();
-    const interval = setInterval(fetchNotifications, 4000);
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      fetchNotifications();
+    }, 10000);
     return () => clearInterval(interval);
   }, []);
 
@@ -49,27 +42,29 @@ export default function NotificationBell() {
         setNotifications(data);
 
         const currentUnread = data.filter((n: any) => !n.is_read).length;
+        const newUnreadItems = data.filter((n: any) => !n.is_read && !seenIdsRef.current.has(n.id));
+        const hasNewUnread = !initialLoadRef.current && currentUnread > prevUnreadCountRef.current;
+        const hasUnreadWarnings = data.some((n: any) => !n.is_read && n.type === "warning");
 
-        // If new unread notification arrived after initial page load
-        if (!initialLoadRef.current && currentUnread > prevUnreadCountRef.current) {
+        // Ring audio bell chime whenever new notifications arrive or if unread warning exists on load
+        if (hasNewUnread || (initialLoadRef.current && hasUnreadWarnings)) {
           playBellChime();
+        }
 
-          // Find the newly arrived unread notifications
-          const newItems = data.filter((n: any) => !n.is_read && !seenIdsRef.current.has(n.id));
-          if (newItems.length > 0) {
-            const latest = newItems[0];
-            let targetUrl = "/dashboard";
-            if (latest.type?.includes("task")) targetUrl = "/dashboard/tasks";
-            if (latest.type?.includes("demo")) targetUrl = "/dashboard";
-            if (latest.type?.includes("attendance") || latest.type?.includes("warning")) targetUrl = "/dashboard/attendance";
+        // Trigger native desktop push notification for newly arrived unread notifications
+        if (newUnreadItems.length > 0 && !initialLoadRef.current) {
+          const latest = newUnreadItems[0];
+          let targetUrl = "/dashboard";
+          if (latest.type?.includes("task")) targetUrl = "/dashboard/tasks";
+          if (latest.type?.includes("demo")) targetUrl = "/dashboard";
+          if (latest.type?.includes("attendance") || latest.type?.includes("warning")) targetUrl = "/dashboard/attendance";
 
-            sendWebPushNotification({
-              title: latest.title || "Unitglo Task Notification",
-              body: latest.message || "You have a new update in your tracking portal.",
-              tag: `unitglo-notif-${latest.id}`,
-              url: targetUrl,
-            });
-          }
+          sendWebPushNotification({
+            title: latest.title || "Unitglo Attendance Notice",
+            body: latest.message || "You have a new update in your tracking portal.",
+            tag: `unitglo-notif-${latest.id}`,
+            url: targetUrl,
+          });
         }
 
         // Mark all current items as seen
@@ -80,41 +75,6 @@ export default function NotificationBell() {
       }
     } catch (err) {
       console.error(err);
-    }
-  };
-
-  const handleRequestPushPermission = async () => {
-    const perm = await requestNotificationPermission();
-    setPushPermission(perm);
-    if (perm === "granted") {
-      showToast("Web Push Notifications Enabled!");
-      sendWebPushNotification({
-        title: "🔔 Notifications Activated!",
-        body: "You will now receive instant desktop & mobile push alerts for tasks and releases.",
-        url: "/dashboard",
-      });
-    } else if (perm === "denied") {
-      showToast("Notification permission was denied in browser settings.");
-    }
-  };
-
-  const handleTestPush = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (pushPermission !== "granted") {
-      await handleRequestPushPermission();
-    }
-
-    playBellChime();
-    const success = await sendWebPushNotification({
-      title: "⚡ Test Notification Alert",
-      body: "Web App Push notifications are actively running for your Unitglo tracking account!",
-      url: "/dashboard",
-    });
-
-    if (success) {
-      showToast("Test push notification sent!");
-    } else {
-      showToast("Please enable notifications in browser permissions.");
     }
   };
 
@@ -139,6 +99,7 @@ export default function NotificationBell() {
   };
 
   const unreadCount = notifications.filter((n) => !n.is_read).length;
+  const hasUnreadWarning = notifications.some((n) => !n.is_read && n.type === "warning");
 
   return (
     <div className="relative">
@@ -146,12 +107,26 @@ export default function NotificationBell() {
         variant="ghost"
         size="icon"
         onClick={() => setOpen(!open)}
-        className="relative text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full"
+        className={`relative rounded-full transition-all ${
+          hasUnreadWarning 
+            ? "text-amber-600 hover:text-amber-700 hover:bg-amber-50 ring-2 ring-amber-400/60 bg-amber-50/60 animate-pulse"
+            : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+        }`}
         title="Notifications & Alerts"
       >
-        <Bell className={`h-5 w-5 ${unreadCount > 0 ? "text-sky-600 animate-bounce" : ""}`} />
+        <Bell className={`h-5 w-5 ${
+          hasUnreadWarning 
+            ? "text-amber-600" 
+            : unreadCount > 0 
+            ? "text-sky-600 animate-bounce" 
+            : ""
+        }`} />
         {unreadCount > 0 && (
-          <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-sky-500 text-[10px] font-bold text-white shadow-md shadow-sky-500/50">
+          <span className={`absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold text-white shadow-md ${
+            hasUnreadWarning 
+              ? "bg-amber-500 shadow-amber-500/50 animate-ping" 
+              : "bg-sky-500 shadow-sky-500/50"
+          }`}>
             {unreadCount}
           </span>
         )}
@@ -185,40 +160,6 @@ export default function NotificationBell() {
               <span className="text-xs text-slate-500 font-medium">{unreadCount} unread</span>
             </div>
           </div>
-
-          {/* Web Push Banner / Controls */}
-          {pushPermission !== "granted" ? (
-            <div className="p-2.5 rounded-xl bg-gradient-to-r from-sky-50 to-indigo-50 border border-sky-200 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <BellRing className="h-4 w-4 text-sky-600 shrink-0" />
-                <div className="text-[11px] leading-tight">
-                  <span className="font-bold text-slate-900 block">Enable Desktop Push</span>
-                  <span className="text-slate-500">Get native OS alert popups</span>
-                </div>
-              </div>
-              <Button
-                size="sm"
-                onClick={handleRequestPushPermission}
-                className="h-7 px-2.5 text-[11px] font-bold bg-sky-600 hover:bg-sky-700 text-white shadow-xs"
-              >
-                Enable
-              </Button>
-            </div>
-          ) : (
-            <div className="px-2.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-between text-[11px]">
-              <div className="flex items-center gap-1.5 text-emerald-800 font-semibold">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span>Web Push Active</span>
-              </div>
-              <button
-                type="button"
-                onClick={handleTestPush}
-                className="text-emerald-700 hover:text-emerald-900 font-bold hover:underline flex items-center gap-1"
-              >
-                <Send className="h-3 w-3" /> Test Push
-              </button>
-            </div>
-          )}
 
           {/* Notifications List */}
           <div className="max-h-72 overflow-y-auto space-y-2 pr-0.5">

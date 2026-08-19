@@ -28,7 +28,7 @@ import {
   Sliders
 } from "lucide-react";
 import AttendanceCalendarView from "@/components/AttendanceCalendarView";
-import { formatHoursAndMinutes } from "@/lib/timeUtils";
+import { formatHoursAndMinutes, calculateHoursDifference, getCurrentISTTime12 } from "@/lib/timeUtils";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -134,12 +134,24 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
   };
 
   useEffect(() => {
-    fetchRecords();
+    fetchRecords(true);
+
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      fetchRecords(false);
+    }, 15000);
+
+    const handleFocus = () => fetchRecords(false);
+    window.addEventListener("focus", handleFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("focus", handleFocus);
+    };
   }, [selectedEmployee, selectedMonth, selectedYear]);
 
-  const fetchRecords = async () => {
-    setLoading(true);
-    setFeedback("");
+  const fetchRecords = async (showLoading = true) => {
+    if (showLoading) setLoading(true);
     try {
       const query = new URLSearchParams({
         employee_id: selectedEmployee,
@@ -148,11 +160,15 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
       });
       const res = await fetch(`/api/attendance/manage?${query.toString()}`);
       const data = await res.json();
-      if (Array.isArray(data)) setRecords(data);
+      if (Array.isArray(data)) {
+        setRecords(data);
+      } else {
+        setRecords([]);
+      }
     } catch (err) {
-      console.error(err);
+      console.error("Error fetching attendance manage records:", err);
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   };
 
@@ -184,8 +200,8 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
 
       if (res.ok) {
         setEditingRecord(null);
-        fetchRecords();
-        setFeedback("Attendance record updated successfully!");
+        fetchRecords(true);
+        showSuccess("Record Updated", "Attendance record updated successfully!");
       } else {
         showError("Failed to update record.");
       }
@@ -218,8 +234,8 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
       if (res.ok) {
         setLeaveModalOpen(false);
         setLeaveReason("");
-        fetchRecords();
-        setFeedback(`✓ ${data.message}`);
+        fetchRecords(true);
+        showSuccess("Leave Recorded", data.message || "Leave successfully logged.");
       } else {
         showError("Failed to Record Leave", data.error || "Unknown error");
       }
@@ -231,10 +247,18 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
     }
   };
 
-  // Metrics summary
+  // Real-time Metrics summary (calculating dynamic elapsed hours for active shifts)
   const totalDays = records.length;
-  const totalHours = records.reduce((acc, r) => acc + (parseFloat(r.total_hours) || 0), 0);
-  const presentDays = records.filter((r) => r.status === "Present").length;
+  const totalHours = records.reduce((acc, r) => {
+    let h = parseFloat(r.total_hours || 0);
+    if (r.login_time && !r.logout_time) {
+      h = calculateHoursDifference(r.login_time, getCurrentISTTime12());
+    }
+    return acc + (isNaN(h) ? 0 : h);
+  }, 0);
+  const presentDays = records.filter(
+    (r) => r.status === "Present" || r.status === "Present (Overtime)" || (r.login_time && !r.logout_time)
+  ).length;
   const halfDays = records.filter((r) => r.status === "Half Day").length;
   const leaveDays = records.filter((r) => r.status === "Leave").length;
   const avgHours = totalDays > 0 ? (totalHours / totalDays).toFixed(1) : "0";
@@ -350,6 +374,7 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
       const data = await res.json();
       if (res.ok) {
         setFeedback(`✓ ${data.message}`);
+        showSuccess("Report Dispatched ✉️", data.message || `Attendance report successfully sent to ${selectedEmpObj.email}`);
       } else {
         showError("Email Failed", data.error || "Unknown error");
       }

@@ -84,9 +84,8 @@ export async function POST(req: Request) {
     if (!name) return NextResponse.json({ error: "Project name is required" }, { status: 400 });
 
     const connection: any = await pool.getConnection();
-    await connection.beginTransaction();
-
     try {
+      await connection.beginTransaction();
       const attachmentsJson = attachments ? JSON.stringify(attachments) : JSON.stringify([]);
 
       const [result]: any = await connection.query(
@@ -127,13 +126,12 @@ export async function POST(req: Request) {
       }
 
       await connection.commit();
-      connection.release();
-
       return NextResponse.json({ id: projectId, name, description, documentation_url, attachments, created_by: creatorId }, { status: 201 });
     } catch (err) {
-      await connection.rollback();
-      connection.release();
+      await connection.rollback().catch(() => {});
       throw err;
+    } finally {
+      connection.release();
     }
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -153,9 +151,8 @@ export async function PUT(req: Request) {
     if (!id || !name) return NextResponse.json({ error: "Project ID and name are required" }, { status: 400 });
 
     const connection: any = await pool.getConnection();
-    await connection.beginTransaction();
-
     try {
+      await connection.beginTransaction();
       const attachmentsJson = attachments ? JSON.stringify(attachments) : JSON.stringify([]);
 
       await connection.query(
@@ -199,13 +196,12 @@ export async function PUT(req: Request) {
       }
 
       await connection.commit();
-      connection.release();
-
       return NextResponse.json({ success: true, message: "Project updated successfully" });
     } catch (err) {
-      await connection.rollback();
-      connection.release();
+      await connection.rollback().catch(() => {});
       throw err;
+    } finally {
+      connection.release();
     }
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -227,9 +223,8 @@ export async function DELETE(req: Request) {
     }
 
     const connection: any = await pool.getConnection();
-    await connection.beginTransaction();
-
     try {
+      await connection.beginTransaction();
       await connection.query("DELETE FROM daily_work WHERE project_id = ?", [id]);
       await connection.query("DELETE FROM task_checklists WHERE task_id IN (SELECT id FROM tasks WHERE project_id = ?)", [id]);
       await connection.query("DELETE FROM tasks WHERE project_id = ?", [id]);
@@ -237,13 +232,12 @@ export async function DELETE(req: Request) {
       await connection.query("DELETE FROM projects WHERE id = ?", [id]);
 
       await connection.commit();
-      connection.release();
-
       return NextResponse.json({ success: true, message: "Project deleted successfully" });
     } catch (err) {
-      await connection.rollback();
-      connection.release();
+      await connection.rollback().catch(() => {});
       throw err;
+    } finally {
+      connection.release();
     }
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

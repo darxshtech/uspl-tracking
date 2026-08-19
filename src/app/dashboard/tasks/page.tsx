@@ -127,7 +127,10 @@ export default function DailyTasksPage() {
     fetchProjects();
     fetchEmployees();
 
-    const interval = setInterval(fetchTasks, 6000);
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      fetchTasks();
+    }, 20000);
     return () => clearInterval(interval);
   }, []);
 
