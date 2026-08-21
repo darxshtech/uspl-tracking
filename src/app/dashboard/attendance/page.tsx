@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { showError, showInfo, showToast } from "@/lib/swal";
 import PMAttendanceManager from "@/components/PMAttendanceManager";
 import AttendanceCalendarView from "@/components/AttendanceCalendarView";
+import AttendanceWidget from "@/components/AttendanceWidget";
 import { calculateHoursDifference, getCurrentISTTime12, formatHoursAndMinutes } from "@/lib/timeUtils";
 import { 
   CalendarDays, 
@@ -44,10 +45,9 @@ export default function AttendancePage() {
   const [attendance, setAttendance] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState(false);
-  const [feedback, setFeedback] = useState("");
   const [currentISTTime, setCurrentISTTime] = useState("");
   const [currentISTDate, setCurrentISTDate] = useState("");
+  const [feedback, setFeedback] = useState<string | null>(null);
 
   // Record Leave Modal State (for PM / CEO or self)
   const [leaveModalOpen, setLeaveModalOpen] = useState(false);
@@ -101,94 +101,6 @@ export default function AttendancePage() {
     }
   };
 
-  // Find user's today record to determine check-in state
-  const todayStr = currentISTDate || new Date().toISOString().split("T")[0];
-  const userTodayRecord = attendance.find(
-    (a) => (String(a.user_id) === String(currentUserId) || String(a.employee_id) === String(currentUserId)) && 
-           a.date && a.date.startsWith(todayStr)
-  );
-
-  const isCurrentlyCheckedIn = Boolean(userTodayRecord && userTodayRecord.login_time && !userTodayRecord.logout_time);
-  const isCurrentlyCheckedOut = Boolean(userTodayRecord && userTodayRecord.logout_time);
-
-  const handlePunch = async (action: "check-in" | "check-out") => {
-    if (isCEO || isAdmin) {
-      showInfo("Attendance Not Required", "Admin and CEO roles do not require attendance logging.");
-      return;
-    }
-
-    if (action === "check-in" && isCurrentlyCheckedIn) {
-      showInfo("Already Checked In", "You are already checked in for today's shift.");
-      return;
-    }
-
-    const userId = (session?.user as any)?.id;
-    const localNow = new Date().toLocaleTimeString("en-IN", {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: true,
-    });
-    const localDate = new Date().toISOString().split("T")[0];
-
-    setActionLoading(true);
-    setFeedback("");
-
-    // Save locally immediately
-    const queueKey = `unitglo_offline_queue_${userId || "default"}`;
-    const shiftKey = `unitglo_shift_state_${userId || "default"}`;
-
-    try {
-      const res = await fetch("/api/attendance/active", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, offline_time: localNow }),
-      });
-      const data = await res.json();
-
-      if (res.ok) {
-        setFeedback(`✓ ${data.message}`);
-        localStorage.setItem(shiftKey, JSON.stringify({
-          user_id: userId,
-          date: localDate,
-          login_time: action === "check-in" ? localNow : "09:30:00 AM",
-          logout_time: action === "check-out" ? localNow : null,
-          status: "Present",
-        }));
-        fetchAttendance();
-        showToast(action === "check-in" ? "Checked In successfully!" : "Checked Out successfully!");
-      } else {
-        setFeedback(`⚠️ Error: ${data.error}`);
-        showError("Attendance Error", data.error || "Failed to update attendance");
-      }
-    } catch (err) {
-      // Offline fallback: Queue punch in localStorage
-      const queueRaw = localStorage.getItem(queueKey) || "[]";
-      let queue = [];
-      try { queue = JSON.parse(queueRaw); } catch (_) {}
-
-      queue.push({
-        action,
-        time: localNow,
-        date: localDate,
-        timestamp: Date.now(),
-      });
-      localStorage.setItem(queueKey, JSON.stringify(queue));
-
-      localStorage.setItem(shiftKey, JSON.stringify({
-        user_id: userId,
-        date: localDate,
-        login_time: action === "check-in" ? localNow : "09:30:00 AM",
-        logout_time: action === "check-out" ? localNow : null,
-        status: "Present",
-      }));
-
-      setFeedback(`📶 Offline Mode: ${action === "check-in" ? "Check-In" : "Check-Out"} saved locally at ${localNow}. Shift timer will continue running and auto-sync when internet reconnects.`);
-      showToast(`Saved offline: ${action === "check-in" ? "Check-In" : "Check-Out"}`);
-    } finally {
-      setActionLoading(false);
-    }
-  };
 
   const handleRecordLeave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -298,16 +210,6 @@ export default function AttendancePage() {
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <h3 className="font-bold text-slate-900 text-lg">Daily Shift Punch (IST 12-Hour)</h3>
-              {isCurrentlyCheckedIn && (
-                <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300 font-bold animate-pulse text-xs">
-                  ⏱️ In Shift (Checked in: {userTodayRecord?.login_time})
-                </Badge>
-              )}
-              {isCurrentlyCheckedOut && (
-                <Badge className="bg-slate-100 text-slate-700 border-slate-300 font-bold text-xs">
-                  ✓ Shift Done ({formatHoursAndMinutes(userTodayRecord?.total_hours)})
-                </Badge>
-              )}
             </div>
             <p className="text-xs text-slate-500">
               Punches are strictly locked to today's date ({currentISTDate || new Date().toISOString().split("T")[0]}). Live shift hours update automatically.
@@ -315,29 +217,7 @@ export default function AttendancePage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <Button
-              onClick={() => handlePunch("check-in")}
-              disabled={actionLoading || isCurrentlyCheckedIn}
-              className={`font-bold px-5 py-2.5 flex items-center gap-2 shadow-md ${
-                isCurrentlyCheckedIn
-                  ? "bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300"
-                  : "bg-emerald-600 hover:bg-emerald-700 text-white"
-              }`}
-            >
-              <LogIn className="h-4 w-4" /> {isCurrentlyCheckedIn ? "Checked In ✓" : "Check In"}
-            </Button>
-
-            <Button
-              onClick={() => handlePunch("check-out")}
-              disabled={actionLoading || !isCurrentlyCheckedIn}
-              className={`font-bold px-5 py-2.5 flex items-center gap-2 shadow-md ${
-                !isCurrentlyCheckedIn
-                  ? "bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300"
-                  : "bg-slate-900 hover:bg-slate-800 text-white"
-              }`}
-            >
-              <LogOut className="h-4 w-4" /> Check Out
-            </Button>
+            <AttendanceWidget />
 
             {/* Record / Apply Leave Trigger */}
             <Dialog open={leaveModalOpen} onOpenChange={setLeaveModalOpen}>
@@ -493,10 +373,39 @@ export default function AttendancePage() {
                             )}
                           </TableCell>
                           <TableCell>
-                            {rec.status === "Present" && <Badge className="bg-emerald-500 text-white font-bold">Present</Badge>}
-                            {rec.status === "Half Day" && <Badge className="bg-amber-500 text-white font-bold">Half Day</Badge>}
-                            {rec.status === "Leave" && <Badge className="bg-sky-500 text-white font-bold">Leave</Badge>}
-                            {rec.status === "Absent" && <Badge className="bg-red-500 text-white font-bold">Absent</Badge>}
+                            {(() => {
+                              const s = (rec.status || "").trim();
+                              if (s === "Present (Overtime)") {
+                                return (
+                                  <Badge className="bg-emerald-600 hover:bg-emerald-600 text-white font-bold text-xs inline-flex items-center gap-1 shadow-xs">
+                                    <span>Present</span>
+                                    <span className="text-[9px] bg-emerald-800/80 px-1 py-0.2 rounded font-black tracking-tight">OT</span>
+                                  </Badge>
+                                );
+                              }
+                              if (s === "Present") {
+                                return <Badge className="bg-emerald-500 hover:bg-emerald-500 text-white font-bold text-xs">Present</Badge>;
+                              }
+                              if (s === "Half Day") {
+                                return <Badge className="bg-amber-500 hover:bg-amber-500 text-white font-bold text-xs">Half Day</Badge>;
+                              }
+                              if (s === "Leave") {
+                                return <Badge className="bg-sky-500 hover:bg-sky-500 text-white font-bold text-xs">Leave</Badge>;
+                              }
+                              if (s.includes("Leave")) {
+                                return <Badge className="bg-indigo-500 hover:bg-indigo-500 text-white font-bold text-xs">{s}</Badge>;
+                              }
+                              if (s === "Absent") {
+                                return <Badge className="bg-red-500 hover:bg-red-500 text-white font-bold text-xs">Absent</Badge>;
+                              }
+                              if (s === "Holiday") {
+                                return <Badge className="bg-blue-500 hover:bg-blue-500 text-white font-bold text-xs">Holiday</Badge>;
+                              }
+                              if (rec.login_time) {
+                                return <Badge className="bg-emerald-500 hover:bg-emerald-500 text-white font-bold text-xs">Present</Badge>;
+                              }
+                              return <Badge variant="outline" className="font-bold text-xs text-slate-700">{s || "Present"}</Badge>;
+                            })()}
                           </TableCell>
                           <TableCell className="text-right">
                             <Button

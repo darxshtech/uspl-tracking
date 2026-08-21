@@ -352,7 +352,7 @@ export default function CEOFilterDashboard() {
               <DialogTrigger render={<Button size="sm" variant="outline" className="h-8 px-2.5 bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs gap-1.5 shadow-xs border-slate-300" />}>
                 <Sliders className="h-3.5 w-3.5 text-sky-600" /> Shift Policy ({fullDayPolicyHours}h)
               </DialogTrigger>
-              <DialogContent className="max-w-sm">
+              <DialogContent className="w-[92vw] sm:max-w-sm max-h-[90vh] overflow-y-auto p-4 sm:p-6">
                 <DialogHeader>
                   <DialogTitle className="flex items-center gap-2 text-base font-bold text-slate-900">
                     <Sliders className="h-5 w-5 text-sky-600" />

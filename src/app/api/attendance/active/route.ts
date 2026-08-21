@@ -236,12 +236,19 @@ export async function POST(req: Request) {
 
       // 4. Calculate total hours with overnight awareness & configurable fullDayHours
       const totalHours = calculateHoursDifference(activeShift.login_time, nowTime12, isCrossDay);
-      const isHalfDay = totalHours < fullDayHours;
-      const isOvertime = totalHours >= (fullDayHours + 3);
+      const halfDayThreshold = fullDayHours / 2; // e.g. 4.5 hrs for 9h shift, 4.0 hrs for 8h shift
 
       let status = "Present";
-      if (isHalfDay) status = "Half Day";
-      else if (isOvertime) status = "Present (Overtime)";
+      let isAbsent = false;
+      let isHalfDay = false;
+
+      if (totalHours < halfDayThreshold) {
+        status = "Absent";
+        isAbsent = true;
+      } else if (totalHours < fullDayHours) {
+        status = "Half Day";
+        isHalfDay = true;
+      }
 
       await pool.query(
         `UPDATE attendance 
@@ -250,11 +257,18 @@ export async function POST(req: Request) {
         [nowTime12, totalHours.toFixed(2), status, activeShift.id]
       );
 
-      if (isHalfDay) {
-        const shiftDateStr = activeShift.date instanceof Date 
-          ? activeShift.date.toISOString().split("T")[0] 
-          : String(activeShift.date).split("T")[0];
-        const warningMsg = `You completed ${totalHours.toFixed(2)} hours for shift ${shiftDateStr} (<${fullDayHours} hours required). Recorded as HALF DAY.`;
+      const shiftDateStr = activeShift.date instanceof Date 
+        ? activeShift.date.toISOString().split("T")[0] 
+        : String(activeShift.date).split("T")[0];
+
+      if (isAbsent) {
+        const warningMsg = `You checked out after ${totalHours.toFixed(2)} hours on ${shiftDateStr} (<${halfDayThreshold.toFixed(1)} hrs half-shift minimum). Marked as FULL DAY ABSENT.`;
+        await pool.query(
+          "INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'warning')",
+          [userId, `Shift Absent Notice (<${halfDayThreshold.toFixed(1)} Hours)`, warningMsg]
+        );
+      } else if (isHalfDay) {
+        const warningMsg = `You completed ${totalHours.toFixed(2)} hours for shift ${shiftDateStr} (<${fullDayHours} hours required for Full Day). Recorded as HALF DAY.`;
         await pool.query(
           "INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'warning')",
           [userId, `Half Day Notice (<${fullDayHours} Hours)`, warningMsg]
@@ -263,9 +277,10 @@ export async function POST(req: Request) {
 
       return NextResponse.json({
         success: true,
+        isAbsent,
         isHalfDay,
-        isOvertime,
         fullDayHours,
+        halfDayThreshold,
         totalHours: totalHours.toFixed(2),
         shiftDate: activeShift.date,
         login_time: activeShift.login_time,

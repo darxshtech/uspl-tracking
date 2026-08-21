@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { showError, showSuccess, showWarning, showInfo } from "@/lib/swal";
+import Link from "next/link";
 import { 
   FileSpreadsheet, 
   FileText, 
@@ -25,7 +26,9 @@ import {
   Palmtree,
   Sparkles,
   UserCheck,
-  Sliders
+  Sliders,
+  BookOpen,
+  ShieldCheck
 } from "lucide-react";
 import AttendanceCalendarView from "@/components/AttendanceCalendarView";
 import { formatHoursAndMinutes, calculateHoursDifference, getCurrentISTTime12 } from "@/lib/timeUtils";
@@ -64,6 +67,8 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
   // Shift Working Hours Policy State (Full-Day threshold e.g. 9 or 8)
   const [fullDayPolicyHours, setFullDayPolicyHours] = useState<number>(9);
   const [policyInputHours, setPolicyInputHours] = useState<string>("9");
+  const [totalLeavesPolicy, setTotalLeavesPolicy] = useState<number>(2);
+  const [totalLeavesInput, setTotalLeavesInput] = useState<string>("2");
   const [policyModalOpen, setPolicyModalOpen] = useState(false);
   const [savingPolicy, setSavingPolicy] = useState(false);
 
@@ -87,6 +92,17 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
   const [leaveReason, setLeaveReason] = useState("");
   const [submittingLeave, setSubmittingLeave] = useState(false);
 
+  // Live IST Clock for Active Shifts
+  const [currentISTTime, setCurrentISTTime] = useState<string>("");
+
+  useEffect(() => {
+    setCurrentISTTime(getCurrentISTTime12());
+    const clockTimer = setInterval(() => {
+      setCurrentISTTime(getCurrentISTTime12());
+    }, 1000);
+    return () => clearInterval(clockTimer);
+  }, []);
+
   useEffect(() => {
     fetchPolicy();
   }, []);
@@ -99,7 +115,11 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
         setFullDayPolicyHours(data.full_day_hours);
         setPolicyInputHours(data.full_day_hours.toString());
       }
-    } catch (_) {}
+      if (data && data.total_leaves_allowed !== undefined) {
+        setTotalLeavesPolicy(data.total_leaves_allowed);
+        setTotalLeavesInput(data.total_leaves_allowed.toString());
+      }
+    } catch (err) {}
   };
 
   const handleSavePolicy = async (e: React.FormEvent) => {
@@ -115,13 +135,17 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
       const res = await fetch("/api/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ full_day_hours: parsed }),
+        body: JSON.stringify({ 
+          full_day_hours: parseFloat(policyInputHours),
+          total_leaves_allowed: parseInt(totalLeavesInput, 10)
+        }),
       });
       const data = await res.json();
       if (res.ok) {
-        setFullDayPolicyHours(parsed);
+        setFullDayPolicyHours(parseFloat(policyInputHours));
+        setTotalLeavesPolicy(parseInt(totalLeavesInput, 10));
         setPolicyModalOpen(false);
-        showSuccess("Policy Updated", `Full-day required working hours set to ${parsed} hours for all employees.`);
+        showSuccess("Policy Updated", "Global settings updated successfully.");
         fetchRecords();
       } else {
         showError("Update Failed", data.error || "Failed to update settings");
@@ -403,7 +427,7 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
               <DialogTrigger render={<Button size="sm" className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs gap-1.5 shadow-xs" />}>
                 <Palmtree className="h-3.5 w-3.5" /> Record Leave
               </DialogTrigger>
-              <DialogContent className="max-w-md">
+              <DialogContent className="w-[92vw] sm:max-w-md max-h-[90vh] overflow-y-auto p-4 sm:p-6">
                 <DialogHeader>
                   <DialogTitle className="flex items-center gap-2 text-lg font-bold text-slate-900">
                     <Palmtree className="h-5 w-5 text-amber-500" /> Record Employee Leave
@@ -482,25 +506,35 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
               </DialogContent>
             </Dialog>
 
+            <Link href="/dashboard/policies">
+              <Button size="sm" variant="outline" className="bg-white hover:bg-indigo-50 text-indigo-700 font-bold text-xs gap-1.5 shadow-xs border-indigo-200">
+                <BookOpen className="h-3.5 w-3.5 text-indigo-600" /> Company Policies
+              </Button>
+            </Link>
+
             {/* Shift Working Hours Policy Config Modal (PM / CEO / Admin) */}
             <Dialog open={policyModalOpen} onOpenChange={setPolicyModalOpen}>
               <DialogTrigger render={<Button size="sm" variant="outline" className="bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs gap-1.5 shadow-xs border-slate-300" />}>
-                <Sliders className="h-3.5 w-3.5 text-sky-600" /> Shift Policy ({fullDayPolicyHours}h)
+                <Sliders className="h-3.5 w-3.5 text-sky-600" /> Quick Policy ({fullDayPolicyHours}h)
               </DialogTrigger>
-              <DialogContent className="max-w-sm">
+              <DialogContent className="w-[92vw] sm:max-w-md max-h-[90vh] overflow-y-auto p-4 sm:p-6">
                 <DialogHeader>
                   <DialogTitle className="flex items-center gap-2 text-base font-bold text-slate-900">
-                    <Sliders className="h-5 w-5 text-sky-600" />
-                    Configure Full-Day Shift Policy
+                    <Sliders className="h-5 w-5 text-indigo-600" />
+                    Attendance & Shift Policy Settings
                   </DialogTitle>
                 </DialogHeader>
 
                 <form onSubmit={handleSavePolicy} className="space-y-4 pt-2">
-                  <div className="p-3 rounded-xl bg-sky-50/80 border border-sky-200 text-xs text-sky-900 space-y-1">
-                    <span className="font-bold block">Company Attendance Policy</span>
-                    <p className="text-[11px] text-sky-800 leading-snug">
-                      Shifts completed below this threshold will automatically be recorded as <strong>Half Day</strong> and alert the employee.
-                    </p>
+                  <div className="p-3 rounded-xl bg-indigo-50/80 border border-indigo-200 text-xs text-indigo-950 space-y-1.5">
+                    <span className="font-bold flex items-center gap-1 text-indigo-900">
+                      <ShieldCheck className="h-4 w-4 text-indigo-600" /> Automatic Shift Thresholds
+                    </span>
+                    <ul className="text-[11px] text-indigo-800 space-y-1 list-disc pl-4">
+                      <li>&lt; <strong>{(parseFloat(policyInputHours) / 2 || 4.5).toFixed(1)} hrs</strong>: Recorded as <strong className="text-red-700">Full Day Absent</strong>.</li>
+                      <li><strong>{(parseFloat(policyInputHours) / 2 || 4.5).toFixed(1)} hrs to &lt; {policyInputHours || 9} hrs</strong>: Recorded as <strong className="text-amber-700">Half Day</strong>.</li>
+                      <li>&ge; <strong>{policyInputHours || 9} hrs</strong>: Recorded as <strong className="text-emerald-700">Present (Full Day)</strong>.</li>
+                    </ul>
                   </div>
 
                   <div className="space-y-1.5">
@@ -519,17 +553,41 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
                       required
                     />
                     <p className="text-[11px] text-slate-500">
-                      Currently active threshold: <strong>{fullDayPolicyHours} hours / day</strong>
+                      Currently active threshold: <strong>{fullDayPolicyHours} hours / day</strong> (Half-day: {fullDayPolicyHours / 2}h)
                     </p>
                   </div>
 
-                  <Button
-                    type="submit"
-                    disabled={savingPolicy}
-                    className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2 shadow-sm"
-                  >
-                    {savingPolicy ? "Saving Policy..." : "Update Full-Day Policy"}
-                  </Button>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="totalLeaves" className="font-bold text-slate-900 text-xs">
+                      Total Leaves Allowed Per Month (Global) *
+                    </Label>
+                    <Input
+                      id="totalLeaves"
+                      type="number"
+                      step="1"
+                      min="0"
+                      value={totalLeavesInput}
+                      onChange={(e) => setTotalLeavesInput(e.target.value)}
+                      className="text-base font-bold"
+                      required
+                    />
+                    <p className="text-[11px] text-slate-500">
+                      Currently active allowance: <strong>{totalLeavesPolicy} leaves</strong> (Carry forward enabled: 2+2=4)
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2">
+                    <Link href="/dashboard/policies" className="text-xs font-bold text-indigo-600 hover:underline">
+                      Open Full Policies Page &rarr;
+                    </Link>
+                    <Button
+                      type="submit"
+                      disabled={savingPolicy}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2 shadow-sm"
+                    >
+                      {savingPolicy ? "Saving Policy..." : "Save Policy"}
+                    </Button>
+                  </div>
                 </form>
               </DialogContent>
             </Dialog>
@@ -792,12 +850,59 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
                   <TableCell className="text-xs text-slate-700 font-medium">{new Date(rec.date).toLocaleDateString()}</TableCell>
                   <TableCell className="font-mono text-xs text-slate-800 font-semibold">{rec.login_time || "--:--"}</TableCell>
                   <TableCell className="font-mono text-xs text-slate-800 font-semibold">{rec.logout_time || "--:--"}</TableCell>
-                  <TableCell className="font-bold text-xs text-slate-900">{formatHoursAndMinutes(rec.total_hours)}</TableCell>
+                  <TableCell className="font-bold text-xs text-slate-900">
+                    {(() => {
+                      const isActive = Boolean(rec.login_time && !rec.logout_time);
+                      const displayHours = isActive
+                        ? calculateHoursDifference(rec.login_time, currentISTTime || getCurrentISTTime12())
+                        : parseFloat(rec.total_hours || 0);
+
+                      return isActive ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-emerald-700 font-black">{formatHoursAndMinutes(displayHours)}</span>
+                          <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300 text-[9px] py-0 px-1 font-bold animate-pulse">
+                            Live ⏱️
+                          </Badge>
+                        </div>
+                      ) : (
+                        <span>{formatHoursAndMinutes(displayHours)}</span>
+                      );
+                    })()}
+                  </TableCell>
                   <TableCell>
-                    {rec.status === "Present" && <Badge className="bg-emerald-500 text-white font-bold">Present</Badge>}
-                    {rec.status === "Half Day" && <Badge className="bg-amber-500 text-white font-bold">Half Day</Badge>}
-                    {rec.status === "Leave" && <Badge className="bg-sky-500 text-white font-bold">Leave</Badge>}
-                    {rec.status === "Absent" && <Badge className="bg-red-500 text-white font-bold">Absent</Badge>}
+                    {(() => {
+                      const s = (rec.status || "").trim();
+                      if (s === "Present (Overtime)") {
+                        return (
+                          <Badge className="bg-emerald-600 hover:bg-emerald-600 text-white font-bold text-xs inline-flex items-center gap-1 shadow-xs">
+                            <span>Present</span>
+                            <span className="text-[9px] bg-emerald-800/80 px-1 py-0.2 rounded font-black tracking-tight">OT</span>
+                          </Badge>
+                        );
+                      }
+                      if (s === "Present") {
+                        return <Badge className="bg-emerald-500 hover:bg-emerald-500 text-white font-bold text-xs">Present</Badge>;
+                      }
+                      if (s === "Half Day") {
+                        return <Badge className="bg-amber-500 hover:bg-amber-500 text-white font-bold text-xs">Half Day</Badge>;
+                      }
+                      if (s === "Leave") {
+                        return <Badge className="bg-sky-500 hover:bg-sky-500 text-white font-bold text-xs">Leave</Badge>;
+                      }
+                      if (s.includes("Leave")) {
+                        return <Badge className="bg-indigo-500 hover:bg-indigo-500 text-white font-bold text-xs">{s}</Badge>;
+                      }
+                      if (s === "Absent") {
+                        return <Badge className="bg-red-500 hover:bg-red-500 text-white font-bold text-xs">Absent</Badge>;
+                      }
+                      if (s === "Holiday") {
+                        return <Badge className="bg-blue-500 hover:bg-blue-500 text-white font-bold text-xs">Holiday</Badge>;
+                      }
+                      if (rec.login_time) {
+                        return <Badge className="bg-emerald-500 hover:bg-emerald-500 text-white font-bold text-xs">Present</Badge>;
+                      }
+                      return <Badge variant="outline" className="font-bold text-xs text-slate-700">{s || "Present"}</Badge>;
+                    })()}
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1.5">

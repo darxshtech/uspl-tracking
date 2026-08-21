@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, ReactNode } from "react";
+import { useState, useEffect, ReactNode, useCallback } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import UnitgloLogo from "@/components/UnitgloLogo";
@@ -13,15 +13,19 @@ import {
   CheckSquare, 
   Activity, 
   CalendarDays, 
-  Clock,
-  AlertTriangle,
-  LogOut,
-  Menu,
-  X,
-  PanelLeftClose,
-  PanelLeftOpen,
-  ChevronRight,
-  Shield
+  Clock, 
+  AlertTriangle, 
+  LogOut, 
+  Menu, 
+  X, 
+  PanelLeftClose, 
+  PanelLeftOpen, 
+  PanelLeft,
+  ChevronRight, 
+  Shield,
+  EyeOff,
+  KeyRound,
+  BookOpen
 } from "lucide-react";
 import { getRoleDisplayName, getRoleIconEmoji } from "@/lib/roleUtils";
 
@@ -35,14 +39,63 @@ interface DashboardClientShellProps {
   };
 }
 
+export type DesktopSidebarMode = "expanded" | "collapsed" | "hidden";
+
 export default function DashboardClientShell({ children, user }: DashboardClientShellProps) {
   const pathname = usePathname();
   const role = user.role || "Developer";
 
-  // Sidebar collapse state (desktop)
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  // Desktop sidebar state: 'expanded' | 'collapsed' | 'hidden'
+  const [desktopSidebar, setDesktopSidebar] = useState<DesktopSidebarMode>("expanded");
   // Mobile drawer state
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  // Load persisted desktop sidebar preference
+  useEffect(() => {
+    setMounted(true);
+    try {
+      const saved = localStorage.getItem("unitglo_desktop_sidebar_mode");
+      if (saved === "expanded" || saved === "collapsed" || saved === "hidden") {
+        setDesktopSidebar(saved as DesktopSidebarMode);
+      }
+    } catch (_) {}
+  }, []);
+
+  const updateDesktopSidebar = useCallback((mode: DesktopSidebarMode) => {
+    setDesktopSidebar(mode);
+    try {
+      localStorage.setItem("unitglo_desktop_sidebar_mode", mode);
+    } catch (_) {}
+  }, []);
+
+  const toggleDesktopSidebar = useCallback(() => {
+    setDesktopSidebar((prev) => {
+      let next: DesktopSidebarMode = "expanded";
+      if (prev === "expanded") next = "collapsed";
+      else if (prev === "collapsed") next = "hidden";
+      else next = "expanded";
+      try {
+        localStorage.setItem("unitglo_desktop_sidebar_mode", next);
+      } catch (_) {}
+      return next;
+    });
+  }, []);
+
+  // Keyboard shortcut: Ctrl+B / Cmd+B to toggle sidebar on desktop
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        toggleDesktopSidebar();
+      } else if (e.key === "Escape") {
+        setMobileOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [toggleDesktopSidebar]);
 
   // Close mobile drawer on route change
   useEffect(() => {
@@ -72,42 +125,52 @@ export default function DashboardClientShell({ children, user }: DashboardClient
     { name: "Attendance", href: "/dashboard/attendance", icon: CalendarDays, roles: ["Admin", "CEO", "PM", "Developer", "Tester"] },
     { name: "Shift Warnings", href: "/dashboard/warnings", icon: AlertTriangle, roles: ["Admin", "CEO", "PM"] },
     { name: "Profile & Tenure", href: "/dashboard/profile", icon: Users, roles: ["Admin", "CEO", "PM", "Developer", "Tester"] },
+    { name: "Credentials", href: "/dashboard/credentials", icon: KeyRound, roles: ["Admin", "CEO", "PM", "Developer", "Tester"] },
+    { name: "Company Policies", href: "/dashboard/policies", icon: BookOpen, roles: ["Admin", "CEO", "PM", "Developer", "Tester"] },
   ];
 
   const visibleNavItems = navItems.filter((item) => item.roles.includes(role));
 
+  const isCollapsed = desktopSidebar === "collapsed";
+  const isHidden = desktopSidebar === "hidden";
+
   return (
-    <div className="flex h-screen w-full bg-slate-100 overflow-hidden font-sans">
+    <div className="flex h-screen w-full bg-slate-100 overflow-hidden font-sans select-none">
       {/* ========================================================================= */}
-      {/* MOBILE DRAWER BACKDROP & SIDEBAR (Phone / Tablet < 768px)                */}
+      {/* MOBILE DRAWER BACKDROP & SIDEBAR (< 768px Phone & Tablet)                 */}
       {/* ========================================================================= */}
       {mobileOpen && (
         <div
-          className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-40 md:hidden transition-opacity animate-fade-in"
+          className="fixed inset-0 bg-slate-950/75 backdrop-blur-xs z-40 md:hidden transition-opacity duration-300 animate-fade-in"
           onClick={() => setMobileOpen(false)}
           aria-hidden="true"
         />
       )}
 
-      <div
-        className={`fixed inset-y-0 left-0 z-50 w-72 bg-slate-950 text-white flex flex-col transform transition-transform duration-300 ease-in-out md:hidden shadow-2xl ${
+      <aside
+        id="mobile-navigation"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Navigation Menu"
+        className={`fixed inset-y-0 left-0 z-50 w-72 sm:w-80 bg-slate-950 text-white flex flex-col transform transition-transform duration-300 ease-out md:hidden shadow-2xl pb-[env(safe-area-inset-bottom,16px)] pt-[env(safe-area-inset-top,0px)] ${
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
         {/* Mobile Drawer Header */}
-        <div className="p-4 border-b border-slate-800/80 flex items-center justify-between bg-slate-950">
+        <div className="h-16 px-4 border-b border-slate-800/80 flex items-center justify-between bg-slate-950 shrink-0">
           <UnitgloLogo size="sm" theme="dark" />
           <button
+            type="button"
             onClick={() => setMobileOpen(false)}
-            className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors"
-            aria-label="Close menu"
+            className="p-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/80 active:bg-slate-800 transition-colors cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
+            aria-label="Close navigation menu"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
         {/* Mobile Nav Links */}
-        <div className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
+        <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1.5 focus:outline-none">
           {visibleNavItems.map((item) => {
             const isActive = pathname === item.href;
             return (
@@ -115,26 +178,26 @@ export default function DashboardClientShell({ children, user }: DashboardClient
                 key={item.name}
                 href={item.href}
                 onClick={() => setMobileOpen(false)}
-                className={`flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-semibold transition-all ${
+                className={`flex items-center gap-3.5 rounded-xl px-3.5 py-3 text-sm font-semibold transition-all min-h-[44px] ${
                   isActive
-                    ? "bg-sky-500 text-white shadow-md shadow-sky-500/20"
-                    : "text-slate-300 hover:bg-slate-900 hover:text-sky-400"
+                    ? "bg-sky-500 text-white shadow-md shadow-sky-500/25 font-bold"
+                    : "text-slate-300 hover:bg-slate-900/90 hover:text-sky-400 active:bg-slate-900"
                 }`}
               >
-                <item.icon className={`h-5 w-5 ${isActive ? "text-white" : "text-slate-400"}`} />
-                <span className="flex-1">{item.name}</span>
-                {isActive && <ChevronRight className="h-4 w-4 opacity-70" />}
+                <item.icon className={`h-5 w-5 shrink-0 ${isActive ? "text-white" : "text-slate-400"}`} />
+                <span className="flex-1 truncate">{item.name}</span>
+                {isActive && <ChevronRight className="h-4 w-4 opacity-80 shrink-0" />}
               </Link>
             );
           })}
-        </div>
+        </nav>
 
         {/* Mobile User Profile Footer */}
-        <div className="p-4 border-t border-slate-800/80 bg-slate-900/50 flex items-center justify-between">
+        <div className="p-3.5 border-t border-slate-800/80 bg-slate-900/60 flex items-center justify-between shrink-0">
           <Link
             href="/dashboard/profile"
             onClick={() => setMobileOpen(false)}
-            className="flex items-center gap-2.5 truncate hover:opacity-85 transition-opacity"
+            className="flex items-center gap-2.5 truncate hover:opacity-90 active:opacity-75 transition-opacity flex-1 mr-2"
           >
             {user.avatar_url ? (
               <img
@@ -156,144 +219,197 @@ export default function DashboardClientShell({ children, user }: DashboardClient
           </Link>
           <Link
             href="/api/auth/signout"
-            className="text-slate-400 hover:text-red-400 p-2 rounded-lg hover:bg-slate-800 transition-colors"
+            className="text-slate-400 hover:text-red-400 p-2.5 rounded-xl hover:bg-slate-800 active:bg-slate-700 transition-colors shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center"
             title="Sign Out"
+            aria-label="Sign Out"
           >
-            <LogOut className="h-4 w-4" />
+            <LogOut className="h-5 w-5" />
           </Link>
-        </div>
-      </div>
-
-      {/* ========================================================================= */}
-      {/* DESKTOP SIDEBAR (>= 768px) with Collapse / Unhide Toggle                   */}
-      {/* ========================================================================= */}
-      <aside
-        className={`hidden md:flex flex-col border-r border-slate-800 bg-slate-950 text-white shadow-xl z-20 transition-all duration-300 ease-in-out ${
-          isCollapsed ? "w-20" : "w-64"
-        }`}
-      >
-        {/* Desktop Sidebar Header */}
-        <div className="h-16 border-b border-slate-800/80 px-4 flex items-center justify-between bg-slate-950/60">
-          {!isCollapsed && <UnitgloLogo size="sm" theme="dark" />}
-          <button
-            onClick={() => setIsCollapsed(!isCollapsed)}
-            className={`p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors ${
-              isCollapsed ? "mx-auto" : ""
-            }`}
-            title={isCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
-          >
-            {isCollapsed ? <PanelLeftOpen className="h-5 w-5 text-sky-400" /> : <PanelLeftClose className="h-5 w-5" />}
-          </button>
-        </div>
-
-        {/* Desktop Nav Items */}
-        <div className="flex-1 overflow-y-auto py-5 px-3 space-y-1.5">
-          {visibleNavItems.map((item) => {
-            const isActive = pathname === item.href;
-            return (
-              <Link
-                key={item.name}
-                href={item.href}
-                className={`flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-all group ${
-                  isActive
-                    ? "bg-sky-500 text-white shadow-md shadow-sky-500/25 font-bold"
-                    : "text-slate-300 hover:bg-slate-900 hover:text-sky-400"
-                } ${isCollapsed ? "justify-center px-2" : ""}`}
-                title={isCollapsed ? item.name : undefined}
-              >
-                <item.icon
-                  className={`h-4 w-4 shrink-0 transition-colors ${
-                    isActive ? "text-white" : "text-slate-400 group-hover:text-sky-400"
-                  }`}
-                />
-                {!isCollapsed && <span className="truncate">{item.name}</span>}
-              </Link>
-            );
-          })}
-        </div>
-
-        {/* Desktop User Profile Footer */}
-        <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/80 flex items-center justify-between">
-          {!isCollapsed ? (
-            <>
-              <Link href="/dashboard/profile" className="flex items-center gap-2.5 truncate hover:opacity-85 transition-opacity">
-                {user.avatar_url ? (
-                  <img
-                    src={user.avatar_url}
-                    alt={user.name || "User"}
-                    className="h-8 w-8 rounded-full object-cover border border-sky-400/40 shrink-0"
-                  />
-                ) : (
-                  <div className="h-8 w-8 rounded-full bg-sky-500/20 border border-sky-400/30 flex items-center justify-center text-sky-400 font-bold text-xs shrink-0">
-                    {user.name ? user.name.charAt(0).toUpperCase() : "U"}
-                  </div>
-                )}
-                <div className="truncate text-xs">
-                  <p className="font-bold text-slate-100 truncate">{user.name}</p>
-                  <span className="inline-block text-[10px] font-semibold text-sky-400">
-                    {getRoleIconEmoji(role)} {getRoleDisplayName(role)}
-                  </span>
-                </div>
-              </Link>
-              <Link
-                href="/api/auth/signout"
-                className="text-slate-400 hover:text-red-400 p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
-                title="Sign Out"
-              >
-                <LogOut className="h-4 w-4" />
-              </Link>
-            </>
-          ) : (
-            <Link
-              href="/api/auth/signout"
-              className="mx-auto text-slate-400 hover:text-red-400 p-2 rounded-lg hover:bg-slate-800 transition-colors"
-              title="Sign Out"
-            >
-              <LogOut className="h-4 w-4" />
-            </Link>
-          )}
         </div>
       </aside>
 
       {/* ========================================================================= */}
-      {/* MAIN VIEWPORT & TOPBAR (Adaptive for Mobile & Global Devices)             */}
+      {/* DESKTOP SIDEBAR (>= 768px) with Expand, Collapse & Hide Controls          */}
+      {/* ========================================================================= */}
+      {!isHidden && (
+        <aside
+          className={`hidden md:flex flex-col border-r border-slate-800 bg-slate-950 text-white shadow-xl z-20 transition-all duration-300 ease-in-out shrink-0 ${
+            isCollapsed ? "w-20" : "w-64"
+          }`}
+        >
+          {/* Desktop Sidebar Header */}
+          <div className="h-16 border-b border-slate-800/80 px-3.5 flex items-center justify-between bg-slate-950/60 shrink-0">
+            {!isCollapsed && <UnitgloLogo size="sm" theme="dark" />}
+            
+            <div className={`flex items-center gap-1 ${isCollapsed ? "mx-auto" : ""}`}>
+              {/* Collapse/Expand Toggle */}
+              <button
+                type="button"
+                onClick={() => updateDesktopSidebar(isCollapsed ? "expanded" : "collapsed")}
+                className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors cursor-pointer"
+                title={isCollapsed ? "Expand Sidebar (Ctrl+B)" : "Collapse to Mini-bar"}
+                aria-label={isCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+              >
+                {isCollapsed ? <PanelLeftOpen className="h-5 w-5 text-sky-400" /> : <PanelLeftClose className="h-5 w-5" />}
+              </button>
+
+              {/* Complete Hide Sidebar Button (Web desktop) */}
+              {!isCollapsed && (
+                <button
+                  type="button"
+                  onClick={() => updateDesktopSidebar("hidden")}
+                  className="p-2 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-slate-800/60 transition-colors cursor-pointer"
+                  title="Hide Sidebar (Full-Width Workspace)"
+                  aria-label="Hide Sidebar Completely"
+                >
+                  <EyeOff className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Desktop Nav Items */}
+          <nav className="flex-1 overflow-y-auto py-5 px-3 space-y-1.5 focus:outline-none">
+            {visibleNavItems.map((item) => {
+              const isActive = pathname === item.href;
+              return (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  className={`flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-all group ${
+                    isActive
+                      ? "bg-sky-500 text-white shadow-md shadow-sky-500/25 font-bold"
+                      : "text-slate-300 hover:bg-slate-900 hover:text-sky-400"
+                  } ${isCollapsed ? "justify-center px-2" : ""}`}
+                  title={isCollapsed ? item.name : undefined}
+                >
+                  <item.icon
+                    className={`h-4 w-4 shrink-0 transition-colors ${
+                      isActive ? "text-white" : "text-slate-400 group-hover:text-sky-400"
+                    }`}
+                  />
+                  {!isCollapsed && <span className="truncate">{item.name}</span>}
+                </Link>
+              );
+            })}
+          </nav>
+
+          {/* Desktop User Profile Footer */}
+          <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/80 flex items-center justify-between shrink-0">
+            {!isCollapsed ? (
+              <>
+                <Link href="/dashboard/profile" className="flex items-center gap-2.5 truncate hover:opacity-85 transition-opacity flex-1 mr-2">
+                  {user.avatar_url ? (
+                    <img
+                      src={user.avatar_url}
+                      alt={user.name || "User"}
+                      className="h-8 w-8 rounded-full object-cover border border-sky-400/40 shrink-0"
+                    />
+                  ) : (
+                    <div className="h-8 w-8 rounded-full bg-sky-500/20 border border-sky-400/30 flex items-center justify-center text-sky-400 font-bold text-xs shrink-0">
+                      {user.name ? user.name.charAt(0).toUpperCase() : "U"}
+                    </div>
+                  )}
+                  <div className="truncate text-xs">
+                    <p className="font-bold text-slate-100 truncate">{user.name}</p>
+                    <span className="inline-block text-[10px] font-semibold text-sky-400">
+                      {getRoleIconEmoji(role)} {getRoleDisplayName(role)}
+                    </span>
+                  </div>
+                </Link>
+                <Link
+                  href="/api/auth/signout"
+                  className="text-slate-400 hover:text-red-400 p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+                  title="Sign Out"
+                >
+                  <LogOut className="h-4 w-4" />
+                </Link>
+              </>
+            ) : (
+              <Link
+                href="/api/auth/signout"
+                className="mx-auto text-slate-400 hover:text-red-400 p-2 rounded-lg hover:bg-slate-800 transition-colors"
+                title="Sign Out"
+              >
+                <LogOut className="h-4 w-4" />
+              </Link>
+            )}
+          </div>
+        </aside>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MAIN VIEWPORT & ADAPTIVE TOPBAR (Responsive for Mobile & Global Devices)  */}
       {/* ========================================================================= */}
       <div className="flex-1 flex flex-col h-screen overflow-hidden bg-slate-50 min-w-0">
         {/* Sticky Adaptive Top Header */}
-        <header className="h-16 border-b border-slate-200 bg-white/90 backdrop-blur-md flex items-center justify-between px-3 sm:px-6 z-10 shrink-0 gap-2">
-          {/* Left: Mobile Hamburger & Desktop Status */}
-          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
-            {/* Mobile Hamburger Button */}
+        <header className="h-16 border-b border-slate-200 bg-white/95 backdrop-blur-md flex items-center justify-between px-3 sm:px-6 z-10 shrink-0 gap-2">
+          {/* Left: Mobile Hamburger & Desktop Sidebar Unhide / Toggle Button */}
+          <div className="flex items-center gap-2 sm:gap-3.5 min-w-0">
+            {/* Mobile Hamburger Button (>=44x44px touch target) */}
             <button
+              type="button"
               onClick={() => setMobileOpen(true)}
-              className="p-2 -ml-1 rounded-lg text-slate-700 hover:text-sky-600 hover:bg-slate-100 md:hidden transition-colors"
+              className="p-2.5 -ml-1.5 rounded-xl text-slate-700 hover:text-sky-600 hover:bg-slate-100 active:bg-slate-200 md:hidden transition-colors cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
               aria-label="Open Navigation Menu"
+              aria-expanded={mobileOpen}
+              aria-controls="mobile-navigation"
             >
               <Menu className="h-6 w-6" />
             </button>
 
+            {/* Desktop Sidebar Toggle / Unhide Button */}
+            <div className="hidden md:flex items-center gap-2">
+              <button
+                type="button"
+                onClick={toggleDesktopSidebar}
+                className="p-2 rounded-lg text-slate-600 hover:text-sky-600 hover:bg-slate-100 transition-colors cursor-pointer flex items-center gap-1.5 text-xs font-semibold"
+                title={
+                  isHidden 
+                    ? "Show Sidebar (Ctrl+B)" 
+                    : isCollapsed 
+                    ? "Expand Sidebar (Ctrl+B)" 
+                    : "Collapse / Hide Sidebar (Ctrl+B)"
+                }
+              >
+                <PanelLeft className="h-5 w-5 text-slate-700 hover:text-sky-600 transition-colors" />
+                {isHidden && <span className="text-xs font-bold text-sky-600">Show Menu</span>}
+              </button>
+
+              {/* If desktop sidebar is hidden, show logo in top header */}
+              {isHidden && (
+                <div className="pl-1 border-l border-slate-200">
+                  <UnitgloLogo size="sm" />
+                </div>
+              )}
+            </div>
+
+            {/* Portal Title */}
             <div className="flex items-center gap-2 truncate">
-              <span className="hidden sm:inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-              <h2 className="text-sm sm:text-base font-bold text-slate-800 tracking-tight truncate">
-                Unitglo Tracking Portal
+              <span className="hidden sm:inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
+              <h2 className="text-sm sm:text-base font-extrabold text-slate-900 tracking-tight truncate">
+                <span className="sm:hidden">Unitglo Portal</span>
+                <span className="hidden sm:inline">Unitglo Tracking Portal</span>
               </h2>
             </div>
           </div>
 
-          {/* Right: Actions, Attendance Widget, Notifications */}
-          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          {/* Right: Actions, Attendance Widget, Notifications, Profile Chip */}
+          <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+            {/* Attendance Punch-in / Shift Widget */}
             <AttendanceWidget />
             
-            <div className="h-6 w-px bg-slate-200 hidden sm:block"></div>
+            <div className="h-5 w-px bg-slate-200 hidden sm:block"></div>
             
+            {/* Notification Bell */}
             <NotificationBell />
 
-            <div className="h-6 w-px bg-slate-200 hidden md:block"></div>
+            <div className="h-5 w-px bg-slate-200 hidden md:block"></div>
 
-            {/* Profile Avatar Pill */}
+            {/* Profile Avatar Pill (Desktop) */}
             <Link
               href="/dashboard/profile"
-              className="hidden md:flex items-center gap-2.5 py-1 px-3 rounded-full bg-slate-100/90 hover:bg-slate-200/90 border border-slate-200 transition-colors text-xs font-semibold text-slate-800 shadow-xs"
+              className="hidden md:flex items-center gap-2.5 py-1 px-3 rounded-full bg-slate-100/90 hover:bg-slate-200/90 border border-slate-200 transition-colors text-xs font-semibold text-slate-800 shadow-2xs"
             >
               {user.avatar_url ? (
                 <img
@@ -302,12 +418,12 @@ export default function DashboardClientShell({ children, user }: DashboardClient
                   className="w-6 h-6 rounded-full object-cover border border-sky-400/40 shrink-0"
                 />
               ) : (
-                <div className="w-6 h-6 rounded-full bg-sky-600 text-white flex items-center justify-center font-bold text-[10px] shadow-xs shrink-0">
+                <div className="w-6 h-6 rounded-full bg-sky-600 text-white flex items-center justify-center font-bold text-[10px] shadow-2xs shrink-0">
                   {user.name ? user.name.charAt(0).toUpperCase() : "U"}
                 </div>
               )}
               <div className="flex flex-col text-left leading-tight">
-                <span className="truncate max-w-[130px] font-bold text-slate-900">{user.name}</span>
+                <span className="truncate max-w-[120px] font-bold text-slate-900">{user.name}</span>
                 <span className="text-[9px] text-slate-500 font-semibold">{getRoleDisplayName(role)}</span>
               </div>
             </Link>
@@ -315,20 +431,20 @@ export default function DashboardClientShell({ children, user }: DashboardClient
         </header>
 
         {/* Main Content Area */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 animate-fade-in flex flex-col justify-between">
+        <main className="flex-1 overflow-y-auto p-3.5 sm:p-6 md:p-8 animate-fade-in flex flex-col justify-between">
           <div className="max-w-7xl mx-auto w-full">
             {children}
           </div>
 
           {/* Security & Copyright Footer */}
           <footer className="mt-12 pt-6 border-t border-slate-200/80 text-center sm:text-left flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500 max-w-7xl mx-auto w-full">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
               <span className="font-semibold text-slate-700">© 2026 Unitglo Solutions Pvt. Ltd.</span>
-              <span>•</span>
+              <span className="hidden sm:inline">•</span>
               <span>All rights reserved.</span>
             </div>
-            <div className="flex items-center gap-2 text-[11px] text-slate-400 bg-slate-100 px-3 py-1 rounded-full border border-slate-200">
-              <Shield className="h-3.5 w-3.5 text-emerald-600" />
+            <div className="flex items-center justify-center gap-2 text-[11px] text-slate-400 bg-slate-100 px-3 py-1 rounded-full border border-slate-200">
+              <Shield className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
               <span>256-Bit SSL Encrypted • Internal Enterprise Portal</span>
             </div>
           </footer>

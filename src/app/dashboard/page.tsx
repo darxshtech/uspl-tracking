@@ -3,6 +3,7 @@ import { authOptions } from "@/lib/auth";
 import pool from "@/lib/db";
 import CEOFilterDashboard from "@/components/CEOFilterDashboard";
 import EmployeePersonalProgress from "@/components/EmployeePersonalProgress";
+import RemindersWidget from "@/components/RemindersWidget";
 import { Briefcase, CheckCircle, Clock, ShieldAlert } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -151,6 +152,8 @@ export default async function DashboardPage() {
           <p className="text-xs text-emerald-600 font-semibold mt-1">Verified task pass rate</p>
         </div>
       </div>
+
+      <RemindersWidget role={role} currentUserId={userId} />
 
       {/* Conditional Dashboard Rendering */}
       {isExecutive ? (

@@ -347,14 +347,14 @@ export default function DailyMonthlyProgressSummary({ tasks: propTasks, onRefres
 
       {/* INTERACTIVE PROGRESS CHART (DAILY & MONTHLY) */}
       <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-5 space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
           <div className="flex items-center gap-2">
-            <BarChart3 className="h-4 w-4 text-indigo-600" />
+            <BarChart3 className="h-4 w-4 text-indigo-600 shrink-0" />
             <h3 className="font-bold text-slate-900 text-sm">
               {chartView === "daily" ? "Daily Velocity & Completion Chart (Last 7 Days)" : "Monthly Performance & Hours Trend (Last 4 Weeks)"}
             </h3>
           </div>
-          <div className="flex items-center gap-3 text-xs font-semibold text-slate-600">
+          <div className="flex flex-wrap items-center gap-3 text-xs font-semibold text-slate-600">
             <span className="flex items-center gap-1.5">
               <span className="w-3 h-3 rounded-xs bg-emerald-500 inline-block"></span> Completed Tasks
             </span>
@@ -368,7 +368,8 @@ export default function DailyMonthlyProgressSummary({ tasks: propTasks, onRefres
         </div>
 
         {/* Visual Bar Chart */}
-        <div className="grid grid-cols-4 sm:grid-cols-7 gap-3 pt-2">
+        <div className="overflow-x-auto w-full">
+          <div className="min-w-[480px] sm:min-w-0 grid grid-cols-7 gap-2.5 sm:gap-3 pt-2">
           {activeChartData.map((item, idx) => {
             const completedHeightPct = maxBarValue > 0 ? Math.min(100, Math.round((item.completed / maxBarValue) * 100)) : 0;
             const totalHeightPct = maxBarValue > 0 ? Math.min(100, Math.round((item.total / maxBarValue) * 100)) : 0;
@@ -408,6 +409,7 @@ export default function DailyMonthlyProgressSummary({ tasks: propTasks, onRefres
               </div>
             );
           })}
+          </div>
         </div>
       </div>
     </div>

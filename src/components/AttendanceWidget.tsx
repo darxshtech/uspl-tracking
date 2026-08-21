@@ -376,7 +376,7 @@ export default function AttendanceWidget() {
 
       {/* MANUAL CHECK IN DIALOG */}
       <Dialog open={checkInModalOpen} onOpenChange={setCheckInModalOpen}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="w-[92vw] sm:max-w-sm max-h-[90vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base font-bold text-slate-900">
               <LogIn className="h-5 w-5 text-emerald-600" />
@@ -436,7 +436,7 @@ export default function AttendanceWidget() {
 
       {/* MANUAL CHECK OUT DIALOG (+30 Min Buffer & Overnight Support) */}
       <Dialog open={checkOutModalOpen} onOpenChange={setCheckOutModalOpen}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="w-[92vw] sm:max-w-sm max-h-[90vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base font-bold text-slate-900">
               <LogOut className="h-5 w-5 text-slate-900" />

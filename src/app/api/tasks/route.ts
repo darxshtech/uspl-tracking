@@ -15,6 +15,7 @@ export async function GET() {
       SELECT t.*, 
         p.name as project_name, 
         p.created_by as project_created_by,
+        p.is_fast_track as project_is_fast_track,
         pu.name as project_creator_name,
         pu.role as project_creator_role,
         u1.name as assignee_name, 
@@ -499,6 +500,43 @@ export async function PATCH(req: Request) {
       );
 
       return NextResponse.json({ success: true, id, status: "Ready for Testing", task_links: linksCleaned });
+    }
+
+    // 5b. Action: Direct Submit (Fast-track to Ready for Demo)
+    if (action === "direct_submit") {
+      let finalLinksArray = task_links;
+      if (!finalLinksArray && task_link) finalLinksArray = [task_link];
+      if (!Array.isArray(finalLinksArray) || finalLinksArray.filter(l => l && l.trim()).length === 0) {
+        return NextResponse.json({ error: "At least one valid preview link is required." }, { status: 400 });
+      }
+
+      const linksCleaned = finalLinksArray.filter(l => l && l.trim());
+      const primaryLink = linksCleaned[0];
+      const linksJson = JSON.stringify(linksCleaned);
+
+      await pool.query(
+        `UPDATE tasks 
+         SET status = 'Ready for Demo', 
+             task_link = ?, 
+             task_links = ?, 
+             remarks = IFNULL(?, remarks),
+             progress_percentage = 100 
+         WHERE id = ?`,
+        [primaryLink, linksJson, remarks || null, id]
+      );
+
+      // Alert PMs/CEOs
+      await pool.query(
+        `INSERT INTO notifications (target_role, title, message, type) VALUES ('PM', ?, ?, 'success'), ('CEO', ?, ?, 'success')`,
+        [
+          `Direct Submit: ${currentTask.title || "Task"}`,
+          `${currentTask.assignee_name || "Developer"} fast-tracked "${currentTask.title}" directly to Demo.`,
+          `Direct Submit: ${currentTask.title || "Task"}`,
+          `${currentTask.assignee_name || "Developer"} fast-tracked "${currentTask.title}" directly to Demo.`
+        ]
+      );
+
+      return NextResponse.json({ success: true, id, status: "Ready for Demo", task_links: linksCleaned });
     }
 
     // 6. Standard Progress / Lifecycle Status Update

@@ -12,7 +12,11 @@ export async function GET() {
     const userId = (session.user as any).id;
     
     let query = `
-      SELECT p.*, u.name AS creator_name, u.role AS creator_role 
+      SELECT p.*, 
+        u.name AS creator_name, 
+        u.role AS creator_role,
+        (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) AS total_tasks,
+        (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status IN ('Completed', 'Tested (PASS)', 'Ready for Demo')) AS completed_tasks
       FROM projects p 
       LEFT JOIN users u ON p.created_by = u.id
     `;
@@ -79,7 +83,7 @@ export async function POST(req: Request) {
     const creatorRole = (session.user as any).role;
 
     const body = await req.json();
-    const { name, description, start_date, target_date, documentation_url, attachments, members } = body;
+    const { name, description, start_date, target_date, documentation_url, attachments, members, is_fast_track } = body;
 
     if (!name) return NextResponse.json({ error: "Project name is required" }, { status: 400 });
 
@@ -89,8 +93,8 @@ export async function POST(req: Request) {
       const attachmentsJson = attachments ? JSON.stringify(attachments) : JSON.stringify([]);
 
       const [result]: any = await connection.query(
-        `INSERT INTO projects (name, description, start_date, target_date, documentation_url, attachments, created_by) 
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO projects (name, description, start_date, target_date, documentation_url, attachments, created_by, is_fast_track) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           name,
           description || null,
@@ -99,6 +103,7 @@ export async function POST(req: Request) {
           documentation_url || null,
           attachmentsJson,
           creatorId,
+          is_fast_track ? 1 : 0
         ]
       );
 
@@ -126,13 +131,36 @@ export async function POST(req: Request) {
       }
 
       await connection.commit();
-      return NextResponse.json({ id: projectId, name, description, documentation_url, attachments, created_by: creatorId }, { status: 201 });
+      return NextResponse.json({ id: projectId, name, description, documentation_url, attachments, created_by: creatorId, is_fast_track: Boolean(is_fast_track) }, { status: 201 });
     } catch (err) {
       await connection.rollback().catch(() => {});
       throw err;
     } finally {
       connection.release();
     }
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
+export async function PATCH(req: Request) {
+  const session = await getServerSession(authOptions);
+  if (!session || !["Admin", "CEO", "PM"].includes((session.user as any).role)) {
+    return NextResponse.json({ error: "Unauthorized: PM or CEO role required" }, { status: 403 });
+  }
+
+  try {
+    const body = await req.json();
+    const { id, is_fast_track } = body;
+
+    if (!id) return NextResponse.json({ error: "Project ID is required" }, { status: 400 });
+
+    await pool.query(
+      "UPDATE projects SET is_fast_track = ? WHERE id = ?",
+      [is_fast_track ? 1 : 0, id]
+    );
+
+    return NextResponse.json({ success: true, id, is_fast_track: Boolean(is_fast_track) });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -146,7 +174,7 @@ export async function PUT(req: Request) {
 
   try {
     const body = await req.json();
-    const { id, name, description, start_date, target_date, documentation_url, attachments, members } = body;
+    const { id, name, description, start_date, target_date, documentation_url, attachments, members, is_fast_track } = body;
 
     if (!id || !name) return NextResponse.json({ error: "Project ID and name are required" }, { status: 400 });
 
@@ -157,7 +185,7 @@ export async function PUT(req: Request) {
 
       await connection.query(
         `UPDATE projects 
-         SET name = ?, description = ?, start_date = ?, target_date = ?, documentation_url = ?, attachments = ?
+         SET name = ?, description = ?, start_date = ?, target_date = ?, documentation_url = ?, attachments = ?, is_fast_track = IFNULL(?, is_fast_track)
          WHERE id = ?`,
         [
           name,
@@ -166,6 +194,7 @@ export async function PUT(req: Request) {
           target_date || null,
           documentation_url || null,
           attachmentsJson,
+          is_fast_track !== undefined ? (is_fast_track ? 1 : 0) : null,
           id,
         ]
       );

@@ -132,8 +132,21 @@ export async function POST(req: Request) {
     const end = new Date(endDateStr);
     let insertedCount = 0;
 
+    // Fetch scheduled holidays in this range
+    const [holidayRows]: any = await pool.query(
+      "SELECT DATE_FORMAT(date, '%Y-%m-%d') as hol_date FROM holidays WHERE date BETWEEN ? AND ?",
+      [startDateStr, endDateStr]
+    );
+    const holidayDates = new Set<string>(holidayRows.map((h: any) => h.hol_date));
+
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       const curDateStr = d.toISOString().split("T")[0];
+      const dayOfWeek = d.getUTCDay();
+
+      // If logging leave, skip Sunday weekly offs and company holidays so they aren't counted as paid leaves
+      if ((status === "Leave" || status === "Leave (Pending)" || status === "Half Day") && (dayOfWeek === 0 || holidayDates.has(curDateStr))) {
+        continue;
+      }
 
       await pool.query(
         `INSERT INTO attendance (user_id, date, status, login_time, logout_time, total_hours) 

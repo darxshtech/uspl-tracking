@@ -65,11 +65,12 @@ export function calculateHoursDifference(startTimeStr: string, endTimeStr: strin
     const endMin = timeStringToMinutes(endTimeStr);
 
     let diffMin = 0;
-    if (isOvernight || endMin < startMin) {
-      // Crossed midnight
+    if (isOvernight) {
+      // Crossed midnight explicitly
       diffMin = (24 * 60 - startMin) + endMin;
     } else {
-      diffMin = endMin - startMin;
+      // Same-day shift
+      diffMin = Math.max(0, endMin - startMin);
     }
 
     return Math.round((diffMin / 60) * 100) / 100;

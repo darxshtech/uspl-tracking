@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useRef, useEffect } from "react";
+import React, { createContext, useContext, useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { ChevronDown, Check } from "lucide-react";
 
@@ -34,29 +34,33 @@ export function Select({
   const isControlled = controlledOpen !== undefined;
   const open = isControlled ? controlledOpen : uncontrolledOpen;
 
-  const setOpen = (newOpen: boolean) => {
+  const setOpen = useCallback((newOpen: boolean) => {
     if (!isControlled) setUncontrolledOpen(newOpen);
     if (onOpenChange) onOpenChange(newOpen);
-  };
+  }, [isControlled, onOpenChange]);
 
-  const registerLabel = (val: string, label: React.ReactNode) => {
+  const registerLabel = useCallback((val: string, label: React.ReactNode) => {
     setLabels((prev) => {
+      // For primitive labels, equality check works perfectly.
+      // For complex React elements, to avoid infinite loops, we can also check if it exists or do a shallow compare, 
+      // but if we are replacing the label, it's safer to avoid triggering an update if the string representation is identical, 
+      // or simply avoid updating if it already exists and is non-null.
       if (prev[val] === label) return prev;
       return { ...prev, [val]: label };
     });
-  };
+  }, []);
+
+  const contextValue = useMemo(() => ({
+    value,
+    onValueChange: onValueChange || (() => {}),
+    open,
+    setOpen,
+    labels,
+    registerLabel,
+  }), [value, onValueChange, open, setOpen, labels, registerLabel]);
 
   return (
-    <SelectContext.Provider
-      value={{
-        value,
-        onValueChange: onValueChange || (() => {}),
-        open,
-        setOpen,
-        labels,
-        registerLabel,
-      }}
-    >
+    <SelectContext.Provider value={contextValue}>
       <div className="relative inline-block w-full">{children}</div>
     </SelectContext.Provider>
   );
@@ -166,9 +170,10 @@ export function SelectItem({
   const { value: selectedValue, onValueChange, setOpen, registerLabel } = context;
   const isSelected = selectedValue === value;
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     registerLabel(value, children);
-  }, [value, children, registerLabel]);
+  }, [value, registerLabel]);
 
   const handleSelect = (e: React.MouseEvent) => {
     e.stopPropagation();

@@ -101,6 +101,13 @@ export default function DailyTasksPage() {
   const [testingNotes, setTestingNotes] = useState<string>("");
   const [submittingTesting, setSubmittingTesting] = useState(false);
 
+  // Dedicated Direct Submit to Demo Modal state
+  const [directSubmitModalOpen, setDirectSubmitModalOpen] = useState(false);
+  const [selectedTaskForDirectSubmit, setSelectedTaskForDirectSubmit] = useState<any>(null);
+  const [directSubmitLinks, setDirectSubmitLinks] = useState<string[]>([""]);
+  const [directSubmitNotes, setDirectSubmitNotes] = useState<string>("");
+  const [submittingDirectSubmit, setSubmittingDirectSubmit] = useState(false);
+
   // Management Edit Task Modal State (CEO, PM, Admin)
   const [editTaskModalOpen, setEditTaskModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<any>(null);
@@ -473,6 +480,57 @@ export default function DailyTasksPage() {
     }
   };
 
+  // Open Dedicated Direct Submit to Demo Modal
+  const openDirectSubmitModal = (task: any) => {
+    setSelectedTaskForDirectSubmit(task);
+    const existingLinks = Array.isArray(task.task_links) && task.task_links.length > 0
+      ? task.task_links
+      : task.task_link ? [task.task_link] : [""];
+    setDirectSubmitLinks(existingLinks);
+    setDirectSubmitNotes("");
+    setDirectSubmitModalOpen(true);
+  };
+
+  const handleDirectSubmitForm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedTaskForDirectSubmit) return;
+
+    const validLinks = directSubmitLinks.filter((l) => l && l.trim());
+    if (validLinks.length === 0) {
+      showWarning("Link Required", "Please provide at least one valid preview/demo link.");
+      return;
+    }
+
+    setSubmittingDirectSubmit(true);
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: selectedTaskForDirectSubmit.id,
+          action: "direct_submit",
+          task_links: validLinks,
+          remarks: directSubmitNotes.trim() || undefined,
+        }),
+      });
+
+      if (res.ok) {
+        setDirectSubmitModalOpen(false);
+        setSelectedTaskForDirectSubmit(null);
+        fetchTasks();
+        showSuccess("Submitted for Demo", "Task fast-tracked and marked Ready for Demo! Management notified.");
+      } else {
+        const data = await res.json();
+        showError("Submission Failed", data.error || "Unknown error");
+      }
+    } catch (err) {
+      console.error(err);
+      showError("An error occurred while submitting task directly to demo.");
+    } finally {
+      setSubmittingDirectSubmit(false);
+    }
+  };
+
   const updateStatus = async (taskId: number, newStatus: string) => {
     try {
       const res = await fetch("/api/tasks", {
@@ -613,6 +671,16 @@ export default function DailyTasksPage() {
       return true;
     });
   }, [tasks, activeTab, filterProject, filterEmployee, filterDateMode, filterCustomDate, searchQuery, todayStr, tomorrowStr, currentUserId]);
+
+  const projectFastTrackMap = useMemo(() => {
+    const map: Record<number, boolean> = {};
+    if (Array.isArray(projects)) {
+      projects.forEach((p: any) => {
+        map[p.id] = Boolean(p.is_fast_track);
+      });
+    }
+    return map;
+  }, [projects]);
 
   const countToday = tasks.filter((t) => {
     const taskDate = t.target_date ? t.target_date.split("T")[0] : todayStr;
@@ -1020,11 +1088,11 @@ export default function DailyTasksPage() {
         </div>
       </div>
 
-      {/* Categorized Filter Tabs */}
-      <div className="flex flex-wrap gap-2 p-1.5 bg-slate-100/80 rounded-xl border border-slate-200">
+      {/* Categorized Filter Tabs (Horizontally Scrollable on Mobile) */}
+      <div className="flex items-center gap-2 p-1.5 bg-slate-100/80 rounded-xl border border-slate-200 overflow-x-auto w-full whitespace-nowrap">
         <button
           onClick={() => setActiveTab("today")}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
             activeTab === "today"
               ? "bg-white text-sky-900 shadow-xs border border-slate-200"
               : "text-slate-600 hover:text-slate-900"
@@ -1036,7 +1104,7 @@ export default function DailyTasksPage() {
 
         <button
           onClick={() => setActiveTab("tomorrow")}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
             activeTab === "tomorrow"
               ? "bg-white text-indigo-900 shadow-xs border border-slate-200"
               : "text-slate-600 hover:text-slate-900"
@@ -1048,7 +1116,7 @@ export default function DailyTasksPage() {
 
         <button
           onClick={() => setActiveTab("assigned_pm")}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
             activeTab === "assigned_pm"
               ? "bg-white text-emerald-900 shadow-xs border border-slate-200"
               : "text-slate-600 hover:text-slate-900"
@@ -1060,7 +1128,7 @@ export default function DailyTasksPage() {
 
         <button
           onClick={() => setActiveTab("assigned_ceo")}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
             activeTab === "assigned_ceo"
               ? "bg-white text-purple-900 shadow-xs border border-slate-200"
               : "text-slate-600 hover:text-slate-900"
@@ -1072,7 +1140,7 @@ export default function DailyTasksPage() {
 
         <button
           onClick={() => setActiveTab("from_tester")}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
             activeTab === "from_tester"
               ? "bg-white text-red-900 shadow-xs border border-slate-200"
               : "text-slate-600 hover:text-slate-900"
@@ -1084,7 +1152,7 @@ export default function DailyTasksPage() {
 
         <button
           onClick={() => setActiveTab("self_created")}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
             activeTab === "self_created"
               ? "bg-white text-slate-900 shadow-xs border border-slate-200"
               : "text-slate-600 hover:text-slate-900"
@@ -1096,7 +1164,7 @@ export default function DailyTasksPage() {
 
         <button
           onClick={() => setActiveTab("all")}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
             activeTab === "all"
               ? "bg-white text-slate-900 shadow-xs border border-slate-200"
               : "text-slate-600 hover:text-slate-900"
@@ -1323,6 +1391,96 @@ export default function DailyTasksPage() {
               className="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-2.5 shadow-md"
             >
               {submittingTesting ? "Handing Off to QA..." : "Submit to QA Testing Queue"}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* FAST-TRACK DIRECT SUBMIT TO DEMO MODAL */}
+      <Dialog open={directSubmitModalOpen} onOpenChange={setDirectSubmitModalOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg font-bold text-slate-900">
+              <Rocket className="h-5 w-5 text-indigo-600" />
+              Fast-Track Direct Submit to Demo
+            </DialogTitle>
+          </DialogHeader>
+
+          <form onSubmit={handleDirectSubmitForm} className="space-y-4 pt-2">
+            <div className="rounded-xl bg-indigo-50/80 p-3 text-xs text-indigo-950 font-medium border border-indigo-200 space-y-1">
+              <div>Task: <span className="font-bold text-slate-900">{selectedTaskForDirectSubmit?.title}</span></div>
+              <div className="text-slate-600">Project: {selectedTaskForDirectSubmit?.project_name || "N/A"}</div>
+              <div className="text-indigo-700 font-semibold pt-1">
+                🚀 This task will be flagged as <strong>Ready for Demo</strong> directly for PM and CEO review.
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                  <LinkIcon className="h-4 w-4 text-indigo-600" />
+                  Demo / Deliverable Links * (Live / Figma / PR)
+                </Label>
+                <button
+                  type="button"
+                  onClick={() => setDirectSubmitLinks(prev => [...prev, ""])}
+                  className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add Another Link
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                {directSubmitLinks.map((link, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <Input
+                      value={link}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setDirectSubmitLinks(prev => {
+                          const next = [...prev];
+                          next[idx] = val;
+                          return next;
+                        });
+                      }}
+                      placeholder={idx === 0 ? "https://demo.unitglo.com or https://..." : "Additional link"}
+                      className="bg-white text-xs"
+                      required={idx === 0}
+                    />
+                    {directSubmitLinks.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => setDirectSubmitLinks(prev => prev.filter((_, i) => i !== idx))}
+                        className="text-red-500 hover:text-red-700 p-1.5 cursor-pointer"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="directNotes" className="font-semibold text-slate-700 text-xs">
+                Demo Instructions / Notes (Optional)
+              </Label>
+              <Input
+                id="directNotes"
+                value={directSubmitNotes}
+                onChange={(e) => setDirectSubmitNotes(e.target.value)}
+                placeholder="e.g. Ready for client showcase, test login credentials provided"
+                className="text-xs"
+              />
+            </div>
+
+            <Button
+              type="submit"
+              disabled={submittingDirectSubmit}
+              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 shadow-md flex items-center justify-center gap-2"
+            >
+              <Rocket className="h-4 w-4" />
+              {submittingDirectSubmit ? "Submitting to Demo..." : "Confirm & Submit for Demo"}
             </Button>
           </form>
         </DialogContent>
@@ -1566,6 +1724,7 @@ export default function DailyTasksPage() {
                 const taskLinksList: string[] = Array.isArray(task.task_links) && task.task_links.length > 0
                   ? task.task_links
                   : task.task_link ? [task.task_link] : [];
+                const isFastTrack = Boolean(task.project_is_fast_track || projectFastTrackMap[task.project_id]);
 
                 return (
                   <TableRow key={task.id} className="hover:bg-slate-50/80 transition-colors">
@@ -1828,15 +1987,29 @@ export default function DailyTasksPage() {
                         </Button>
                       )}
 
-                      {/* Dedicated SEND TO TESTING Button */}
-                      {(task.status === "In Progress" || task.status === "Changes Required" || task.status === "Completed") && (
-                        <Button
-                          size="sm"
-                          onClick={() => openSendToTestingModal(task)}
-                          className="bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs gap-1.5 shadow-xs w-full justify-center"
-                        >
-                          <Send className="h-3.5 w-3.5" /> Send to Testing
-                        </Button>
+                      {/* Project-dependent action button: Send for Demo (Fastest Dev) vs Send to Testing (Standard QA) */}
+                      {isFastTrack ? (
+                        /* FASTEST DEVELOPMENT: Show Send for Demo instead of Send to Testing */
+                        (task.status === "In Progress" || task.status === "Changes Required" || task.status === "Completed" || task.status === "Planning") && (
+                          <Button
+                            size="sm"
+                            onClick={() => openDirectSubmitModal(task)}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs gap-1.5 shadow-xs w-full justify-center"
+                          >
+                            <Rocket className="h-3.5 w-3.5 text-indigo-200" /> Send for Demo
+                          </Button>
+                        )
+                      ) : (
+                        /* STANDARD QA: Show Send to Testing */
+                        (task.status === "In Progress" || task.status === "Changes Required" || task.status === "Completed") && (
+                          <Button
+                            size="sm"
+                            onClick={() => openSendToTestingModal(task)}
+                            className="bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs gap-1.5 shadow-xs w-full justify-center"
+                          >
+                            <Send className="h-3.5 w-3.5" /> Send to Testing
+                          </Button>
+                        )
                       )}
 
                       {/* Tested (PASS) -> Ready for Demo */}

@@ -21,7 +21,7 @@ import {
   Coffee, 
   Users 
 } from "lucide-react";
-import { formatHoursAndMinutes } from "@/lib/timeUtils";
+import { formatHoursAndMinutes, calculateHoursDifference, getCurrentISTTime12 } from "@/lib/timeUtils";
 
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
@@ -353,20 +353,22 @@ export default function AttendanceCalendarView({
 
       {/* Calendar Grid (Monday to Sunday) */}
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-        {/* Days Header */}
-        <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50 text-center text-xs font-bold text-slate-700">
-          {WEEKDAYS.map((day, idx) => (
-            <div
-              key={day}
-              className={`py-3 ${idx === 6 ? "text-purple-700 bg-purple-50/50" : ""}`}
-            >
-              {day}
+        <div className="overflow-x-auto w-full">
+          <div className="min-w-[640px] md:min-w-0">
+            {/* Days Header */}
+            <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50 text-center text-xs font-bold text-slate-700">
+              {WEEKDAYS.map((day, idx) => (
+                <div
+                  key={day}
+                  className={`py-3 ${idx === 6 ? "text-purple-700 bg-purple-50/50" : ""}`}
+                >
+                  {day}
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
 
-        {/* Days Grid Cells */}
-        <div className="grid grid-cols-7 auto-rows-fr divide-x divide-y divide-slate-100">
+            {/* Days Grid Cells */}
+            <div className="grid grid-cols-7 auto-rows-fr divide-x divide-y divide-slate-100">
           {calendarCells.map((cell, idx) => {
             if (!cell.isCurrentMonth) {
               return (
@@ -424,16 +426,22 @@ export default function AttendanceCalendarView({
                         <div
                           key={rec.id}
                           className={`p-1.5 rounded-lg text-[10px] border shadow-xs leading-tight ${
-                            rec.status === "Present"
+                            rec.status?.includes("Present")
                               ? "bg-emerald-50 border-emerald-200 text-emerald-900"
                               : rec.status === "Half Day"
                               ? "bg-amber-50 border-amber-200 text-amber-900"
+                              : rec.status === "Absent"
+                              ? "bg-red-50 border-red-200 text-red-900"
                               : "bg-sky-50 border-sky-200 text-sky-900"
                           }`}
                         >
                           <div className="font-bold flex items-center justify-between">
                             <span className="truncate">{rec.employee_name || "Shift"}</span>
-                            <span>{formatHoursAndMinutes(rec.total_hours)}</span>
+                            <span className="shrink-0 font-semibold">
+                              {rec.login_time && !rec.logout_time
+                                ? `${formatHoursAndMinutes(calculateHoursDifference(rec.login_time, getCurrentISTTime12()))} ⏱️`
+                                : formatHoursAndMinutes(rec.total_hours)}
+                            </span>
                           </div>
                           <div className="text-[9px] font-mono text-slate-500 mt-0.5 truncate">
                             {rec.login_time || "--"} &rarr; {rec.logout_time || "--"}
@@ -455,6 +463,8 @@ export default function AttendanceCalendarView({
               </div>
             );
           })}
+            </div>
+          </div>
         </div>
       </div>
     </div>

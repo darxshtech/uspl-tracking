@@ -24,7 +24,8 @@ import {
   Plus, 
   UserCheck, 
   Edit3,
-  AlertTriangle
+  AlertTriangle,
+  Rocket
 } from "lucide-react";
 
 export default function ProjectsPage() {
@@ -51,6 +52,7 @@ export default function ProjectsPage() {
   const [attachments, setAttachments] = useState<any[]>([]);
   const [selectedMembers, setSelectedMembers] = useState<number[]>([]);
   const [primaryDeveloperId, setPrimaryDeveloperId] = useState("");
+  const [isFastTrack, setIsFastTrack] = useState(false);
 
   // Edit Modal State
   const [editOpen, setEditOpen] = useState(false);
@@ -61,6 +63,7 @@ export default function ProjectsPage() {
   const [editDocUrl, setEditDocUrl] = useState("");
   const [editAttachments, setEditAttachments] = useState<any[]>([]);
   const [editMembers, setEditMembers] = useState<number[]>([]);
+  const [editIsFastTrack, setEditIsFastTrack] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -163,6 +166,26 @@ export default function ProjectsPage() {
     }
   };
 
+  const handleToggleFastTrack = async (projectId: number, currentVal: boolean) => {
+    try {
+      const nextVal = !currentVal;
+      const res = await fetch("/api/projects", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: projectId, is_fast_track: nextVal }),
+      });
+      if (res.ok) {
+        showToast(nextVal ? "🚀 Fastest Development ON (Tasks show Fast-Track Demo)" : "Standard QA Mode (Tasks show Send to Testing)");
+        fetchProjects();
+      } else {
+        showError("Failed to update Fastest Development mode");
+      }
+    } catch (err) {
+      console.error(err);
+      showError("Error updating Fastest Development mode");
+    }
+  };
+
   const handleCreateProject = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
@@ -178,6 +201,7 @@ export default function ProjectsPage() {
           attachments,
           members: selectedMembers,
           primary_developer_id: primaryDeveloperId ? parseInt(primaryDeveloperId) : null,
+          is_fast_track: isFastTrack,
         }),
       });
 
@@ -191,6 +215,7 @@ export default function ProjectsPage() {
         setAttachments([]);
         setSelectedMembers([]);
         setPrimaryDeveloperId("");
+        setIsFastTrack(false);
         showToast("Project created successfully!");
       } else {
         const data = await res.json();
@@ -213,6 +238,7 @@ export default function ProjectsPage() {
     setEditAttachments(Array.isArray(proj.attachments) ? proj.attachments : []);
     const memberIds = (proj.members || []).map((m: any) => m.id);
     setEditMembers(memberIds);
+    setEditIsFastTrack(Boolean(proj.is_fast_track));
     setEditOpen(true);
   };
 
@@ -233,6 +259,7 @@ export default function ProjectsPage() {
           documentation_url: editDocUrl || null,
           attachments: editAttachments,
           members: editMembers,
+          is_fast_track: editIsFastTrack,
         }),
       });
 
@@ -417,6 +444,25 @@ export default function ProjectsPage() {
                   </div>
                 </div>
 
+                {/* Fastest Development Mode Toggle */}
+                <div className="flex items-center justify-between p-3 rounded-xl bg-indigo-50/70 border border-indigo-200">
+                  <div className="space-y-0.5 pr-2">
+                    <Label className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+                      <Rocket className="h-4 w-4 text-indigo-600" />
+                      Fastest Development Mode (Direct Demo)
+                    </Label>
+                    <p className="text-[11px] text-indigo-700 leading-snug">
+                      When enabled, developers working on this project will see <strong>🚀 Fast-Track to Demo</strong> instead of <strong>Send to Testing</strong>.
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={isFastTrack}
+                    onChange={(e) => setIsFastTrack(e.target.checked)}
+                    className="h-5 w-5 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0"
+                  />
+                </div>
+
                 {/* Attachment list preview */}
                 {attachments.length > 0 && (
                   <div className="space-y-1.5 pt-1">
@@ -454,64 +500,78 @@ export default function ProjectsPage() {
 
       {/* EDIT PROJECT MODAL */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-xl font-bold text-slate-900 flex items-center gap-2">
               <Edit3 className="h-5 w-5 text-sky-500" /> Edit Project Initiative
             </DialogTitle>
           </DialogHeader>
 
-          <form onSubmit={handleUpdateProject} className="space-y-4 pt-3">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="editName" className="font-semibold text-slate-700">Project Name *</Label>
-                <Input
-                  id="editName"
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  required
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="editTargetDate" className="font-semibold text-slate-700">Target Delivery Date</Label>
-                <Input
-                  id="editTargetDate"
-                  type="date"
-                  value={editTargetDate}
-                  onChange={(e) => setEditTargetDate(e.target.value)}
-                />
-              </div>
+          <form onSubmit={handleUpdateProject} className="space-y-4 pt-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="editName" className="font-semibold text-slate-700">Project Name *</Label>
+              <Input
+                id="editName"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                required
+              />
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="editDocUrl" className="font-semibold text-slate-700 flex items-center gap-1">
-                <FileText className="h-4 w-4 text-sky-500" /> Documentation Link
-              </Label>
+              <Label htmlFor="editDesc" className="font-semibold text-slate-700">Description & Goals</Label>
+              <textarea
+                id="editDesc"
+                rows={3}
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="editTargetDate" className="font-semibold text-slate-700">Target Completion Date</Label>
+              <Input
+                id="editTargetDate"
+                type="date"
+                value={editTargetDate}
+                onChange={(e) => setEditTargetDate(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="editDocUrl" className="font-semibold text-slate-700">Documentation / PR Link</Label>
               <Input
                 id="editDocUrl"
                 type="url"
                 value={editDocUrl}
                 onChange={(e) => setEditDocUrl(e.target.value)}
-                placeholder="https://docs.google.com/... or Notion URL"
               />
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="editDescription" className="font-semibold text-slate-700">Project Description & Scope</Label>
-              <textarea
-                id="editDescription"
-                rows={3}
-                value={editDescription}
-                onChange={(e) => setEditDescription(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+            {/* Fastest Development Mode Toggle in Edit */}
+            <div className="flex items-center justify-between p-3 rounded-xl bg-indigo-50/70 border border-indigo-200">
+              <div className="space-y-0.5 pr-2">
+                <Label className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+                  <Rocket className="h-4 w-4 text-indigo-600" />
+                  Fastest Development Mode (Direct Demo)
+                </Label>
+                <p className="text-[11px] text-indigo-700 leading-snug">
+                  When enabled, developers working on this project see <strong>🚀 Fast-Track to Demo</strong> instead of <strong>Send to Testing</strong>.
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                checked={editIsFastTrack}
+                onChange={(e) => setEditIsFastTrack(e.target.checked)}
+                className="h-5 w-5 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0"
               />
             </div>
 
-            {/* Team Members Selection (All roles) */}
+            {/* Multi-member Selection */}
             <div className="space-y-2">
               <Label className="font-semibold text-slate-700 flex items-center gap-1.5">
-                <Users className="h-4 w-4 text-sky-500" /> Assigned Team Members (CEO, PM, Dev, Tester)
+                <Users className="h-4 w-4 text-sky-500" /> Assigned Team Members
               </Label>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-36 overflow-y-auto p-2 border border-slate-200 rounded-xl bg-slate-50">
                 {employees.map((emp) => {
@@ -589,7 +649,10 @@ export default function ProjectsPage() {
         <Table>
           <TableHeader className="bg-slate-50">
             <TableRow>
+              <TableHead className="w-16 text-center font-bold">Sr. No.</TableHead>
               <TableHead className="font-bold">Project Name</TableHead>
+              <TableHead className="font-bold">Dev Mode</TableHead>
+              <TableHead className="font-bold">Tasks & Progress</TableHead>
               <TableHead className="font-bold">Assigned Team</TableHead>
               <TableHead className="font-bold">Target Date</TableHead>
               <TableHead className="font-bold">Documentation & Files</TableHead>
@@ -598,12 +661,22 @@ export default function ProjectsPage() {
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={canManageProject ? 5 : 4} className="text-center py-8">Loading projects...</TableCell></TableRow>
+              <TableRow><TableCell colSpan={canManageProject ? 8 : 7} className="text-center py-8">Loading projects...</TableCell></TableRow>
             ) : projects.length === 0 ? (
-              <TableRow><TableCell colSpan={canManageProject ? 5 : 4} className="text-center text-slate-500 py-10">No projects created yet. Click "Create New Project" to begin.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={canManageProject ? 8 : 7} className="text-center text-slate-500 py-10">No projects created yet. Click "Create New Project" to begin.</TableCell></TableRow>
             ) : (
-              projects.map((proj) => (
+              projects.map((proj, idx) => {
+                const totalTasks = proj.total_tasks || 0;
+                const completedTasks = proj.completed_tasks || 0;
+                const taskPct = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+                const isFast = Boolean(proj.is_fast_track);
+
+                return (
                 <TableRow key={proj.id} className="hover:bg-slate-50/80 transition-colors">
+                  <TableCell className="text-center font-mono font-bold text-slate-500 text-xs">
+                    #{idx + 1}
+                  </TableCell>
+
                   <TableCell>
                     <div className="font-bold text-slate-900">{proj.name}</div>
                     {proj.description && (
@@ -612,6 +685,53 @@ export default function ProjectsPage() {
                     <div className="text-[11px] text-sky-700 font-semibold mt-1 flex items-center gap-1">
                       <UserCheck className="h-3 w-3 text-sky-500" />
                       <span>Assigned By: <strong>{proj.creator_name || "Management"} ({proj.creator_role || "PM"})</strong></span>
+                    </div>
+                  </TableCell>
+
+                  {/* FASTEST DEV MODE TOGGLE SWITCH */}
+                  <TableCell>
+                    <div className="flex items-center gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => canManageProject && handleToggleFastTrack(proj.id, isFast)}
+                        disabled={!canManageProject}
+                        aria-label="Toggle Fastest Development Mode"
+                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                          isFast ? "bg-indigo-600" : "bg-slate-300"
+                        } ${!canManageProject ? "opacity-60 cursor-not-allowed" : ""}`}
+                        title={canManageProject ? (isFast ? "Fastest Dev is ON: Tasks show 'Send for Demo'. Click to turn OFF." : "Standard QA is ON: Tasks show 'Send to Testing'. Click to turn ON Fastest Dev.") : undefined}
+                      >
+                        <span
+                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                            isFast ? "translate-x-5" : "translate-x-0"
+                          }`}
+                        />
+                      </button>
+                      <div className="flex flex-col">
+                        <span className={`text-[11px] font-bold ${isFast ? "text-indigo-700" : "text-slate-600"}`}>
+                          {isFast ? "⚡ Fastest Dev" : "Standard QA"}
+                        </span>
+                        <span className={`text-[9px] font-semibold ${isFast ? "text-indigo-500" : "text-slate-400"}`}>
+                          {isFast ? "Send for Demo" : "Send to Test"}
+                        </span>
+                      </div>
+                    </div>
+                  </TableCell>
+
+                  <TableCell>
+                    <div className="space-y-1 min-w-[130px]">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold text-slate-700">{completedTasks}/{totalTasks} Tasks</span>
+                        <span className="text-[10px] font-bold text-sky-600">{taskPct}%</span>
+                      </div>
+                      <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden border border-slate-200">
+                        <div
+                          className={`h-full transition-all duration-300 ${
+                            taskPct === 100 ? "bg-emerald-500" : taskPct > 0 ? "bg-sky-500" : "bg-slate-200"
+                          }`}
+                          style={{ width: `${taskPct}%` }}
+                        />
+                      </div>
                     </div>
                   </TableCell>
 
@@ -630,7 +750,13 @@ export default function ProjectsPage() {
                   </TableCell>
 
                   <TableCell className="text-xs text-slate-700 font-medium">
-                    {proj.target_date ? new Date(proj.target_date).toLocaleDateString() : "--"}
+                    {proj.target_date ? (
+                      <div className="flex items-center gap-1">
+                        <span>{new Date(proj.target_date).toLocaleDateString()}</span>
+                      </div>
+                    ) : (
+                      <span className="text-slate-400">--</span>
+                    )}
                   </TableCell>
 
                   <TableCell>
@@ -697,7 +823,8 @@ export default function ProjectsPage() {
                     </TableCell>
                   )}
                 </TableRow>
-              ))
+                );
+              })
             )}
           </TableBody>
         </Table>
