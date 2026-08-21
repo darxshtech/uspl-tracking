@@ -126,7 +126,7 @@ export default function DashboardClientShell({ children, user }: DashboardClient
     { name: "Shift Warnings", href: "/dashboard/warnings", icon: AlertTriangle, roles: ["Admin", "CEO", "PM"] },
     { name: "Profile & Tenure", href: "/dashboard/profile", icon: Users, roles: ["Admin", "CEO", "PM", "Developer", "Tester"] },
     { name: "Credentials", href: "/dashboard/credentials", icon: KeyRound, roles: ["Admin", "CEO", "PM", "Developer", "Tester"] },
-    { name: "Company Policies", href: "/dashboard/policies", icon: BookOpen, roles: ["Admin", "CEO", "PM", "Developer", "Tester"] },
+    { name: "Company Policies", href: "/dashboard/policies", icon: BookOpen, roles: ["Admin", "CEO", "PM"] },
   ];
 
   const visibleNavItems = navItems.filter((item) => item.roles.includes(role));

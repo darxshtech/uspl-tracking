@@ -27,9 +27,20 @@ import {
 } from "lucide-react";
 
 export default function CompanyPoliciesPage() {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const role = (session?.user as any)?.role || "Developer";
   const canManagePolicies = ["Admin", "CEO", "PM"].includes(role);
+
+  // Block access for non-authorized roles
+  if (status !== "loading" && !canManagePolicies) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center gap-3">
+        <ShieldCheck className="h-12 w-12 text-red-400" />
+        <h2 className="text-xl font-bold text-slate-800">Access Denied</h2>
+        <p className="text-sm text-slate-500">Company Policies are only accessible to PM, CEO, and Admin roles.</p>
+      </div>
+    );
+  }
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
