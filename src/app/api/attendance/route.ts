@@ -11,27 +11,43 @@ export async function GET(req: Request) {
   try {
     const role = (session.user as any).role;
     const userId = (session.user as any).id;
+    const todayIST = getCurrentISTDate();
 
+    // 1. Fetch historical and today's attendance records (date <= todayIST)
     let query = `
       SELECT a.*, u.name as employee_name, u.role as employee_role, u.email as employee_email 
       FROM attendance a 
       JOIN users u ON a.user_id = u.id
-      WHERE u.role != 'CEO'
+      WHERE u.role != 'CEO' AND a.date <= ?
     `;
-    let params: any[] = [];
+    let params: any[] = [todayIST];
 
     if (role === "Developer" || role === "Tester") {
       query += " AND a.user_id = ?";
-      params = [userId];
+      params.push(userId);
     }
 
     query += " ORDER BY a.date DESC, a.id DESC LIMIT 60";
 
     const [rows] = await pool.query(query, params);
 
+    // 2. Fetch upcoming pending leave applications for this user (date > todayIST)
+    let pendingLeaves: any[] = [];
+    if (role === "Developer" || role === "Tester" || role === "PM") {
+      const [pendingRows]: any = await pool.query(
+        `SELECT id, date, status, notes, created_at 
+         FROM attendance 
+         WHERE user_id = ? AND date > ? AND status = 'Leave (Pending)'
+         ORDER BY date ASC`,
+        [userId, todayIST]
+      );
+      pendingLeaves = pendingRows;
+    }
+
     return NextResponse.json({
       attendance: rows,
-      currentDate: getCurrentISTDate(),
+      pendingLeaves,
+      currentDate: todayIST,
       currentTime: getCurrentISTTime12(),
     });
   } catch (error: any) {

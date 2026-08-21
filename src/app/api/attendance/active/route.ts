@@ -35,7 +35,9 @@ export async function GET() {
 
     // Fetch previous completed shift to check if yesterday was Half Day
     const [prevRows]: any = await pool.query(
-      "SELECT * FROM attendance WHERE user_id = ? AND date < ? AND logout_time IS NOT NULL ORDER BY date DESC, id DESC LIMIT 1",
+      `SELECT * FROM attendance 
+       WHERE user_id = ? AND date < ? AND login_time IS NOT NULL AND logout_time IS NOT NULL 
+       ORDER BY date DESC, id DESC LIMIT 1`,
       [userId, todayIST]
     );
 
@@ -53,9 +55,14 @@ export async function GET() {
       }
     }
 
-    // 1. First check if there is an unclosed active shift (even if started on a previous day/yesterday)
+    // 1. Check if there is an unclosed active shift with a valid check-in (login_time IS NOT NULL, not leave/holiday)
     const [openRows]: any = await pool.query(
-      "SELECT * FROM attendance WHERE user_id = ? AND logout_time IS NULL ORDER BY date DESC, id DESC LIMIT 1",
+      `SELECT * FROM attendance 
+       WHERE user_id = ? 
+         AND login_time IS NOT NULL 
+         AND logout_time IS NULL 
+         AND (status IS NULL OR (status NOT LIKE '%Leave%' AND status != 'Holiday'))
+       ORDER BY date DESC, id DESC LIMIT 1`,
       [userId]
     );
 
@@ -76,9 +83,11 @@ export async function GET() {
       });
     }
 
-    // 2. If no open shift, fetch today's closed record (if already completed today)
+    // 2. If no open shift, fetch today's record (if already completed or marked today)
     const [todayRows]: any = await pool.query(
-      "SELECT * FROM attendance WHERE user_id = ? AND date = ? ORDER BY id DESC LIMIT 1",
+      `SELECT * FROM attendance 
+       WHERE user_id = ? AND date = ? 
+       ORDER BY (CASE WHEN login_time IS NOT NULL THEN 1 ELSE 2 END), id DESC LIMIT 1`,
       [userId, todayIST]
     );
 
@@ -126,7 +135,12 @@ export async function POST(req: Request) {
     if (action === "check-in") {
       // 2. Check if user already has an active open shift that wasn't closed
       const [openRows]: any = await pool.query(
-        "SELECT * FROM attendance WHERE user_id = ? AND logout_time IS NULL ORDER BY date DESC LIMIT 1",
+        `SELECT * FROM attendance 
+         WHERE user_id = ? 
+           AND login_time IS NOT NULL 
+           AND logout_time IS NULL 
+           AND (status IS NULL OR (status NOT LIKE '%Leave%' AND status != 'Holiday'))
+         ORDER BY date DESC LIMIT 1`,
         [userId]
       );
 
@@ -149,7 +163,12 @@ export async function POST(req: Request) {
 
       // Check if previous shift was a Half Day to dispatch alert notification
       const [prevRows]: any = await pool.query(
-        "SELECT * FROM attendance WHERE user_id = ? AND date < ? AND logout_time IS NOT NULL ORDER BY date DESC, id DESC LIMIT 1",
+        `SELECT * FROM attendance 
+         WHERE user_id = ? 
+           AND date < ? 
+           AND login_time IS NOT NULL 
+           AND logout_time IS NOT NULL 
+         ORDER BY date DESC, id DESC LIMIT 1`,
         [userId, todayIST]
       );
 
@@ -197,18 +216,25 @@ export async function POST(req: Request) {
 
     // CHECK-OUT ACTION
     if (action === "check-out") {
-      // Find the open active shift
+      // Find the open active shift with actual login_time
       const [openRows]: any = await pool.query(
-        "SELECT * FROM attendance WHERE user_id = ? AND logout_time IS NULL ORDER BY date DESC, id DESC LIMIT 1",
+        `SELECT * FROM attendance 
+         WHERE user_id = ? 
+           AND login_time IS NOT NULL 
+           AND logout_time IS NULL 
+           AND (status IS NULL OR (status NOT LIKE '%Leave%' AND status != 'Holiday'))
+         ORDER BY date DESC, id DESC LIMIT 1`,
         [userId]
       );
 
       let activeShift = openRows[0];
 
-      // Fallback: If no open record found, check today's record
+      // Fallback: If no open record found, check today's record with non-null login_time
       if (!activeShift) {
         const [todayRows]: any = await pool.query(
-          "SELECT * FROM attendance WHERE user_id = ? AND date = ? ORDER BY id DESC LIMIT 1",
+          `SELECT * FROM attendance 
+           WHERE user_id = ? AND date = ? AND login_time IS NOT NULL 
+           ORDER BY id DESC LIMIT 1`,
           [userId, todayIST]
         );
         activeShift = todayRows[0];

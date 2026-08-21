@@ -43,6 +43,7 @@ export default function AttendancePage() {
   const [mounted, setMounted] = useState(false);
   const [viewMode, setViewMode] = useState<"table" | "calendar">("table");
   const [attendance, setAttendance] = useState<any[]>([]);
+  const [pendingLeaves, setPendingLeaves] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentISTTime, setCurrentISTTime] = useState("");
@@ -81,6 +82,7 @@ export default function AttendancePage() {
       const data = await res.json();
       if (data.attendance) {
         setAttendance(data.attendance);
+        setPendingLeaves(data.pendingLeaves || []);
         setCurrentISTTime(data.currentTime || "");
         setCurrentISTDate(data.currentDate || "");
       }
@@ -319,6 +321,31 @@ export default function AttendancePage() {
 
           {/* Attendance History Table */}
           <div className="space-y-3">
+            {/* Upcoming Pending Leave Requests Notice */}
+            {pendingLeaves && pendingLeaves.length > 0 && (
+              <div className="p-4 rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-50/90 to-purple-50/50 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-indigo-600 text-white rounded-xl shadow-2xs shrink-0">
+                    <Palmtree className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-black text-indigo-950 flex items-center gap-2">
+                      <span>Pending Leave Application ({pendingLeaves.length} day{pendingLeaves.length > 1 ? "s" : ""})</span>
+                      <Badge className="bg-indigo-600 text-white text-[10px] font-bold px-2 py-0.2">Awaiting PM Approval</Badge>
+                    </div>
+                    <p className="text-[11px] text-indigo-800/90 mt-0.5 font-medium">
+                      Applied for: <strong>{new Date(pendingLeaves[0].date).toLocaleDateString()}</strong>
+                      {pendingLeaves.length > 1 && <> to <strong>{new Date(pendingLeaves[pendingLeaves.length - 1].date).toLocaleDateString()}</strong></>}
+                      {pendingLeaves[0].notes ? ` — "${pendingLeaves[0].notes.replace(/^PENDING_LEAVE:\s*/, '')}"` : ''}
+                    </p>
+                  </div>
+                </div>
+                <div className="text-[11px] font-bold text-indigo-600 bg-white/80 px-3 py-1.5 rounded-xl border border-indigo-200/80 shadow-2xs shrink-0">
+                  📅 Future Date Status
+                </div>
+              </div>
+            )}
+
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-bold text-slate-900">Recent Attendance Records</h3>
               <span className="text-xs text-slate-500 font-medium">12-Hour IST Timing Format</span>
