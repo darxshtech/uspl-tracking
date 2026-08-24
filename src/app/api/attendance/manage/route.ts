@@ -17,7 +17,10 @@ export async function GET(req: Request) {
     const month = searchParams.get("month"); // '01' to '12'
     const year = searchParams.get("year") || new Date().getFullYear().toString();
 
-    // Auto-mark missing check-ins as Absent for working days
+    // Auto-mark missing check-ins as Absent for working days since system start (17 Aug 2026)
+    const SYSTEM_START_DATE = "2026-08-17";
+    await pool.query("DELETE FROM attendance WHERE date < ?", [SYSTEM_START_DATE]);
+
     const todayIST = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Kolkata' });
     const [employees]: any = await pool.query("SELECT id FROM users WHERE role != 'CEO' AND is_active = 1");
     if (employees && employees.length > 0) {
@@ -30,6 +33,7 @@ export async function GET(req: Request) {
       const cur = new Date(todayIST + "T00:00:00Z");
       for (let i = 0; i < 30; i++) {
         const dStr = cur.toISOString().split("T")[0];
+        if (dStr < SYSTEM_START_DATE) break; // Stop at system start date 2026-08-17
         const [y, m, d] = dStr.split("-");
         const dt = new Date(Date.UTC(parseInt(y), parseInt(m) - 1, parseInt(d)));
         if (dt.getUTCDay() !== 0 && !holidayDates.has(dStr)) dates.push(dStr);
@@ -54,9 +58,9 @@ export async function GET(req: Request) {
       SELECT a.*, u.name as employee_name, u.email as employee_email, u.role as employee_role
       FROM attendance a
       JOIN users u ON a.user_id = u.id
-      WHERE u.role != 'CEO'
+      WHERE u.role != 'CEO' AND a.date >= ?
     `;
-    let params: any[] = [];
+    let params: any[] = [SYSTEM_START_DATE];
 
     if (employeeId && employeeId !== "ALL") {
       query += " AND a.user_id = ?";

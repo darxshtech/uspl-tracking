@@ -376,14 +376,15 @@ export default function AttendanceCalendarView({
               );
             }
 
-            const { dayNumber, isSunday, holiday, attendance, isToday } = cell;
+            const { dayNumber, isSunday, holiday, attendance, isToday, dateStr } = cell;
+            const isBeforeStart = dateStr < "2026-08-17";
 
             return (
               <div
                 key={idx}
                 className={`min-h-[105px] p-2 transition-colors flex flex-col justify-between ${
                   isToday ? "bg-sky-50/40 ring-2 ring-sky-400 inset-0 z-10" : ""
-                } ${isSunday ? "bg-purple-50/30" : "hover:bg-slate-50/70"}`}
+                } ${isSunday ? "bg-purple-50/30" : isBeforeStart ? "bg-slate-50/50 opacity-60" : "hover:bg-slate-50/70"}`}
               >
                 {/* Day Header */}
                 <div className="flex items-center justify-between">
@@ -404,12 +405,16 @@ export default function AttendanceCalendarView({
                       Weekly Off
                     </span>
                   )}
+                  {isBeforeStart && !isSunday && (
+                    <span className="text-[9px] font-semibold text-slate-400">
+                      Pre-Launch
+                    </span>
+                  )}
                 </div>
 
-                {/* Cell Contents: Holiday or Attendance */}
+                {/* Cell Contents: Holiday or Attendance (only for date >= 2026-08-17) */}
                 <div className="my-1.5 space-y-1">
-                  {/* Company Holiday Card */}
-                  {holiday && (
+                  {!isBeforeStart && holiday && (
                     <div className="p-1.5 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-900 shadow-xs">
                       <div className="text-[10px] font-extrabold flex items-center gap-1 leading-tight truncate">
                         <PartyPopper className="h-3 w-3 text-indigo-600 shrink-0" />

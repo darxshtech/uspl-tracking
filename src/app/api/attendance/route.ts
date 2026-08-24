@@ -4,8 +4,13 @@ import { authOptions } from "@/lib/auth";
 import pool from "@/lib/db";
 import { getCurrentISTDate, getCurrentISTTime12 } from "@/lib/timeUtils";
 
+const SYSTEM_START_DATE = "2026-08-17";
+
 async function syncAutoAbsentRecords(todayIST: string) {
   try {
+    // Delete legacy attendance records created prior to system launch (17 Aug 2026)
+    await pool.query("DELETE FROM attendance WHERE date < ?", [SYSTEM_START_DATE]);
+
     const [employees]: any = await pool.query(
       "SELECT id FROM users WHERE role != 'CEO' AND is_active = 1"
     );
@@ -21,6 +26,8 @@ async function syncAutoAbsentRecords(todayIST: string) {
     const cur = new Date(todayIST + "T00:00:00Z");
     for (let i = 0; i < 30; i++) {
       const dStr = cur.toISOString().split("T")[0];
+      if (dStr < SYSTEM_START_DATE) break; // Stop at system start date 2026-08-17
+
       const [y, m, d] = dStr.split("-");
       const dt = new Date(Date.UTC(parseInt(y), parseInt(m) - 1, parseInt(d)));
       const dayOfWeek = dt.getUTCDay();
@@ -82,9 +89,9 @@ export async function GET(req: Request) {
       SELECT a.*, u.name as employee_name, u.role as employee_role, u.email as employee_email 
       FROM attendance a 
       JOIN users u ON a.user_id = u.id
-      WHERE u.role != 'CEO' AND (a.date <= ? OR a.status LIKE '%Leave%' OR a.status LIKE '%Pending%')
+      WHERE u.role != 'CEO' AND a.date >= ? AND (a.date <= ? OR a.status LIKE '%Leave%' OR a.status LIKE '%Pending%')
     `;
-    let params: any[] = [todayIST];
+    let params: any[] = [SYSTEM_START_DATE, todayIST];
 
     if (role === "Developer" || role === "Tester") {
       query += " AND a.user_id = ?";
