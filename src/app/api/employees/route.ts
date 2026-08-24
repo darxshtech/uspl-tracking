@@ -7,13 +7,13 @@ import bcrypt from "bcrypt";
 export async function GET() {
   const session = await getServerSession(authOptions);
   
-  if (!session || !["Admin", "CEO", "PM"].includes((session.user as any).role)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   try {
     const [rows] = await pool.query(
-      "SELECT id, name, email, role, phone, bio, is_active, joining_date, created_at FROM users ORDER BY id ASC"
+      "SELECT id, name, email, role, phone, bio, is_active, joining_date, created_at FROM users WHERE is_active = 1 ORDER BY id ASC"
     );
     return NextResponse.json(rows);
   } catch (error: any) {
