@@ -7,7 +7,7 @@ import { getCurrentISTDate, getCurrentISTTime12 } from "@/lib/timeUtils";
 async function syncAutoAbsentRecords(todayIST: string) {
   try {
     const [employees]: any = await pool.query(
-      "SELECT id FROM users WHERE role != 'CEO' AND status = 'active'"
+      "SELECT id FROM users WHERE role != 'CEO' AND is_active = 1"
     );
     if (!employees || employees.length === 0) return;
 
@@ -18,8 +18,8 @@ async function syncAutoAbsentRecords(todayIST: string) {
     const holidayDates = new Set<string>(holidayRows.map((h: any) => h.hol_date));
 
     const dates: string[] = [];
-    const cur = new Date(todayIST);
-    for (let i = 0; i < 14; i++) {
+    const cur = new Date(todayIST + "T00:00:00Z");
+    for (let i = 0; i < 30; i++) {
       const dStr = cur.toISOString().split("T")[0];
       const [y, m, d] = dStr.split("-");
       const dt = new Date(Date.UTC(parseInt(y), parseInt(m) - 1, parseInt(d)));
@@ -27,7 +27,7 @@ async function syncAutoAbsentRecords(todayIST: string) {
       if (dayOfWeek !== 0 && !holidayDates.has(dStr)) {
         dates.push(dStr);
       }
-      cur.setDate(cur.getDate() - 1);
+      cur.setUTCDate(cur.getUTCDate() - 1);
     }
 
     for (const emp of employees) {
@@ -46,7 +46,7 @@ async function syncAutoAbsentRecords(todayIST: string) {
         } else {
           const rec = existing[0];
           if (
-            dStr < todayIST &&
+            dStr <= todayIST &&
             !rec.login_time &&
             rec.status !== "Holiday" &&
             !rec.status?.includes("Leave") &&
