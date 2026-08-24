@@ -163,18 +163,18 @@ export default function DailyWorkPage() {
                     <Badge variant="outline" className="text-[10px] mt-0.5">{log.employee_role}</Badge>
                   </TableCell>
                   <TableCell className="align-top">
-                    <div className="font-semibold text-xs text-slate-800">{log.project_name || "General Work"}</div>
+                    <div className="font-semibold text-xs text-slate-800 break-words [overflow-wrap:anywhere]">{log.project_name || "General Work"}</div>
                     {log.task_title && (
-                      <div className="text-[11px] text-sky-600 flex items-center gap-1 mt-0.5">
-                        <CheckSquare className="h-3 w-3" /> {log.task_title}
+                      <div className="text-[11px] text-sky-600 flex items-center gap-1 mt-0.5 whitespace-pre-wrap break-words [overflow-wrap:anywhere] min-w-0">
+                        <CheckSquare className="h-3 w-3 shrink-0" /> <span className="break-words [overflow-wrap:anywhere]">{log.task_title}</span>
                       </div>
                     )}
                   </TableCell>
                   <TableCell className="font-bold text-slate-900 text-xs align-top">{formatHoursAndMinutes(log.hours_worked)}</TableCell>
-                  <TableCell className="align-top">
-                    <p className="text-xs text-slate-800 font-medium whitespace-pre-line max-w-md">{log.work_description}</p>
+                  <TableCell className="align-top max-w-md min-w-[200px]">
+                    <p className="text-xs text-slate-800 font-medium whitespace-pre-wrap break-words [overflow-wrap:anywhere] min-w-0 max-w-full leading-relaxed">{log.work_description}</p>
                     {log.remarks && (
-                      <p className="text-[11px] text-slate-400 mt-1 italic">Note: {log.remarks}</p>
+                      <p className="text-[11px] text-slate-500 mt-1.5 italic whitespace-pre-wrap break-words [overflow-wrap:anywhere] min-w-0 max-w-full bg-slate-50 p-2 rounded-lg border border-slate-100">Note: {log.remarks}</p>
                     )}
                   </TableCell>
                   <TableCell className="align-top">

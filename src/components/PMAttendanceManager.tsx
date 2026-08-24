@@ -956,6 +956,16 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
                           </Button>
                         </>
                       )}
+                      {rec.status === "Absent" && (
+                        <Button
+                          size="sm"
+                          onClick={() => openEditModal(rec)}
+                          className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs gap-1 h-8 px-2.5 shadow-xs"
+                          title="Avoid or Change Absent Status for Employee"
+                        >
+                          <UserCheck className="h-3.5 w-3.5" /> Avoid / Change Absent
+                        </Button>
+                      )}
                       <Button
                         size="sm"
                         variant="outline"

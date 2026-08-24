@@ -1741,15 +1741,15 @@ export default function DailyTasksPage() {
                     </TableCell>
 
                     {/* Task Title, Description, and Checklist */}
-                    <TableCell className="align-top max-w-md">
+                    <TableCell className="align-top max-w-md min-w-[240px]">
                       <div className="font-bold text-slate-900 text-sm flex items-center gap-2 flex-wrap">
-                        <span className="break-words [overflow-wrap:anywhere]">{task.title}</span>
+                        <span className="break-words [overflow-wrap:anywhere] whitespace-pre-wrap min-w-0 max-w-full font-bold text-slate-900 text-sm leading-snug">{task.title}</span>
                         <Badge variant="outline" className="text-[10px] py-0 px-1.5 shrink-0">{task.priority}</Badge>
                       </div>
                       
                       {/* Text-wrapped task description */}
                       {task.description && (
-                        <div className="text-xs text-slate-600 whitespace-pre-wrap break-words [overflow-wrap:anywhere] mt-1 leading-relaxed max-w-md bg-slate-50/50 p-2 rounded-lg border border-slate-100">
+                        <div className="text-xs text-slate-600 whitespace-pre-wrap break-words [overflow-wrap:anywhere] min-w-0 max-w-full mt-1.5 leading-relaxed bg-slate-50/70 p-2.5 rounded-xl border border-slate-200/80 font-normal">
                           {task.description}
                         </div>
                       )}
@@ -1813,7 +1813,7 @@ export default function DailyTasksPage() {
                                       onChange={() => {}}
                                       className="rounded border-slate-300 text-sky-600 h-3.5 w-3.5 mt-0.5 shrink-0 cursor-pointer"
                                     />
-                                    <span className={`whitespace-pre-wrap break-words [overflow-wrap:anywhere] flex-1 leading-snug ${c.is_completed ? "line-through text-slate-400" : "font-medium"}`}>
+                                    <span className={`whitespace-pre-wrap break-words [overflow-wrap:anywhere] min-w-0 max-w-full flex-1 leading-relaxed ${c.is_completed ? "line-through text-slate-400 font-normal" : "font-semibold text-slate-800"}`}>
                                       {c.item_text}
                                     </span>
                                   </div>

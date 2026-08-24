@@ -17,6 +17,39 @@ export async function GET(req: Request) {
     const month = searchParams.get("month"); // '01' to '12'
     const year = searchParams.get("year") || new Date().getFullYear().toString();
 
+    // Auto-mark missing check-ins as Absent for working days
+    const todayIST = new Date().toISOString().split("T")[0];
+    const [employees]: any = await pool.query("SELECT id FROM users WHERE role != 'CEO' AND status = 'active'");
+    if (employees && employees.length > 0) {
+      const [holidayRows]: any = await pool.query(
+        "SELECT DATE_FORMAT(date, '%Y-%m-%d') as hol_date FROM holidays WHERE date <= ?",
+        [todayIST]
+      );
+      const holidayDates = new Set<string>(holidayRows.map((h: any) => h.hol_date));
+      const dates: string[] = [];
+      const cur = new Date(todayIST);
+      for (let i = 0; i < 14; i++) {
+        const dStr = cur.toISOString().split("T")[0];
+        const [y, m, d] = dStr.split("-");
+        const dt = new Date(Date.UTC(parseInt(y), parseInt(m) - 1, parseInt(d)));
+        if (dt.getUTCDay() !== 0 && !holidayDates.has(dStr)) dates.push(dStr);
+        cur.setDate(cur.getDate() - 1);
+      }
+      for (const emp of employees) {
+        for (const dStr of dates) {
+          const [existing]: any = await pool.query("SELECT id, login_time, status FROM attendance WHERE user_id = ? AND date = ?", [emp.id, dStr]);
+          if (existing.length === 0) {
+            await pool.query(
+              "INSERT INTO attendance (user_id, date, status, total_hours, notes) VALUES (?, ?, 'Absent', 0, 'Auto-marked Absent (No Check-In or Leave Application)')",
+              [emp.id, dStr]
+            );
+          } else if (dStr < todayIST && !existing[0].login_time && existing[0].status !== "Holiday" && !existing[0].status?.includes("Leave") && existing[0].status !== "Absent") {
+            await pool.query("UPDATE attendance SET status = 'Absent', total_hours = 0, notes = 'Auto-marked Absent (No Check-In or Leave Application)' WHERE id = ?", [existing[0].id]);
+          }
+        }
+      }
+    }
+
     let query = `
       SELECT a.*, u.name as employee_name, u.email as employee_email, u.role as employee_role
       FROM attendance a

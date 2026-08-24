@@ -4,6 +4,67 @@ import { authOptions } from "@/lib/auth";
 import pool from "@/lib/db";
 import { getCurrentISTDate, getCurrentISTTime12 } from "@/lib/timeUtils";
 
+async function syncAutoAbsentRecords(todayIST: string) {
+  try {
+    const [employees]: any = await pool.query(
+      "SELECT id FROM users WHERE role != 'CEO' AND status = 'active'"
+    );
+    if (!employees || employees.length === 0) return;
+
+    const [holidayRows]: any = await pool.query(
+      "SELECT DATE_FORMAT(date, '%Y-%m-%d') as hol_date FROM holidays WHERE date <= ?",
+      [todayIST]
+    );
+    const holidayDates = new Set<string>(holidayRows.map((h: any) => h.hol_date));
+
+    const dates: string[] = [];
+    const cur = new Date(todayIST);
+    for (let i = 0; i < 14; i++) {
+      const dStr = cur.toISOString().split("T")[0];
+      const [y, m, d] = dStr.split("-");
+      const dt = new Date(Date.UTC(parseInt(y), parseInt(m) - 1, parseInt(d)));
+      const dayOfWeek = dt.getUTCDay();
+      if (dayOfWeek !== 0 && !holidayDates.has(dStr)) {
+        dates.push(dStr);
+      }
+      cur.setDate(cur.getDate() - 1);
+    }
+
+    for (const emp of employees) {
+      for (const dStr of dates) {
+        const [existing]: any = await pool.query(
+          "SELECT id, login_time, status FROM attendance WHERE user_id = ? AND date = ?",
+          [emp.id, dStr]
+        );
+
+        if (existing.length === 0) {
+          await pool.query(
+            `INSERT INTO attendance (user_id, date, status, total_hours, notes) 
+             VALUES (?, ?, 'Absent', 0, 'Auto-marked Absent (No Check-In or Leave Application)')`,
+            [emp.id, dStr]
+          );
+        } else {
+          const rec = existing[0];
+          if (
+            dStr < todayIST &&
+            !rec.login_time &&
+            rec.status !== "Holiday" &&
+            !rec.status?.includes("Leave") &&
+            rec.status !== "Absent"
+          ) {
+            await pool.query(
+              "UPDATE attendance SET status = 'Absent', total_hours = 0, notes = 'Auto-marked Absent (No Check-In or Leave Application)' WHERE id = ?",
+              [rec.id]
+            );
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Auto absent sync error:", err);
+  }
+}
+
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
@@ -12,6 +73,9 @@ export async function GET(req: Request) {
     const role = (session.user as any).role;
     const userId = (session.user as any).id;
     const todayIST = getCurrentISTDate();
+
+    // Sync auto-absent records for unperformed shifts/leaves
+    await syncAutoAbsentRecords(todayIST);
 
     // 1. Fetch attendance records (including future pending/approved leaves)
     let query = `

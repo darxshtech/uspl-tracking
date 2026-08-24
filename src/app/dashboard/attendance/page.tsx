@@ -66,6 +66,54 @@ export default function AttendancePage() {
   // View Record Detail Modal
   const [selectedRecord, setSelectedRecord] = useState<any>(null);
 
+  // Edit / Override Record Modal State (for Management: PM, CEO, Admin)
+  const [editingRecord, setEditingRecord] = useState<any>(null);
+  const [editStatus, setEditStatus] = useState("Present");
+  const [editLoginTime, setEditLoginTime] = useState("09:30:00 AM");
+  const [editLogoutTime, setEditLogoutTime] = useState("06:30:00 PM");
+  const [editHours, setEditHours] = useState("9.00");
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const openEditModal = (rec: any) => {
+    setEditingRecord(rec);
+    setEditLoginTime(rec.login_time || "09:30:00 AM");
+    setEditLogoutTime(rec.logout_time || "06:30:00 PM");
+    setEditStatus(rec.status === "Absent" ? "Present" : (rec.status || "Present"));
+    setEditHours(rec.total_hours !== null && rec.total_hours !== undefined ? rec.total_hours.toString() : "9.00");
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingRecord) return;
+    setSavingEdit(true);
+    try {
+      const res = await fetch("/api/attendance/manage", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editingRecord.id,
+          login_time: editLoginTime,
+          logout_time: editLogoutTime,
+          status: editStatus,
+          total_hours: editHours ? parseFloat(editHours) : null,
+        }),
+      });
+      if (res.ok) {
+        setEditingRecord(null);
+        fetchAttendance();
+        if (isManagement) fetchManagementPendingLeaves();
+        showToast("Attendance record updated successfully!");
+      } else {
+        showError("Failed to update attendance.");
+      }
+    } catch (err) {
+      console.error(err);
+      showError("Error updating attendance.");
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   useEffect(() => {
     setMounted(true);
     fetchAttendance();
@@ -575,6 +623,16 @@ export default function AttendancePage() {
                                   </Button>
                                 </>
                               )}
+                              {isManagement && rec.status === "Absent" && (
+                                <Button
+                                  size="sm"
+                                  onClick={() => openEditModal(rec)}
+                                  className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs gap-1 h-8 px-2.5 shadow-xs"
+                                  title="Avoid or Change Absent Status for Employee"
+                                >
+                                  <UserCheck className="h-3.5 w-3.5" /> Avoid / Change Absent
+                                </Button>
+                              )}
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -639,6 +697,90 @@ export default function AttendancePage() {
                 </div>
               )}
             </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit / Override Attendance Status Dialog for Management */}
+      <Dialog open={!!editingRecord} onOpenChange={() => setEditingRecord(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
+              <UserCheck className="h-5 w-5 text-amber-500" />
+              Avoid or Change Absent Status
+            </DialogTitle>
+          </DialogHeader>
+
+          {editingRecord && (
+            <form onSubmit={handleSaveEdit} className="space-y-4 pt-2">
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-1">
+                <div>Employee: <span className="font-bold text-slate-900">{editingRecord.employee_name || "Employee"}</span></div>
+                <div>Date: <span className="font-mono font-bold text-slate-900">{editingRecord.date}</span></div>
+                <div>Current Status: <span className="font-bold text-amber-700">{editingRecord.status || "Absent"}</span></div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="font-semibold text-slate-700 text-xs">New Attendance Status *</Label>
+                <Select value={editStatus} onValueChange={(val) => setEditStatus(val || "Present")}>
+                  <SelectTrigger><SelectValue placeholder="Select Status" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Present">Present (Full Day)</SelectItem>
+                    <SelectItem value="Half Day">Half Day</SelectItem>
+                    <SelectItem value="Leave">Leave (Excused / Paid Leave)</SelectItem>
+                    <SelectItem value="Holiday">Holiday (Company Off)</SelectItem>
+                    <SelectItem value="Absent">Absent</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {(editStatus === "Present" || editStatus === "Half Day") && (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="editLogin" className="font-semibold text-slate-700 text-xs">Check-In Time</Label>
+                      <Input
+                        id="editLogin"
+                        value={editLoginTime}
+                        onChange={(e) => setEditLoginTime(e.target.value)}
+                        placeholder="09:30:00 AM"
+                        className="text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="editLogout" className="font-semibold text-slate-700 text-xs">Check-Out Time</Label>
+                      <Input
+                        id="editLogout"
+                        value={editLogoutTime}
+                        onChange={(e) => setEditLogoutTime(e.target.value)}
+                        placeholder="06:30:00 PM"
+                        className="text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="editHours" className="font-semibold text-slate-700 text-xs">Total Hours</Label>
+                    <Input
+                      id="editHours"
+                      type="number"
+                      step="0.1"
+                      value={editHours}
+                      onChange={(e) => setEditHours(e.target.value)}
+                      placeholder="9.00"
+                      className="text-xs"
+                    />
+                  </div>
+                </>
+              )}
+
+              <Button
+                type="submit"
+                disabled={savingEdit}
+                className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 shadow-md"
+              >
+                {savingEdit ? "Updating..." : "Save Status Change"}
+              </Button>
+            </form>
           )}
         </DialogContent>
       </Dialog>
