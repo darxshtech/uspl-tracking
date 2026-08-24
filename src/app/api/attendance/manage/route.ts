@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import pool from "@/lib/db";
 import { calculateHoursDifference, formatHoursAndMinutes, getCurrentISTTime12 } from "@/lib/timeUtils";
+import { getFullDayHours } from "@/lib/settings";
 
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
@@ -70,11 +71,26 @@ export async function PUT(req: Request) {
       finalHours = calculateHoursDifference(login_time, endTime);
     }
 
+    const fullDayHours = await getFullDayHours();
+    const halfDayThreshold = fullDayHours / 2;
+
+    let computedStatus = status || "Present";
+    // If shift is closed with logout_time and not a special leave/holiday, strictly enforce working hours status
+    if (logout_time && finalHours !== null && (!status || status === "Present" || status === "Half Day" || status === "Absent")) {
+      if (finalHours < halfDayThreshold) {
+        computedStatus = "Absent";
+      } else if (finalHours < fullDayHours) {
+        computedStatus = "Half Day";
+      } else {
+        computedStatus = "Present";
+      }
+    }
+
     await pool.query(
       `UPDATE attendance 
        SET login_time = ?, logout_time = ?, status = ?, total_hours = ?
        WHERE id = ?`,
-      [login_time || null, logout_time || null, status || "Present", finalHours, id]
+      [login_time || null, logout_time || null, computedStatus, finalHours !== null ? finalHours.toFixed(2) : null, id]
     );
 
     // Get user ID and date for notification
@@ -115,44 +131,61 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json();
-    const { user_id, start_date, end_date, date, status = "Leave", reason, remarks } = body;
+    const { user_id, start_date, end_date, selected_dates, date, status = "Leave", reason, remarks } = body;
 
     if (!user_id) {
       return NextResponse.json({ error: "Employee selection is required" }, { status: 400 });
     }
 
-    const startDateStr = start_date || date;
-    const endDateStr = end_date || startDateStr;
+    let datesToProcess: string[] = [];
 
-    if (!startDateStr) {
-      return NextResponse.json({ error: "Date is required" }, { status: 400 });
+    if (Array.isArray(selected_dates) && selected_dates.length > 0) {
+      datesToProcess = selected_dates;
+    } else if (start_date || date) {
+      const startDateStr = start_date || date;
+      const endDateStr = end_date || startDateStr;
+      const start = new Date(startDateStr);
+      const end = new Date(endDateStr);
+
+      const cur = new Date(start);
+      while (cur <= end) {
+        datesToProcess.push(cur.toISOString().split("T")[0]);
+        cur.setDate(cur.getDate() + 1);
+      }
+    } else {
+      return NextResponse.json({ error: "Date selection is required" }, { status: 400 });
     }
 
-    const start = new Date(startDateStr);
-    const end = new Date(endDateStr);
-    let insertedCount = 0;
+    datesToProcess.sort();
+    const minDate = datesToProcess[0];
+    const maxDate = datesToProcess[datesToProcess.length - 1];
 
     // Fetch scheduled holidays in this range
     const [holidayRows]: any = await pool.query(
       "SELECT DATE_FORMAT(date, '%Y-%m-%d') as hol_date FROM holidays WHERE date BETWEEN ? AND ?",
-      [startDateStr, endDateStr]
+      [minDate, maxDate]
     );
     const holidayDates = new Set<string>(holidayRows.map((h: any) => h.hol_date));
 
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      const curDateStr = d.toISOString().split("T")[0];
-      const dayOfWeek = d.getUTCDay();
+    let insertedCount = 0;
+    let excludedCount = 0;
 
-      // If logging leave, skip Sunday weekly offs and company holidays so they aren't counted as paid leaves
+    for (const curDateStr of datesToProcess) {
+      const [yearStr, monthStr, dayStr] = curDateStr.split("-");
+      const dateObj = new Date(Date.UTC(parseInt(yearStr), parseInt(monthStr) - 1, parseInt(dayStr)));
+      const dayOfWeek = dateObj.getUTCDay(); // 0 is Sunday
+
+      // Skip Sunday weekly offs and company holidays so they aren't counted as paid leaves
       if ((status === "Leave" || status === "Leave (Pending)" || status === "Half Day") && (dayOfWeek === 0 || holidayDates.has(curDateStr))) {
+        excludedCount++;
         continue;
       }
 
       await pool.query(
-        `INSERT INTO attendance (user_id, date, status, login_time, logout_time, total_hours) 
-         VALUES (?, ?, ?, NULL, NULL, 0)
-         ON DUPLICATE KEY UPDATE status = VALUES(status), login_time = NULL, logout_time = NULL, total_hours = 0`,
-        [user_id, curDateStr, status]
+        `INSERT INTO attendance (user_id, date, status, login_time, logout_time, total_hours, notes) 
+         VALUES (?, ?, ?, NULL, NULL, 0, ?)
+         ON DUPLICATE KEY UPDATE status = VALUES(status), login_time = NULL, logout_time = NULL, total_hours = 0, notes = VALUES(notes)`,
+        [user_id, curDateStr, status, reason ? `MANAGEMENT_RECORDED: ${reason}` : null]
       );
       insertedCount++;
     }
@@ -165,15 +198,16 @@ export async function POST(req: Request) {
       "INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'info')",
       [
         user_id,
-        `🏖️ ${status} Recorded by Management`,
-        `Your ${status} for ${startDateStr} ${endDateStr !== startDateStr ? "to " + endDateStr : ""} has been officially logged in the tracking portal.${reason ? " Reason: " + reason : ""}`
+        `🏖️ ${status} Logged by Management`,
+        `Your ${status} for ${insertedCount} day(s) has been officially recorded by Management.${reason ? " Notes: " + reason : ""}`
       ]
     );
 
     return NextResponse.json({
       success: true,
-      message: `Successfully logged ${status} for ${empName} (${insertedCount} day${insertedCount > 1 ? "s" : ""})`,
+      message: `Successfully logged ${status} for ${empName} (${insertedCount} working day(s), ${excludedCount} Sunday/holiday(s) excluded).`,
       count: insertedCount,
+      excluded_count: excludedCount,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

@@ -73,7 +73,12 @@ export default function AttendanceWidget() {
   };
 
   const getTodayDateStr = () => {
-    return new Date().toISOString().split("T")[0];
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(new Date());
   };
 
   // Sync offline queued punches to server
@@ -185,8 +190,9 @@ export default function AttendanceWidget() {
     setManualCheckOutTime(current24);
     setCheckoutError(null);
 
-    // Auto-detect overnight if shift date was yesterday or current time is early morning
-    if (record?.date && record.date < getTodayDateStr()) {
+    // Auto-detect overnight if shift date was yesterday
+    const recordDateStr = record?.date ? String(record.date).split("T")[0] : "";
+    if (recordDateStr && recordDateStr < getTodayDateStr()) {
       setIsOvernight(true);
     } else {
       setIsOvernight(false);
@@ -275,6 +281,9 @@ export default function AttendanceWidget() {
     setRecord(updatedLocalRecord);
     localStorage.setItem(getShiftKey(), JSON.stringify(updatedLocalRecord));
 
+    const recordDateStr = record?.date ? String(record.date).split("T")[0] : "";
+    const isShiftOvernight = isOvernight || (Boolean(recordDateStr) && recordDateStr < localDate);
+
     try {
       const res = await fetch("/api/attendance/active", {
         method: "POST",
@@ -282,7 +291,7 @@ export default function AttendanceWidget() {
         body: JSON.stringify({ 
           action: "check-out", 
           manual_time: formattedTime12,
-          is_overnight: isOvernight || record?.date < localDate,
+          is_overnight: isShiftOvernight,
         }),
       });
 
@@ -312,7 +321,7 @@ export default function AttendanceWidget() {
           manual_time: formattedTime12,
           time: formattedTime12,
           date: localDate,
-          is_overnight: isOvernight || record?.date < localDate,
+          is_overnight: isShiftOvernight,
           timestamp: Date.now(),
         });
         localStorage.setItem(getQueueKey(), JSON.stringify(queue));

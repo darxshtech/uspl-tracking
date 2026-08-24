@@ -66,11 +66,20 @@ export function calculateHoursDifference(startTimeStr: string, endTimeStr: strin
 
     let diffMin = 0;
     if (isOvernight) {
-      // Crossed midnight explicitly
-      diffMin = (24 * 60 - startMin) + endMin;
+      // Crossed midnight explicitly (e.g. 10 PM to 6 AM)
+      if (endMin < startMin) {
+        diffMin = (24 * 60 - startMin) + endMin;
+      } else {
+        // If endMin >= startMin, normal elapsed duration on the same day
+        diffMin = endMin - startMin;
+      }
     } else {
-      // Same-day shift
-      diffMin = Math.max(0, endMin - startMin);
+      // Same-day shift (if endMin < startMin, handle cross-midnight gracefully)
+      if (endMin < startMin) {
+        diffMin = (24 * 60 - startMin) + endMin;
+      } else {
+        diffMin = Math.max(0, endMin - startMin);
+      }
     }
 
     return Math.round((diffMin / 60) * 100) / 100;

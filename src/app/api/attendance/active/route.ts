@@ -247,7 +247,11 @@ export async function POST(req: Request) {
         );
       }
 
-      const isCrossDay = is_overnight || activeShift.date < todayIST;
+      const activeShiftDateStr = activeShift.date instanceof Date 
+        ? activeShift.date.toISOString().split("T")[0] 
+        : String(activeShift.date).split("T")[0];
+
+      const isCrossDay = Boolean(is_overnight) || (Boolean(activeShiftDateStr) && activeShiftDateStr < todayIST);
 
       // 3. Validate checkout buffer: Cannot be more than 30 minutes in advance of current time
       const isBufferValid = validateCheckoutTimeBuffer(nowTime12, currentISTTime, 30, isCrossDay);

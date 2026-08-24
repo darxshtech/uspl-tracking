@@ -13,12 +13,12 @@ export async function GET(req: Request) {
     const userId = (session.user as any).id;
     const todayIST = getCurrentISTDate();
 
-    // 1. Fetch historical and today's attendance records (date <= todayIST)
+    // 1. Fetch attendance records (including future pending/approved leaves)
     let query = `
       SELECT a.*, u.name as employee_name, u.role as employee_role, u.email as employee_email 
       FROM attendance a 
       JOIN users u ON a.user_id = u.id
-      WHERE u.role != 'CEO' AND a.date <= ?
+      WHERE u.role != 'CEO' AND (a.date <= ? OR a.status LIKE '%Leave%' OR a.status LIKE '%Pending%')
     `;
     let params: any[] = [todayIST];
 
@@ -61,68 +61,103 @@ export async function POST(req: Request) {
 
   try {
     const userId = (session.user as any).id;
+    const userRole = (session.user as any).role;
+    const isManagement = ["Admin", "CEO", "PM"].includes(userRole);
     const body = await req.json();
-    const { action, start_date, end_date, status, reason } = body;
+    const { action, start_date, end_date, selected_dates, status = "Leave", reason } = body;
 
     if (action === "leave") {
-      if (!start_date || !status) {
-        return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+      let datesToProcess: string[] = [];
+
+      if (Array.isArray(selected_dates) && selected_dates.length > 0) {
+        datesToProcess = selected_dates;
+      } else if (start_date) {
+        const endDateStr = end_date || start_date;
+        const start = new Date(start_date);
+        const end = new Date(endDateStr);
+
+        if (start > end) {
+          return NextResponse.json({ error: "Start date must be before end date" }, { status: 400 });
+        }
+
+        const cur = new Date(start);
+        while (cur <= end) {
+          datesToProcess.push(cur.toISOString().split("T")[0]);
+          cur.setDate(cur.getDate() + 1);
+        }
+      } else {
+        return NextResponse.json({ error: "Please select at least one date for leave" }, { status: 400 });
       }
 
-      const endDate = end_date || start_date;
-      
-      const start = new Date(start_date);
-      const end = new Date(endDate);
-      
-      if (start > end) {
-        return NextResponse.json({ error: "Start date must be before end date" }, { status: 400 });
-      }
+      // Sort dates
+      datesToProcess.sort();
+      const minDate = datesToProcess[0];
+      const maxDate = datesToProcess[datesToProcess.length - 1];
 
       // Fetch scheduled holidays in this range
       const [holidayRows]: any = await pool.query(
         "SELECT DATE_FORMAT(date, '%Y-%m-%d') as hol_date FROM holidays WHERE date BETWEEN ? AND ?",
-        [start_date, endDate]
+        [minDate, maxDate]
       );
       const holidayDates = new Set<string>(holidayRows.map((h: any) => h.hol_date));
 
-      // Add a pending leave record for each working day in range (exclude Sunday weekly off and holidays)
-      const currentDate = new Date(start);
       let leaveDaysCount = 0;
+      let excludedHolidayCount = 0;
 
-      while (currentDate <= end) {
-        const dateStr = currentDate.toISOString().split('T')[0];
-        const dayOfWeek = currentDate.getUTCDay(); // 0 is Sunday
+      // Status for non-management is 'Leave (Pending)'; for PM/CEO/Admin creating directly it's the requested status
+      const targetStatus = isManagement ? (status || "Leave") : "Leave (Pending)";
 
-        // Skip Sunday weekly offs and company holidays
+      for (const dateStr of datesToProcess) {
+        // Date parsing using UTC to avoid timezone drift
+        const [yearStr, monthStr, dayStr] = dateStr.split("-");
+        const dateObj = new Date(Date.UTC(parseInt(yearStr), parseInt(monthStr) - 1, parseInt(dayStr)));
+        const dayOfWeek = dateObj.getUTCDay(); // 0 is Sunday
+
+        // Exclude Sundays and scheduled holidays
         if (dayOfWeek === 0 || holidayDates.has(dateStr)) {
-          currentDate.setDate(currentDate.getDate() + 1);
+          excludedHolidayCount++;
           continue;
         }
-        
+
         const [existing]: any = await pool.query(
           "SELECT id FROM attendance WHERE user_id = ? AND date = ?",
           [userId, dateStr]
         );
 
+        const notesText = isManagement
+          ? `LEAVE: ${reason || "Logged by Management"}`
+          : `PENDING_LEAVE: ${reason || ""}`;
+
         if (existing.length > 0) {
           await pool.query(
-            "UPDATE attendance SET status = 'Leave (Pending)', notes = ? WHERE id = ?",
-            [`PENDING_LEAVE: ${reason || ''}`, existing[0].id]
+            "UPDATE attendance SET status = ?, notes = ? WHERE id = ?",
+            [targetStatus, notesText, existing[0].id]
           );
         } else {
           await pool.query(
-            "INSERT INTO attendance (user_id, date, status, notes) VALUES (?, ?, 'Leave (Pending)', ?)",
-            [userId, dateStr, `PENDING_LEAVE: ${reason || ''}`]
+            "INSERT INTO attendance (user_id, date, status, notes) VALUES (?, ?, ?, ?)",
+            [userId, dateStr, targetStatus, notesText]
           );
         }
-        
+
         leaveDaysCount++;
-        currentDate.setDate(currentDate.getDate() + 1);
       }
 
-      return NextResponse.json({ 
-        message: `Leave request submitted for ${leaveDaysCount} working day(s) (Sundays and holidays excluded).`,
-        days_counted: leaveDaysCount 
+      if (leaveDaysCount === 0 && excludedHolidayCount > 0) {
+        return NextResponse.json({
+          error: "Selected date(s) fall on Sundays or official company holidays and are exempt from paid leaves.",
+          excluded_holidays: excludedHolidayCount,
+        }, { status: 400 });
+      }
+
+      const msg = isManagement
+        ? `Leave officially logged for ${leaveDaysCount} day(s). (${excludedHolidayCount} Sunday/holiday(s) excluded).`
+        : `Leave application submitted for ${leaveDaysCount} working day(s) awaiting PM approval. (${excludedHolidayCount} Sunday/holiday(s) excluded).`;
+
+      return NextResponse.json({
+        message: msg,
+        days_counted: leaveDaysCount,
+        excluded_holidays: excludedHolidayCount,
       });
     }
 

@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { showError, showSuccess, showWarning, showInfo } from "@/lib/swal";
 import Link from "next/link";
+import MultiDateLeavePicker from "@/components/MultiDateLeavePicker";
 import { 
   FileSpreadsheet, 
   FileText, 
@@ -28,7 +29,9 @@ import {
   UserCheck,
   Sliders,
   BookOpen,
-  ShieldCheck
+  ShieldCheck,
+  Check,
+  X
 } from "lucide-react";
 import AttendanceCalendarView from "@/components/AttendanceCalendarView";
 import { formatHoursAndMinutes, calculateHoursDifference, getCurrentISTTime12 } from "@/lib/timeUtils";
@@ -86,8 +89,7 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
   // Record Leave Modal State
   const [leaveModalOpen, setLeaveModalOpen] = useState(false);
   const [leaveEmpId, setLeaveEmpId] = useState("");
-  const [leaveStartDate, setLeaveStartDate] = useState(new Date().toISOString().split("T")[0]);
-  const [leaveEndDate, setLeaveEndDate] = useState(new Date().toISOString().split("T")[0]);
+  const [leaveSelectedDates, setLeaveSelectedDates] = useState<string[]>([]);
   const [leaveType, setLeaveType] = useState("Leave");
   const [leaveReason, setLeaveReason] = useState("");
   const [submittingLeave, setSubmittingLeave] = useState(false);
@@ -238,7 +240,10 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
 
   const handleRecordLeave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!leaveEmpId || !leaveStartDate) return;
+    if (!leaveEmpId || leaveSelectedDates.length === 0) {
+      showError("Please choose an employee and select at least one leave date on the calendar.");
+      return;
+    }
 
     setSubmittingLeave(true);
     try {
@@ -247,8 +252,7 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           user_id: parseInt(leaveEmpId),
-          start_date: leaveStartDate,
-          end_date: leaveEndDate || leaveStartDate,
+          selected_dates: leaveSelectedDates,
           status: leaveType,
           reason: leaveReason,
         }),
@@ -257,6 +261,7 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
       const data = await res.json();
       if (res.ok) {
         setLeaveModalOpen(false);
+        setLeaveSelectedDates([]);
         setLeaveReason("");
         fetchRecords(true);
         showSuccess("Leave Recorded", data.message || "Leave successfully logged.");
@@ -268,6 +273,39 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
       showError("Error recording leave.");
     } finally {
       setSubmittingLeave(false);
+    }
+  };
+
+  const [processingLeaveId, setProcessingLeaveId] = useState<number | null>(null);
+
+  const handleInlineLeaveAction = async (id: number, action: "approve" | "reject") => {
+    setProcessingLeaveId(id);
+    try {
+      const res = await fetch("/api/attendance/leave-action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id,
+          action,
+          leave_type: "Leave",
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        showSuccess(
+          action === "approve" ? "Leave Approved" : "Leave Rejected",
+          data.message || `Leave request ${action === "approve" ? "approved" : "rejected"} successfully.`
+        );
+        fetchRecords(false);
+      } else {
+        showError("Action Failed", data.error || "Failed to update leave request.");
+      }
+    } catch (err) {
+      console.error(err);
+      showError("Error updating leave request.");
+    } finally {
+      setProcessingLeaveId(null);
     }
   };
 
@@ -427,7 +465,7 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
               <DialogTrigger render={<Button size="sm" className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs gap-1.5 shadow-xs" />}>
                 <Palmtree className="h-3.5 w-3.5" /> Record Leave
               </DialogTrigger>
-              <DialogContent className="w-[92vw] sm:max-w-md max-h-[90vh] overflow-y-auto p-4 sm:p-6">
+              <DialogContent className="w-[92vw] sm:max-w-lg max-h-[90vh] overflow-y-auto p-4 sm:p-6">
                 <DialogHeader>
                   <DialogTitle className="flex items-center gap-2 text-lg font-bold text-slate-900">
                     <Palmtree className="h-5 w-5 text-amber-500" /> Record Employee Leave
@@ -436,7 +474,7 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
 
                 <form onSubmit={handleRecordLeave} className="space-y-4 pt-2">
                   <div className="space-y-1.5">
-                    <Label className="font-semibold text-slate-700">Select Employee *</Label>
+                    <Label className="font-semibold text-slate-700 text-xs">Select Employee *</Label>
                     <Select value={leaveEmpId} onValueChange={(val) => setLeaveEmpId(val || "")}>
                       <SelectTrigger><SelectValue placeholder="Choose Employee" /></SelectTrigger>
                       <SelectContent>
@@ -449,31 +487,18 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
                     </Select>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="lStart" className="font-semibold text-slate-700">Start Date *</Label>
-                      <Input
-                        id="lStart"
-                        type="date"
-                        value={leaveStartDate}
-                        onChange={(e) => setLeaveStartDate(e.target.value)}
-                        required
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <Label htmlFor="lEnd" className="font-semibold text-slate-700">End Date</Label>
-                      <Input
-                        id="lEnd"
-                        type="date"
-                        value={leaveEndDate}
-                        onChange={(e) => setLeaveEndDate(e.target.value)}
-                      />
-                    </div>
+                  <div className="space-y-1.5">
+                    <Label className="font-bold text-slate-800 text-xs">
+                      Select Leave Days on Calendar *
+                    </Label>
+                    <MultiDateLeavePicker
+                      selectedDates={leaveSelectedDates}
+                      onDatesChange={setLeaveSelectedDates}
+                    />
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label className="font-semibold text-slate-700">Leave Type</Label>
+                    <Label className="font-semibold text-slate-700 text-xs">Leave Type</Label>
                     <Select value={leaveType} onValueChange={(val) => setLeaveType(val || "Leave")}>
                       <SelectTrigger><SelectValue placeholder="Leave Type" /></SelectTrigger>
                       <SelectContent>
@@ -486,7 +511,7 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="lReason" className="font-semibold text-slate-700">Reason / Notes</Label>
+                    <Label htmlFor="lReason" className="font-semibold text-slate-700 text-xs">Reason / Notes</Label>
                     <Input
                       id="lReason"
                       placeholder="e.g. Medical emergency, family function"
@@ -497,10 +522,12 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
 
                   <Button
                     type="submit"
-                    disabled={submittingLeave || !leaveEmpId}
-                    className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 mt-2"
+                    disabled={submittingLeave || !leaveEmpId || leaveSelectedDates.length === 0}
+                    className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 mt-2 shadow-md disabled:opacity-50"
                   >
-                    {submittingLeave ? "Logging Leave..." : "Confirm & Record Leave"}
+                    {submittingLeave
+                      ? "Logging Leave..."
+                      : `Confirm & Record ${leaveSelectedDates.length > 0 ? leaveSelectedDates.length + " Day(s)" : "Leave"}`}
                   </Button>
                 </form>
               </DialogContent>
@@ -905,7 +932,30 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
                     })()}
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-1.5">
+                    <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      {(rec.status === "Leave (Pending)" || rec.status?.includes("Pending")) && (
+                        <>
+                          <Button
+                            size="sm"
+                            disabled={processingLeaveId === rec.id}
+                            onClick={() => handleInlineLeaveAction(rec.id, "approve")}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-1 h-8 px-2.5 shadow-xs"
+                            title="Approve Leave Application"
+                          >
+                            <Check className="h-3.5 w-3.5" /> Approve
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={processingLeaveId === rec.id}
+                            onClick={() => handleInlineLeaveAction(rec.id, "reject")}
+                            className="border-red-300 text-red-700 hover:bg-red-50 hover:text-red-800 font-bold text-xs gap-1 h-8 px-2.5 shadow-xs"
+                            title="Reject Leave Application"
+                          >
+                            <X className="h-3.5 w-3.5" /> Reject
+                          </Button>
+                        </>
+                      )}
                       <Button
                         size="sm"
                         variant="outline"

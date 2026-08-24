@@ -14,6 +14,7 @@ import PMAttendanceManager from "@/components/PMAttendanceManager";
 import AttendanceCalendarView from "@/components/AttendanceCalendarView";
 import AttendanceWidget from "@/components/AttendanceWidget";
 import { calculateHoursDifference, getCurrentISTTime12, formatHoursAndMinutes } from "@/lib/timeUtils";
+import MultiDateLeavePicker from "@/components/MultiDateLeavePicker";
 import { 
   CalendarDays, 
   LogIn, 
@@ -27,7 +28,10 @@ import {
   List,
   Eye,
   Palmtree,
-  Plus
+  Plus,
+  Check,
+  X,
+  UserCheck
 } from "lucide-react";
 
 export default function AttendancePage() {
@@ -44,6 +48,8 @@ export default function AttendancePage() {
   const [viewMode, setViewMode] = useState<"table" | "calendar">("table");
   const [attendance, setAttendance] = useState<any[]>([]);
   const [pendingLeaves, setPendingLeaves] = useState<any[]>([]);
+  const [managementPendingLeaves, setManagementPendingLeaves] = useState<any[]>([]);
+  const [processingLeaveAction, setProcessingLeaveAction] = useState<number | null>(null);
   const [employees, setEmployees] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentISTTime, setCurrentISTTime] = useState("");
@@ -52,9 +58,7 @@ export default function AttendancePage() {
 
   // Record Leave Modal State (for PM / CEO or self)
   const [leaveModalOpen, setLeaveModalOpen] = useState(false);
-  const [leaveEmpId, setLeaveEmpId] = useState("");
-  const [leaveStartDate, setLeaveStartDate] = useState(new Date().toISOString().split("T")[0]);
-  const [leaveEndDate, setLeaveEndDate] = useState(new Date().toISOString().split("T")[0]);
+  const [selectedLeaveDates, setSelectedLeaveDates] = useState<string[]>([]);
   const [leaveType, setLeaveType] = useState("Leave");
   const [leaveReason, setLeaveReason] = useState("");
   const [submittingLeave, setSubmittingLeave] = useState(false);
@@ -67,11 +71,13 @@ export default function AttendancePage() {
     fetchAttendance();
     if (isManagement) {
       fetchEmployees();
+      fetchManagementPendingLeaves();
     }
 
     const interval = setInterval(() => {
       if (typeof document !== "undefined" && document.hidden) return;
       fetchAttendance();
+      if (isManagement) fetchManagementPendingLeaves();
     }, 25000);
     return () => clearInterval(interval);
   }, [isManagement]);
@@ -93,6 +99,18 @@ export default function AttendancePage() {
     }
   };
 
+  const fetchManagementPendingLeaves = async () => {
+    try {
+      const res = await fetch("/api/attendance/leave-action?_=" + Date.now());
+      const data = await res.json();
+      if (data && Array.isArray(data.pendingLeaves)) {
+        setManagementPendingLeaves(data.pendingLeaves);
+      }
+    } catch (err) {
+      console.error("Error fetching management pending leaves:", err);
+    }
+  };
+
   const fetchEmployees = async () => {
     try {
       const res = await fetch("/api/employees?_=" + Date.now());
@@ -103,11 +121,13 @@ export default function AttendancePage() {
     }
   };
 
-
   const handleRecordLeave = async (e: React.FormEvent) => {
     e.preventDefault();
     const userId = (session?.user as any)?.id;
-    if (!userId || !leaveStartDate) return;
+    if (!userId || selectedLeaveDates.length === 0) {
+      showError("Please select at least one date on the calendar.");
+      return;
+    }
 
     setSubmittingLeave(true);
     try {
@@ -116,8 +136,7 @@ export default function AttendancePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "leave",
-          start_date: leaveStartDate,
-          end_date: leaveEndDate || leaveStartDate,
+          selected_dates: selectedLeaveDates,
           status: leaveType,
           reason: leaveReason,
         }),
@@ -126,18 +145,49 @@ export default function AttendancePage() {
       const data = await res.json();
       if (res.ok) {
         setLeaveModalOpen(false);
+        setSelectedLeaveDates([]);
         setLeaveReason("");
         fetchAttendance();
+        if (isManagement) fetchManagementPendingLeaves();
         setFeedback(`✓ ${data.message}`);
-        showToast("Leave recorded successfully!");
+        showToast("Leave request submitted successfully!");
       } else {
-        showError("Failed to Record Leave", data.error || "Unknown error");
+        showError("Failed to Submit Leave", data.error || "Unknown error");
       }
     } catch (err) {
       console.error(err);
-      showError("Error recording leave.");
+      showError("Error submitting leave.");
     } finally {
       setSubmittingLeave(false);
+    }
+  };
+
+  const handleLeaveAction = async (id: number, action: "approve" | "reject") => {
+    setProcessingLeaveAction(id);
+    try {
+      const res = await fetch("/api/attendance/leave-action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id,
+          action,
+          leave_type: leaveType || "Leave",
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        showToast(`Leave request ${action === "approve" ? "approved" : "rejected"}!`);
+        fetchAttendance();
+        fetchManagementPendingLeaves();
+      } else {
+        showError("Action Failed", data.error || "Failed to update leave request");
+      }
+    } catch (err) {
+      console.error(err);
+      showError("Error updating leave request.");
+    } finally {
+      setProcessingLeaveAction(null);
     }
   };
 
@@ -200,7 +250,7 @@ export default function AttendancePage() {
           <div>
             <h3 className="font-bold text-slate-900 text-lg">Executive Exemption Policy ({role === "Admin" ? "Company Admin" : "CEO"})</h3>
             <p className="text-sm text-slate-600 mt-0.5">
-              As {role === "Admin" ? "Company Administrator" : "Chief Executive Officer"}, your account is exempt from check-in, check-out, and daily shift logging. You have full oversight into company timesheets, shift policy configuration, and holiday planning below.
+              As {role === "Admin" ? "Company Administrator" : "Chief Executive Officer"}, your account is exempt from check-in, check-out, and daily shift logging. You have full oversight into company timesheets, leave approval workflows, shift policy configuration, and holiday planning below.
             </p>
           </div>
         </div>
@@ -221,43 +271,30 @@ export default function AttendancePage() {
           <div className="flex flex-wrap items-center gap-3">
             <AttendanceWidget />
 
-            {/* Record / Apply Leave Trigger */}
+            {/* Record / Apply Leave Trigger with Multi-Date Calendar Picker */}
             <Dialog open={leaveModalOpen} onOpenChange={setLeaveModalOpen}>
               <DialogTrigger render={<Button variant="outline" className="text-amber-700 border-amber-300 hover:bg-amber-50 font-bold px-4 py-2.5 flex items-center gap-2" />}>
                 <Palmtree className="h-4 w-4 text-amber-600" /> Apply Leave
               </DialogTrigger>
-              <DialogContent className="max-w-md">
+              <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
                     <Palmtree className="h-5 w-5 text-amber-600" /> Apply for Leave / Day Off
                   </DialogTitle>
                 </DialogHeader>
                 <form onSubmit={handleRecordLeave} className="space-y-4 pt-2">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="leaveStartDate" className="font-semibold text-slate-700 text-xs">Start Date *</Label>
-                      <Input
-                        id="leaveStartDate"
-                        type="date"
-                        value={leaveStartDate}
-                        onChange={(e) => setLeaveStartDate(e.target.value)}
-                        required
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="leaveEndDate" className="font-semibold text-slate-700 text-xs">End Date *</Label>
-                      <Input
-                        id="leaveEndDate"
-                        type="date"
-                        value={leaveEndDate}
-                        onChange={(e) => setLeaveEndDate(e.target.value)}
-                        required
-                      />
-                    </div>
+                  <div className="space-y-1.5">
+                    <Label className="font-bold text-slate-800 text-xs">
+                      Select Leave Days on Calendar *
+                    </Label>
+                    <MultiDateLeavePicker
+                      selectedDates={selectedLeaveDates}
+                      onDatesChange={setSelectedLeaveDates}
+                    />
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label className="font-semibold text-slate-700 text-xs">Leave Type</Label>
+                    <Label className="font-semibold text-slate-700 text-xs">Leave Category</Label>
                     <Select value={leaveType} onValueChange={(val) => setLeaveType(val || "Leave")}>
                       <SelectTrigger><SelectValue placeholder="Leave Type" /></SelectTrigger>
                       <SelectContent>
@@ -280,10 +317,12 @@ export default function AttendancePage() {
 
                   <Button
                     type="submit"
-                    disabled={submittingLeave}
-                    className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 mt-2 shadow-md"
+                    disabled={submittingLeave || selectedLeaveDates.length === 0}
+                    className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 mt-2 shadow-md disabled:opacity-50"
                   >
-                    {submittingLeave ? "Submitting Leave..." : "Confirm & Save Leave"}
+                    {submittingLeave
+                      ? "Submitting Request..."
+                      : `Confirm & Submit ${selectedLeaveDates.length > 0 ? selectedLeaveDates.length + " Day(s)" : "Leave"}`}
                   </Button>
                 </form>
               </DialogContent>
@@ -316,13 +355,90 @@ export default function AttendancePage() {
       {/* VIEW MODE 2: TABLE LIST VIEW & MANAGEMENT ATTENDANCE MANAGER */}
       {viewMode === "table" && (
         <>
+          {/* PM / CEO / Admin Leave Approval Control Card */}
+          {isManagement && managementPendingLeaves && managementPendingLeaves.length > 0 && (
+            <div className="p-5 rounded-2xl border border-amber-300 bg-gradient-to-r from-amber-50/90 via-orange-50/50 to-amber-50/90 shadow-md space-y-4 animate-fade-in">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-amber-200/80 pb-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-amber-600 text-white rounded-xl shadow-xs shrink-0">
+                    <Palmtree className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-amber-950 text-base flex items-center gap-2">
+                      <span>Pending Employee Leave Applications ({managementPendingLeaves.length})</span>
+                      <Badge className="bg-amber-600 text-white font-bold text-[10px] px-2 py-0.5 animate-pulse">
+                        Action Required
+                      </Badge>
+                    </h3>
+                    <p className="text-xs text-amber-800/90 mt-0.5 font-medium">
+                      Review, approve, or reject employee leave requests submitted for upcoming working days.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-amber-200/90 bg-white/90 shadow-2xs overflow-hidden">
+                <Table>
+                  <TableHeader className="bg-amber-100/50">
+                    <TableRow>
+                      <TableHead className="font-bold text-amber-950 text-xs">Employee</TableHead>
+                      <TableHead className="font-bold text-amber-950 text-xs">Role</TableHead>
+                      <TableHead className="font-bold text-amber-950 text-xs">Requested Date</TableHead>
+                      <TableHead className="font-bold text-amber-950 text-xs">Reason / Note</TableHead>
+                      <TableHead className="font-bold text-amber-950 text-xs">Status</TableHead>
+                      <TableHead className="font-bold text-amber-950 text-xs text-right">Approval Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {managementPendingLeaves.map((rec) => (
+                      <TableRow key={rec.id} className="hover:bg-amber-50/50 transition-colors">
+                        <TableCell className="font-bold text-slate-900 text-xs">{rec.employee_name}</TableCell>
+                        <TableCell><Badge variant="outline" className="text-[10px] font-bold">{rec.employee_role}</Badge></TableCell>
+                        <TableCell className="font-mono text-xs font-bold text-slate-900">
+                          {new Date(rec.date).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
+                        </TableCell>
+                        <TableCell className="text-xs text-slate-700 font-medium">
+                          {rec.notes ? rec.notes.replace(/^PENDING_LEAVE:\s*/, "") || "No reason provided" : "No reason provided"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge className="bg-amber-500 text-white font-bold text-[10px]">Leave (Pending)</Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <Button
+                              size="sm"
+                              disabled={processingLeaveAction === rec.id}
+                              onClick={() => handleLeaveAction(rec.id, "approve")}
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-1.5 h-8 px-3 shadow-xs"
+                            >
+                              <Check className="h-3.5 w-3.5" /> Approve
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={processingLeaveAction === rec.id}
+                              onClick={() => handleLeaveAction(rec.id, "reject")}
+                              className="border-red-300 text-red-700 hover:bg-red-50 hover:text-red-800 font-bold text-xs gap-1.5 h-8 px-3 shadow-xs"
+                            >
+                              <X className="h-3.5 w-3.5" /> Reject
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
+
           {/* Executive Attendance Manager Section (Shift Policy, Reports, Logs) */}
           {isManagement && <PMAttendanceManager employees={employees} />}
 
           {/* Attendance History Table */}
           <div className="space-y-3">
-            {/* Upcoming Pending Leave Requests Notice */}
-            {pendingLeaves && pendingLeaves.length > 0 && (
+            {/* Upcoming Pending Leave Requests Notice (for Employee) */}
+            {!isManagement && pendingLeaves && pendingLeaves.length > 0 && (
               <div className="p-4 rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-50/90 to-purple-50/50 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <div className="p-2.5 bg-indigo-600 text-white rounded-xl shadow-2xs shrink-0">
@@ -435,14 +551,39 @@ export default function AttendancePage() {
                             })()}
                           </TableCell>
                           <TableCell className="text-right">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => setSelectedRecord(rec)}
-                              className="text-xs font-semibold gap-1 text-sky-600 hover:bg-sky-50 bg-white"
-                            >
-                              <Eye className="h-3.5 w-3.5" /> View
-                            </Button>
+                            <div className="flex flex-wrap items-center justify-end gap-1.5">
+                              {isManagement && (rec.status === "Leave (Pending)" || rec.status?.includes("Pending")) && (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    disabled={processingLeaveAction === rec.id}
+                                    onClick={() => handleLeaveAction(rec.id, "approve")}
+                                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-1 h-8 px-2.5 shadow-xs"
+                                    title="Approve Leave Application"
+                                  >
+                                    <Check className="h-3.5 w-3.5" /> Approve
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={processingLeaveAction === rec.id}
+                                    onClick={() => handleLeaveAction(rec.id, "reject")}
+                                    className="border-red-300 text-red-700 hover:bg-red-50 hover:text-red-800 font-bold text-xs gap-1 h-8 px-2.5 shadow-xs"
+                                    title="Reject Leave Application"
+                                  >
+                                    <X className="h-3.5 w-3.5" /> Reject
+                                  </Button>
+                                </>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setSelectedRecord(rec)}
+                                className="text-xs font-semibold gap-1 text-sky-600 hover:bg-sky-50 bg-white"
+                              >
+                                <Eye className="h-3.5 w-3.5" /> View
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       );
