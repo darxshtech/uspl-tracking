@@ -20,10 +20,8 @@ import {
   X, 
   PanelLeftClose, 
   PanelLeftOpen, 
-  PanelLeft,
   ChevronRight, 
   Shield,
-  EyeOff,
   KeyRound,
   BookOpen
 } from "lucide-react";
@@ -39,13 +37,13 @@ interface DashboardClientShellProps {
   };
 }
 
-export type DesktopSidebarMode = "expanded" | "collapsed" | "hidden";
+export type DesktopSidebarMode = "expanded" | "collapsed";
 
 export default function DashboardClientShell({ children, user }: DashboardClientShellProps) {
   const pathname = usePathname();
   const role = user.role || "Developer";
 
-  // Desktop sidebar state: 'expanded' | 'collapsed' | 'hidden'
+  // Desktop sidebar state: 'expanded' | 'collapsed'
   const [desktopSidebar, setDesktopSidebar] = useState<DesktopSidebarMode>("expanded");
   // Mobile drawer state
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -56,7 +54,7 @@ export default function DashboardClientShell({ children, user }: DashboardClient
     setMounted(true);
     try {
       const saved = localStorage.getItem("unitglo_desktop_sidebar_mode");
-      if (saved === "expanded" || saved === "collapsed" || saved === "hidden") {
+      if (saved === "expanded" || saved === "collapsed") {
         setDesktopSidebar(saved as DesktopSidebarMode);
       }
     } catch (_) {}
@@ -71,10 +69,7 @@ export default function DashboardClientShell({ children, user }: DashboardClient
 
   const toggleDesktopSidebar = useCallback(() => {
     setDesktopSidebar((prev) => {
-      let next: DesktopSidebarMode = "expanded";
-      if (prev === "expanded") next = "collapsed";
-      else if (prev === "collapsed") next = "hidden";
-      else next = "expanded";
+      const next: DesktopSidebarMode = prev === "expanded" ? "collapsed" : "expanded";
       try {
         localStorage.setItem("unitglo_desktop_sidebar_mode", next);
       } catch (_) {}
@@ -132,7 +127,6 @@ export default function DashboardClientShell({ children, user }: DashboardClient
   const visibleNavItems = navItems.filter((item) => item.roles.includes(role));
 
   const isCollapsed = desktopSidebar === "collapsed";
-  const isHidden = desktopSidebar === "hidden";
 
   return (
     <div className="flex h-screen w-full bg-slate-100 overflow-hidden font-sans select-none">
@@ -229,114 +223,99 @@ export default function DashboardClientShell({ children, user }: DashboardClient
       </aside>
 
       {/* ========================================================================= */}
-      {/* DESKTOP SIDEBAR (>= 768px) with Expand, Collapse & Hide Controls          */}
+      {/* DESKTOP SIDEBAR (>= 768px) with Single Expand/Collapse Control            */}
       {/* ========================================================================= */}
-      {!isHidden && (
-        <aside
-          className={`hidden md:flex flex-col border-r border-slate-800 bg-slate-950 text-white shadow-xl z-20 transition-all duration-300 ease-in-out shrink-0 ${
-            isCollapsed ? "w-20" : "w-64"
-          }`}
-        >
-          {/* Desktop Sidebar Header */}
-          <div className="h-16 border-b border-slate-800/80 px-3.5 flex items-center justify-between bg-slate-950/60 shrink-0">
-            {!isCollapsed && <UnitgloLogo size="sm" theme="dark" />}
-            
-            <div className={`flex items-center gap-1 ${isCollapsed ? "mx-auto" : ""}`}>
-              {/* Collapse/Expand Toggle */}
-              <button
-                type="button"
-                onClick={() => updateDesktopSidebar(isCollapsed ? "expanded" : "collapsed")}
-                className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors cursor-pointer"
-                title={isCollapsed ? "Expand Sidebar (Ctrl+B)" : "Collapse to Mini-bar"}
-                aria-label={isCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
-              >
-                {isCollapsed ? <PanelLeftOpen className="h-5 w-5 text-sky-400" /> : <PanelLeftClose className="h-5 w-5" />}
-              </button>
-
-              {/* Complete Hide Sidebar Button (Web desktop) */}
-              {!isCollapsed && (
-                <button
-                  type="button"
-                  onClick={() => updateDesktopSidebar("hidden")}
-                  className="p-2 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-slate-800/60 transition-colors cursor-pointer"
-                  title="Hide Sidebar (Full-Width Workspace)"
-                  aria-label="Hide Sidebar Completely"
-                >
-                  <EyeOff className="h-4 w-4" />
-                </button>
-              )}
-            </div>
+      <aside
+        className={`hidden md:flex flex-col border-r border-slate-800 bg-slate-950 text-white shadow-xl z-20 transition-all duration-300 ease-in-out shrink-0 ${
+          isCollapsed ? "w-20" : "w-64"
+        }`}
+      >
+        {/* Desktop Sidebar Header */}
+        <div className="h-16 border-b border-slate-800/80 px-3.5 flex items-center justify-between bg-slate-950/60 shrink-0">
+          {!isCollapsed && <UnitgloLogo size="sm" theme="dark" />}
+          
+          <div className={`flex items-center gap-1 ${isCollapsed ? "mx-auto" : ""}`}>
+            {/* Single Collapse/Expand Toggle */}
+            <button
+              type="button"
+              onClick={() => updateDesktopSidebar(isCollapsed ? "expanded" : "collapsed")}
+              className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors cursor-pointer"
+              title={isCollapsed ? "Expand Sidebar (Ctrl+B)" : "Collapse Sidebar (Ctrl+B)"}
+              aria-label={isCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+            >
+              {isCollapsed ? <PanelLeftOpen className="h-5 w-5 text-sky-400" /> : <PanelLeftClose className="h-5 w-5" />}
+            </button>
           </div>
+        </div>
 
-          {/* Desktop Nav Items */}
-          <nav className="flex-1 overflow-y-auto py-5 px-3 space-y-1.5 focus:outline-none">
-            {visibleNavItems.map((item) => {
-              const isActive = pathname === item.href;
-              return (
-                <Link
-                  key={item.name}
-                  href={item.href}
-                  className={`flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-all group ${
-                    isActive
-                      ? "bg-sky-500 text-white shadow-md shadow-sky-500/25 font-bold"
-                      : "text-slate-300 hover:bg-slate-900 hover:text-sky-400"
-                  } ${isCollapsed ? "justify-center px-2" : ""}`}
-                  title={isCollapsed ? item.name : undefined}
-                >
-                  <item.icon
-                    className={`h-4 w-4 shrink-0 transition-colors ${
-                      isActive ? "text-white" : "text-slate-400 group-hover:text-sky-400"
-                    }`}
+        {/* Desktop Nav Items */}
+        <nav className="flex-1 overflow-y-auto py-5 px-3 space-y-1.5 focus:outline-none">
+          {visibleNavItems.map((item) => {
+            const isActive = pathname === item.href;
+            return (
+              <Link
+                key={item.name}
+                href={item.href}
+                className={`flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-all group ${
+                  isActive
+                    ? "bg-sky-500 text-white shadow-md shadow-sky-500/25 font-bold"
+                    : "text-slate-300 hover:bg-slate-900 hover:text-sky-400"
+                } ${isCollapsed ? "justify-center px-2" : ""}`}
+                title={isCollapsed ? item.name : undefined}
+              >
+                <item.icon
+                  className={`h-4 w-4 shrink-0 transition-colors ${
+                    isActive ? "text-white" : "text-slate-400 group-hover:text-sky-400"
+                  }`}
+                />
+                {!isCollapsed && <span className="truncate">{item.name}</span>}
+              </Link>
+            );
+          })}
+        </nav>
+
+        {/* Desktop User Profile Footer */}
+        <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/80 flex items-center justify-between shrink-0">
+          {!isCollapsed ? (
+            <>
+              <Link href="/dashboard/profile" className="flex items-center gap-2.5 truncate hover:opacity-85 transition-opacity flex-1 mr-2">
+                {user.avatar_url ? (
+                  <img
+                    src={user.avatar_url}
+                    alt={user.name || "User"}
+                    className="h-8 w-8 rounded-full object-cover border border-sky-400/40 shrink-0"
                   />
-                  {!isCollapsed && <span className="truncate">{item.name}</span>}
-                </Link>
-              );
-            })}
-          </nav>
-
-          {/* Desktop User Profile Footer */}
-          <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/80 flex items-center justify-between shrink-0">
-            {!isCollapsed ? (
-              <>
-                <Link href="/dashboard/profile" className="flex items-center gap-2.5 truncate hover:opacity-85 transition-opacity flex-1 mr-2">
-                  {user.avatar_url ? (
-                    <img
-                      src={user.avatar_url}
-                      alt={user.name || "User"}
-                      className="h-8 w-8 rounded-full object-cover border border-sky-400/40 shrink-0"
-                    />
-                  ) : (
-                    <div className="h-8 w-8 rounded-full bg-sky-500/20 border border-sky-400/30 flex items-center justify-center text-sky-400 font-bold text-xs shrink-0">
-                      {user.name ? user.name.charAt(0).toUpperCase() : "U"}
-                    </div>
-                  )}
-                  <div className="truncate text-xs">
-                    <p className="font-bold text-slate-100 truncate">{user.name}</p>
-                    <span className="inline-block text-[10px] font-semibold text-sky-400">
-                      {getRoleIconEmoji(role)} {getRoleDisplayName(role)}
-                    </span>
+                ) : (
+                  <div className="h-8 w-8 rounded-full bg-sky-500/20 border border-sky-400/30 flex items-center justify-center text-sky-400 font-bold text-xs shrink-0">
+                    {user.name ? user.name.charAt(0).toUpperCase() : "U"}
                   </div>
-                </Link>
-                <Link
-                  href="/api/auth/signout"
-                  className="text-slate-400 hover:text-red-400 p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
-                  title="Sign Out"
-                >
-                  <LogOut className="h-4 w-4" />
-                </Link>
-              </>
-            ) : (
+                )}
+                <div className="truncate text-xs">
+                  <p className="font-bold text-slate-100 truncate">{user.name}</p>
+                  <span className="inline-block text-[10px] font-semibold text-sky-400">
+                    {getRoleIconEmoji(role)} {getRoleDisplayName(role)}
+                  </span>
+                </div>
+              </Link>
               <Link
                 href="/api/auth/signout"
-                className="mx-auto text-slate-400 hover:text-red-400 p-2 rounded-lg hover:bg-slate-800 transition-colors"
+                className="text-slate-400 hover:text-red-400 p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
                 title="Sign Out"
               >
                 <LogOut className="h-4 w-4" />
               </Link>
-            )}
-          </div>
-        </aside>
-      )}
+            </>
+          ) : (
+            <Link
+              href="/api/auth/signout"
+              className="mx-auto text-slate-400 hover:text-red-400 p-2 rounded-lg hover:bg-slate-800 transition-colors"
+              title="Sign Out"
+            >
+              <LogOut className="h-4 w-4" />
+            </Link>
+          )}
+        </div>
+      </aside>
 
       {/* ========================================================================= */}
       {/* MAIN VIEWPORT & ADAPTIVE TOPBAR (Responsive for Mobile & Global Devices)  */}
@@ -344,7 +323,7 @@ export default function DashboardClientShell({ children, user }: DashboardClient
       <div className="flex-1 flex flex-col h-screen overflow-hidden bg-slate-50 min-w-0">
         {/* Sticky Adaptive Top Header */}
         <header className="h-16 border-b border-slate-200 bg-white/95 backdrop-blur-md flex items-center justify-between px-3 sm:px-6 z-10 shrink-0 gap-2">
-          {/* Left: Mobile Hamburger & Desktop Sidebar Unhide / Toggle Button */}
+          {/* Left: Mobile Hamburger Button */}
           <div className="flex items-center gap-2 sm:gap-3.5 min-w-0">
             {/* Mobile Hamburger Button (>=44x44px touch target) */}
             <button
@@ -357,32 +336,6 @@ export default function DashboardClientShell({ children, user }: DashboardClient
             >
               <Menu className="h-6 w-6" />
             </button>
-
-            {/* Desktop Sidebar Toggle / Unhide Button */}
-            <div className="hidden md:flex items-center gap-2">
-              <button
-                type="button"
-                onClick={toggleDesktopSidebar}
-                className="p-2 rounded-lg text-slate-600 hover:text-sky-600 hover:bg-slate-100 transition-colors cursor-pointer flex items-center gap-1.5 text-xs font-semibold"
-                title={
-                  isHidden 
-                    ? "Show Sidebar (Ctrl+B)" 
-                    : isCollapsed 
-                    ? "Expand Sidebar (Ctrl+B)" 
-                    : "Collapse / Hide Sidebar (Ctrl+B)"
-                }
-              >
-                <PanelLeft className="h-5 w-5 text-slate-700 hover:text-sky-600 transition-colors" />
-                {isHidden && <span className="text-xs font-bold text-sky-600">Show Menu</span>}
-              </button>
-
-              {/* If desktop sidebar is hidden, show logo in top header */}
-              {isHidden && (
-                <div className="pl-1 border-l border-slate-200">
-                  <UnitgloLogo size="sm" />
-                </div>
-              )}
-            </div>
 
             {/* Portal Title */}
             <div className="flex items-center gap-2 truncate">
