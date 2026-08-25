@@ -13,7 +13,7 @@ export async function GET(req: Request) {
   }
 
   try {
-    const [users]: any = await pool.query("SELECT id, name, email, role, leaves_carried_forward, total_leaves_allowed FROM users WHERE role != 'CEO'");
+    const [users]: any = await pool.query("SELECT id, name, email, role, leaves_carried_forward, total_leaves_allowed FROM users WHERE role NOT IN ('CEO', 'Admin')");
     
     const now = new Date();
     let startDate: Date;

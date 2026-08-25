@@ -27,9 +27,9 @@ async function handleDispatch(req: Request) {
       "DELETE FROM notifications WHERE title LIKE '%Test Push Notification%' OR title LIKE '%Half Day Warning Alert%'"
     );
 
-    // 2. Fetch all employees except CEO
+    // 2. Fetch all employees except CEO and Admin
     const [employees]: any = await pool.query(
-      "SELECT id, name, role, email FROM users WHERE role != 'CEO'"
+      "SELECT id, name, role, email FROM users WHERE role NOT IN ('CEO', 'Admin')"
     );
 
     const pushedTo: any[] = [];

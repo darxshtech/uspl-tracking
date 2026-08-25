@@ -479,7 +479,7 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
                       <SelectTrigger><SelectValue placeholder="Choose Employee" /></SelectTrigger>
                       <SelectContent>
                         {employees
-                          .filter((e) => e.role !== "CEO")
+                          .filter((e) => e.role !== "CEO" && e.role !== "Admin")
                           .map((e) => (
                             <SelectItem key={e.id} value={e.id.toString()}>{e.name} ({e.role})</SelectItem>
                           ))}
@@ -659,7 +659,7 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
               <SelectContent>
                 <SelectItem value="ALL">All Employees</SelectItem>
                 {employees
-                  .filter((e) => e.role !== "CEO")
+                  .filter((e) => e.role !== "CEO" && e.role !== "Admin")
                   .map((e) => (
                     <SelectItem key={e.id} value={e.id.toString()}>{e.name} ({e.role})</SelectItem>
                   ))}

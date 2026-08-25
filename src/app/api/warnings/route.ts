@@ -28,9 +28,9 @@ export async function GET() {
        LIMIT 100`
     );
 
-    // 2. Fetch all employees except CEO and check their last completed shift
+    // 2. Fetch all employees except CEO and Admin
     const [employees]: any = await pool.query(
-      "SELECT id, name, role, email, avatar_url FROM users WHERE role != 'CEO'"
+      "SELECT id, name, role, email, avatar_url FROM users WHERE role NOT IN ('CEO', 'Admin')"
     );
 
     const incompleteEmployees: any[] = [];
@@ -109,7 +109,7 @@ export async function POST(req: Request) {
     const dispatched: any[] = [];
 
     // Target specific employee or all employees with incomplete shifts
-    let targetQuery = "SELECT id, name, role, email FROM users WHERE role != 'CEO'";
+    let targetQuery = "SELECT id, name, role, email FROM users WHERE role NOT IN ('CEO', 'Admin')";
     let params: any[] = [];
 
     if (employeeId && !resendAll) {

@@ -262,7 +262,7 @@ export default function AttendanceCalendarView({
                 <SelectContent>
                   <SelectItem value="ALL">All Team Members</SelectItem>
                   {employees
-                    .filter((e) => e.role !== "CEO")
+                    .filter((e) => e.role !== "CEO" && e.role !== "Admin")
                     .map((e) => (
                       <SelectItem key={e.id} value={e.id.toString()}>{e.name} ({e.role})</SelectItem>
                     ))}

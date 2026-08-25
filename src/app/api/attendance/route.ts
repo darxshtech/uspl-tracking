@@ -11,8 +11,13 @@ async function syncAutoAbsentRecords(todayIST: string) {
     // Delete legacy attendance records created prior to system launch (17 Aug 2026)
     await pool.query("DELETE FROM attendance WHERE date < ?", [SYSTEM_START_DATE]);
 
+    // Clean up auto-marked absent records for exempt executive management roles (CEO, Admin)
+    await pool.query(
+      "DELETE FROM attendance WHERE user_id IN (SELECT id FROM users WHERE role IN ('CEO', 'Admin')) AND (status = 'Absent' OR notes LIKE 'Auto-marked%')"
+    );
+
     const [employees]: any = await pool.query(
-      "SELECT id FROM users WHERE role != 'CEO' AND is_active = 1"
+      "SELECT id FROM users WHERE role NOT IN ('CEO', 'Admin') AND is_active = 1"
     );
     if (!employees || employees.length === 0) return;
 
@@ -84,12 +89,12 @@ export async function GET(req: Request) {
     // Sync auto-absent records for unperformed shifts/leaves
     await syncAutoAbsentRecords(todayIST);
 
-    // 1. Fetch attendance records (including future pending/approved leaves)
+    // 1. Fetch attendance records (excluding CEO & Admin exempt management roles)
     let query = `
       SELECT a.*, u.name as employee_name, u.role as employee_role, u.email as employee_email 
       FROM attendance a 
       JOIN users u ON a.user_id = u.id
-      WHERE u.role != 'CEO' AND a.date >= ? AND (a.date <= ? OR a.status LIKE '%Leave%' OR a.status LIKE '%Pending%')
+      WHERE u.role NOT IN ('CEO', 'Admin') AND a.date >= ? AND (a.date <= ? OR a.status LIKE '%Leave%' OR a.status LIKE '%Pending%')
     `;
     let params: any[] = [SYSTEM_START_DATE, todayIST];
 

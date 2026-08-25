@@ -21,8 +21,13 @@ export async function GET(req: Request) {
     const SYSTEM_START_DATE = "2026-08-17";
     await pool.query("DELETE FROM attendance WHERE date < ?", [SYSTEM_START_DATE]);
 
+    // Clean up auto-marked absent records for exempt executive management roles (CEO, Admin)
+    await pool.query(
+      "DELETE FROM attendance WHERE user_id IN (SELECT id FROM users WHERE role IN ('CEO', 'Admin')) AND (status = 'Absent' OR notes LIKE 'Auto-marked%')"
+    );
+
     const todayIST = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Kolkata' });
-    const [employees]: any = await pool.query("SELECT id FROM users WHERE role != 'CEO' AND is_active = 1");
+    const [employees]: any = await pool.query("SELECT id FROM users WHERE role NOT IN ('CEO', 'Admin') AND is_active = 1");
     if (employees && employees.length > 0) {
       const [holidayRows]: any = await pool.query(
         "SELECT DATE_FORMAT(date, '%Y-%m-%d') as hol_date FROM holidays WHERE date <= ?",
@@ -58,7 +63,7 @@ export async function GET(req: Request) {
       SELECT a.*, u.name as employee_name, u.email as employee_email, u.role as employee_role
       FROM attendance a
       JOIN users u ON a.user_id = u.id
-      WHERE u.role != 'CEO' AND a.date >= ?
+      WHERE u.role NOT IN ('CEO', 'Admin') AND a.date >= ?
     `;
     let params: any[] = [SYSTEM_START_DATE];
 
