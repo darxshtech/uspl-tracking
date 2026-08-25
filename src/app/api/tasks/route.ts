@@ -29,15 +29,36 @@ export async function GET() {
     `;
     let params: any[] = [];
     
-    // For Developers and Testers: fetch their own daily tasks (assigned or self-created)
+    // For Developers and Testers: fetch their own daily tasks (assigned, multi-assigned, or self-created)
     if (role === "Developer" || role === "Tester") {
-      query += " WHERE (t.assigned_to = ? OR t.created_by = ?)";
-      params = [userId, userId];
+      query += " WHERE (t.assigned_to = ? OR t.created_by = ? OR t.id IN (SELECT task_id FROM task_assignees WHERE user_id = ?))";
+      params = [userId, userId, userId];
     }
 
     query += " ORDER BY t.created_at DESC";
 
     const [rows]: any = await pool.query(query, params);
+
+    // Fetch assignees from task_assignees junction table
+    const assigneesMap: Record<number, any[]> = {};
+    try {
+      const [assigneeRows]: any = await pool.query(`
+        SELECT ta.task_id, u.id, u.name, u.email, u.role 
+        FROM task_assignees ta
+        JOIN users u ON ta.user_id = u.id
+      `);
+      if (Array.isArray(assigneeRows)) {
+        assigneeRows.forEach((a: any) => {
+          if (!assigneesMap[a.task_id]) assigneesMap[a.task_id] = [];
+          assigneesMap[a.task_id].push({
+            id: a.id,
+            name: a.name,
+            email: a.email,
+            role: a.role,
+          });
+        });
+      }
+    } catch (_) {}
 
     // Safely Fetch checklists if table exists
     const checklistMap: Record<number, any[]> = {};
@@ -46,10 +67,17 @@ export async function GET() {
       if (Array.isArray(checklistRows)) {
         checklistRows.forEach((c: any) => {
           if (!checklistMap[c.task_id]) checklistMap[c.task_id] = [];
+          let parsedAtts: any[] = [];
+          if (typeof c.attachments === "string") {
+            try { parsedAtts = JSON.parse(c.attachments); } catch (_) {}
+          } else if (Array.isArray(c.attachments)) {
+            parsedAtts = c.attachments;
+          }
           checklistMap[c.task_id].push({
             id: c.id,
             item_text: c.item_text,
             is_completed: Boolean(c.is_completed),
+            attachments: parsedAtts,
           });
         });
       }
@@ -67,10 +95,13 @@ export async function GET() {
         parsedLinks = [r.task_link];
       }
 
+      const taskAssignees = assigneesMap[r.id] || (r.assigned_to ? [{ id: r.assigned_to, name: r.assignee_name }] : []);
+
       return {
         ...r,
         task_links: parsedLinks,
         checklists: checklistMap[r.id] || [],
+        assignees: taskAssignees,
       };
     });
 
@@ -91,19 +122,27 @@ export async function POST(req: Request) {
     const currentUserName = session.user?.name || "User";
     const body = await req.json();
 
-    // 1. Sub-task / Checklist item creation
+    // 1. Sub-task / Checklist item creation (with optional sub-task attachments)
     if (body.action === "add_checklist") {
-      const { task_id, item_text } = body;
+      const { task_id, item_text, attachments } = body;
       if (!task_id || !item_text) {
         return NextResponse.json({ error: "Task ID and item text are required" }, { status: 400 });
       }
 
+      const attsJson = Array.isArray(attachments) ? JSON.stringify(attachments) : null;
       const [result]: any = await pool.query(
-        "INSERT INTO task_checklists (task_id, item_text, is_completed) VALUES (?, ?, false)",
-        [task_id, item_text]
+        "INSERT INTO task_checklists (task_id, item_text, is_completed, attachments) VALUES (?, ?, false, ?)",
+        [task_id, item_text, attsJson]
       );
 
-      return NextResponse.json({ success: true, id: result.insertId, task_id, item_text, is_completed: false });
+      return NextResponse.json({ 
+        success: true, 
+        id: result.insertId, 
+        task_id, 
+        item_text, 
+        is_completed: false, 
+        attachments: attachments || [] 
+      });
     }
 
     // 2. Main Task creation (Developers, Testers, PM, CEO, Admin)
@@ -169,6 +208,12 @@ export async function POST(req: Request) {
 
         const taskId = result.insertId;
 
+        // Insert into task_assignees
+        await pool.query(
+          "INSERT IGNORE INTO task_assignees (task_id, user_id) VALUES (?, ?)",
+          [taskId, emp.id]
+        );
+
         // Insert subtasks / checklists for this employee's task copy
         if (checklists && Array.isArray(checklists) && checklists.length > 0) {
           for (const item of checklists) {
@@ -176,6 +221,12 @@ export async function POST(req: Request) {
               await pool.query(
                 "INSERT INTO task_checklists (task_id, item_text, is_completed) VALUES (?, ?, false)",
                 [taskId, item.trim()]
+              );
+            } else if (typeof item === "object" && item && item.item_text) {
+              const itemAtts = Array.isArray(item.attachments) ? JSON.stringify(item.attachments) : null;
+              await pool.query(
+                "INSERT INTO task_checklists (task_id, item_text, is_completed, attachments) VALUES (?, ?, ?, ?)",
+                [taskId, item.item_text.trim(), item.is_completed ? 1 : 0, itemAtts]
               );
             }
           }
@@ -201,15 +252,23 @@ export async function POST(req: Request) {
       }, { status: 201 });
     }
 
-    // SINGLE TASK CREATION
-    let finalAssignee = assigned_to;
-    if ((role === "Developer" || role === "Tester") && !finalAssignee) {
-      finalAssignee = currentUserId; // Created for self
+    // SINGLE OR MULTI-ASSIGNEE TASK CREATION
+    let assignedUserIds: number[] = [];
+    if (Array.isArray(assigned_to)) {
+      assignedUserIds = assigned_to.map((id: any) => parseInt(id)).filter(Boolean);
+    } else if (assigned_to) {
+      assignedUserIds = [parseInt(assigned_to)];
     }
 
-    if (!finalAssignee) {
-      return NextResponse.json({ error: "Assignee is required" }, { status: 400 });
+    if ((role === "Developer" || role === "Tester") && assignedUserIds.length === 0) {
+      assignedUserIds = [currentUserId]; // Created for self
     }
+
+    if (assignedUserIds.length === 0) {
+      return NextResponse.json({ error: "At least one assignee is required" }, { status: 400 });
+    }
+
+    const primaryAssignee = assignedUserIds[0];
 
     const [result]: any = await pool.query(
       `INSERT INTO tasks (title, description, project_id, created_by, assigned_to, priority, due_date, target_date, status, assigned_by_type) 
@@ -219,7 +278,7 @@ export async function POST(req: Request) {
         description || null,
         project_id,
         currentUserId,
-        finalAssignee,
+        primaryAssignee,
         priority || "Medium",
         due_date || taskTargetDate,
         taskTargetDate,
@@ -230,6 +289,14 @@ export async function POST(req: Request) {
 
     const taskId = result.insertId;
 
+    // Insert task assignees into task_assignees junction table
+    for (const uid of assignedUserIds) {
+      await pool.query(
+        "INSERT IGNORE INTO task_assignees (task_id, user_id) VALUES (?, ?)",
+        [taskId, uid]
+      );
+    }
+
     // Insert subtasks / checklists if provided
     if (checklists && Array.isArray(checklists) && checklists.length > 0) {
       for (const item of checklists) {
@@ -238,20 +305,28 @@ export async function POST(req: Request) {
             "INSERT INTO task_checklists (task_id, item_text, is_completed) VALUES (?, ?, false)",
             [taskId, item.trim()]
           );
+        } else if (typeof item === "object" && item && item.item_text) {
+          const itemAtts = Array.isArray(item.attachments) ? JSON.stringify(item.attachments) : null;
+          await pool.query(
+            "INSERT INTO task_checklists (task_id, item_text, is_completed, attachments) VALUES (?, ?, ?, ?)",
+            [taskId, item.item_text.trim(), item.is_completed ? 1 : 0, itemAtts]
+          );
         }
       }
     }
 
-    // Notify assigned developer/tester if created by someone else
-    if (finalAssignee !== currentUserId) {
-      await pool.query(
-        `INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'task_assigned')`,
-        [
-          finalAssignee,
-          `New Task Assigned by ${currentUserName} (${role})`,
-          `Task "${title}" has been assigned to you. Scheduled for: ${taskTargetDate}.`
-        ]
-      );
+    // Notify assigned team members if created by someone else
+    for (const uid of assignedUserIds) {
+      if (uid !== currentUserId) {
+        await pool.query(
+          `INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'task_assigned')`,
+          [
+            uid,
+            `New Task Assigned by ${currentUserName} (${role})`,
+            `Task "${title}" has been assigned to you. Scheduled for: ${taskTargetDate}.`
+          ]
+        );
+      }
     }
 
     return NextResponse.json({ 
@@ -272,7 +347,7 @@ export async function PATCH(req: Request) {
   try {
     const body = await req.json();
 
-    // 1. Toggle checklist item completion
+    // 1a. Toggle checklist item completion
     if (body.action === "toggle_checklist") {
       const { checklist_id, is_completed } = body;
       await pool.query(
@@ -280,6 +355,31 @@ export async function PATCH(req: Request) {
         [is_completed ? 1 : 0, checklist_id]
       );
       return NextResponse.json({ success: true, checklist_id, is_completed });
+    }
+
+    // 1b. Edit checklist item (text & attachments)
+    if (body.action === "edit_checklist") {
+      const { checklist_id, item_text, attachments } = body;
+      if (!checklist_id) {
+        return NextResponse.json({ error: "Checklist ID is required" }, { status: 400 });
+      }
+
+      const attsJson = Array.isArray(attachments) ? JSON.stringify(attachments) : null;
+      await pool.query(
+        "UPDATE task_checklists SET item_text = IFNULL(?, item_text), attachments = ? WHERE id = ?",
+        [item_text !== undefined ? item_text : null, attsJson, checklist_id]
+      );
+      return NextResponse.json({ success: true, checklist_id, item_text, attachments });
+    }
+
+    // 1c. Delete checklist item
+    if (body.action === "delete_checklist") {
+      const { checklist_id } = body;
+      if (!checklist_id) {
+        return NextResponse.json({ error: "Checklist ID is required" }, { status: 400 });
+      }
+      await pool.query("DELETE FROM task_checklists WHERE id = ?", [checklist_id]);
+      return NextResponse.json({ success: true, checklist_id });
     }
 
     const { 
@@ -339,6 +439,15 @@ export async function PATCH(req: Request) {
         }
       }
 
+      let assignedUserIds: number[] | null = null;
+      if (Array.isArray(assigned_to)) {
+        assignedUserIds = assigned_to.map((a: any) => parseInt(a)).filter(Boolean);
+      } else if (assigned_to) {
+        assignedUserIds = [parseInt(assigned_to)];
+      }
+
+      const primaryAssignee = assignedUserIds && assignedUserIds.length > 0 ? assignedUserIds[0] : (assigned_to !== undefined ? assigned_to : null);
+
       await pool.query(
         `UPDATE tasks 
          SET title = IFNULL(?, title),
@@ -359,7 +468,7 @@ export async function PATCH(req: Request) {
           title !== undefined ? title : null,
           description !== undefined ? description : null,
           project_id !== undefined ? project_id : null,
-          assigned_to !== undefined ? assigned_to : null,
+          primaryAssignee,
           priority !== undefined ? priority : null,
           target_date !== undefined ? target_date : null,
           due_date !== undefined ? due_date : null,
@@ -372,6 +481,17 @@ export async function PATCH(req: Request) {
           id
         ]
       );
+
+      // Update junction table for multi-assignees if provided
+      if (assignedUserIds) {
+        await pool.query("DELETE FROM task_assignees WHERE task_id = ?", [id]);
+        for (const uid of assignedUserIds) {
+          await pool.query(
+            "INSERT IGNORE INTO task_assignees (task_id, user_id) VALUES (?, ?)",
+            [id, uid]
+          );
+        }
+      }
 
       return NextResponse.json({ success: true, id, message: "Task updated successfully by management." });
     }

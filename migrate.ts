@@ -75,6 +75,40 @@ async function main() {
       console.log("Project is_fast_track column might already exist: ", e.message);
     }
 
+    // Add attachments column to task_checklists table
+    console.log("Adding attachments column to task_checklists table...");
+    try {
+      await connection.query(`ALTER TABLE task_checklists ADD COLUMN attachments JSON DEFAULT NULL`);
+      console.log("Added attachments column to task_checklists");
+    } catch (e: any) {
+      console.log("task_checklists attachments column might already exist: ", e.message);
+    }
+
+    // Create task_assignees junction table for multi-select team member assignments
+    console.log("Creating task_assignees table...");
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS task_assignees (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        task_id INT NOT NULL,
+        user_id INT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_task_user (task_id, user_id),
+        FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // Backfill task_assignees from existing tasks.assigned_to
+    try {
+      await connection.query(`
+        INSERT IGNORE INTO task_assignees (task_id, user_id)
+        SELECT id, assigned_to FROM tasks WHERE assigned_to IS NOT NULL;
+      `);
+      console.log("Backfilled task_assignees from existing tasks");
+    } catch (e: any) {
+      console.log("Error backfilling task_assignees: ", e.message);
+    }
+
     console.log("Done!");
   } catch (err) {
     console.error(err);

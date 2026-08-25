@@ -40,7 +40,10 @@ import {
   RefreshCw,
   Filter,
   Search,
-  Hash
+  Hash,
+  Paperclip,
+  Link2,
+  Users
 } from "lucide-react";
 import { formatHoursAndMinutes } from "@/lib/timeUtils";
 
@@ -70,19 +73,34 @@ export default function DailyTasksPage() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [projectId, setProjectId] = useState("");
-  const [assignedTo, setAssignedTo] = useState("");
+  const [assignedTo, setAssignedTo] = useState<string[]>([]);
   const [priority, setPriority] = useState("Medium");
   const [assignedByType, setAssignedByType] = useState<"PM" | "CEO" | "Tester" | "Self Tested">("Self Tested");
   const [timeline, setTimeline] = useState<"today" | "tomorrow" | "custom">("today");
   const [customDate, setCustomDate] = useState("");
-  const [initialChecklists, setInitialChecklists] = useState<string[]>([]);
+  const [initialChecklists, setInitialChecklists] = useState<{ id?: number; item_text: string; is_completed?: boolean; attachments?: { title: string; url: string }[] }[]>([]);
   const [newChecklistInput, setNewChecklistInput] = useState("");
   const [assignToAll, setAssignToAll] = useState(false);
   const [isMockTask, setIsMockTask] = useState(false);
 
-  // Sub-task creation in table
+  // Sub-task creation & attachment state
   const [activeChecklistTaskId, setActiveChecklistTaskId] = useState<number | null>(null);
   const [newChecklistText, setNewChecklistText] = useState("");
+  const [subTaskAttModalOpen, setSubTaskAttModalOpen] = useState(false);
+  const [subTaskAttTarget, setSubTaskAttTarget] = useState<{
+    isInitial?: boolean;
+    initialIndex?: number;
+    checklistId?: number;
+    taskId?: number;
+    itemText: string;
+    attachments: { title: string; url: string }[];
+  } | null>(null);
+  const [newSubTaskAttTitle, setNewSubTaskAttTitle] = useState("");
+  const [newSubTaskAttUrl, setNewSubTaskAttUrl] = useState("");
+
+  // Inline editing sub-task state
+  const [editingSubTaskId, setEditingSubTaskId] = useState<number | null>(null);
+  const [editingSubTaskText, setEditingSubTaskText] = useState("");
 
   // Update Task Progress Modal state
   const [progressModalOpen, setProgressModalOpen] = useState(false);
@@ -114,7 +132,7 @@ export default function DailyTasksPage() {
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editProjectId, setEditProjectId] = useState("");
-  const [editAssignedTo, setEditAssignedTo] = useState("");
+  const [editAssignedTo, setEditAssignedTo] = useState<string[]>([]);
   const [editPriority, setEditPriority] = useState("Medium");
   const [editStatus, setEditStatus] = useState("In Progress");
   const [editTargetDate, setEditTargetDate] = useState("");
@@ -211,12 +229,152 @@ export default function DailyTasksPage() {
 
   const handleAddInitialChecklist = () => {
     if (!newChecklistInput.trim()) return;
-    setInitialChecklists((prev) => [...prev, newChecklistInput.trim()]);
+    setInitialChecklists((prev) => [
+      ...prev,
+      { item_text: newChecklistInput.trim(), attachments: [] }
+    ]);
     setNewChecklistInput("");
   };
 
   const handleRemoveInitialChecklist = (index: number) => {
     setInitialChecklists((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  // Sub-task attachment handlers
+  const handleOpenSubTaskAttModal = (target: {
+    isInitial?: boolean;
+    initialIndex?: number;
+    checklistId?: number;
+    taskId?: number;
+    itemText: string;
+    attachments: { title: string; url: string }[];
+  }) => {
+    setSubTaskAttTarget(target);
+    setNewSubTaskAttTitle("");
+    setNewSubTaskAttUrl("");
+    setSubTaskAttModalOpen(true);
+  };
+
+  const handleAddAttachmentToSubTask = async () => {
+    if (!subTaskAttTarget) return;
+    if (!newSubTaskAttTitle.trim() || !newSubTaskAttUrl.trim()) {
+      showWarning("Missing Details", "Please enter both an attachment title and URL.");
+      return;
+    }
+
+    let urlToUse = newSubTaskAttUrl.trim();
+    if (!urlToUse.startsWith("http://") && !urlToUse.startsWith("https://")) {
+      urlToUse = "https://" + urlToUse;
+    }
+
+    const newAtt = { title: newSubTaskAttTitle.trim(), url: urlToUse };
+    const updatedAtts = [...(subTaskAttTarget.attachments || []), newAtt];
+
+    if (subTaskAttTarget.isInitial && subTaskAttTarget.initialIndex !== undefined) {
+      const idx = subTaskAttTarget.initialIndex;
+      setInitialChecklists((prev) =>
+        prev.map((item, i) => (i === idx ? { ...item, attachments: updatedAtts } : item))
+      );
+      setSubTaskAttTarget((prev) => prev ? { ...prev, attachments: updatedAtts } : null);
+    } else if (subTaskAttTarget.checklistId) {
+      try {
+        const res = await fetch("/api/tasks", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "edit_checklist",
+            checklist_id: subTaskAttTarget.checklistId,
+            item_text: subTaskAttTarget.itemText,
+            attachments: updatedAtts,
+          }),
+        });
+        if (res.ok) {
+          setSubTaskAttTarget((prev) => prev ? { ...prev, attachments: updatedAtts } : null);
+          fetchTasks();
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    setNewSubTaskAttTitle("");
+    setNewSubTaskAttUrl("");
+    showToast("Attachment added to sub-task!");
+  };
+
+  const handleDeleteAttachmentFromSubTask = async (attIndex: number) => {
+    if (!subTaskAttTarget) return;
+    const updatedAtts = (subTaskAttTarget.attachments || []).filter((_, i) => i !== attIndex);
+
+    if (subTaskAttTarget.isInitial && subTaskAttTarget.initialIndex !== undefined) {
+      const idx = subTaskAttTarget.initialIndex;
+      setInitialChecklists((prev) =>
+        prev.map((item, i) => (i === idx ? { ...item, attachments: updatedAtts } : item))
+      );
+      setSubTaskAttTarget((prev) => prev ? { ...prev, attachments: updatedAtts } : null);
+    } else if (subTaskAttTarget.checklistId) {
+      try {
+        const res = await fetch("/api/tasks", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "edit_checklist",
+            checklist_id: subTaskAttTarget.checklistId,
+            item_text: subTaskAttTarget.itemText,
+            attachments: updatedAtts,
+          }),
+        });
+        if (res.ok) {
+          setSubTaskAttTarget((prev) => prev ? { ...prev, attachments: updatedAtts } : null);
+          fetchTasks();
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
+  const handleDeleteSubTask = async (checklistId: number) => {
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "delete_checklist",
+          checklist_id: checklistId,
+        }),
+      });
+      if (res.ok) {
+        fetchTasks();
+        showToast("Sub-task deleted!");
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleUpdateSubTaskText = async (checklistId: number, currentAtts: any[]) => {
+    if (!editingSubTaskText.trim()) return;
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "edit_checklist",
+          checklist_id: checklistId,
+          item_text: editingSubTaskText.trim(),
+          attachments: currentAtts || [],
+        }),
+      });
+      if (res.ok) {
+        setEditingSubTaskId(null);
+        setEditingSubTaskText("");
+        fetchTasks();
+        showToast("Sub-task text updated!");
+      }
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const handleCreateTask = async (e: React.FormEvent) => {
@@ -228,6 +386,10 @@ export default function DailyTasksPage() {
 
     setSubmitting(true);
     try {
+      const finalAssignees = canManageAllTasks 
+        ? (assignedTo.length > 0 ? assignedTo : [currentUserId.toString()])
+        : [currentUserId.toString()];
+
       const res = await fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -235,7 +397,7 @@ export default function DailyTasksPage() {
           title,
           description,
           project_id: projectId,
-          assigned_to: canManageAllTasks ? (assignedTo || currentUserId) : currentUserId,
+          assigned_to: finalAssignees,
           priority,
           assigned_by_type: assignedByType,
           timeline,
@@ -253,7 +415,7 @@ export default function DailyTasksPage() {
         setTitle("");
         setDescription("");
         setProjectId("");
-        setAssignedTo("");
+        setAssignedTo([]);
         setPriority("Medium");
         setAssignedByType("Self Tested");
         setTimeline("today");
@@ -280,7 +442,13 @@ export default function DailyTasksPage() {
     setEditTitle(task.title || "");
     setEditDescription(task.description || "");
     setEditProjectId(task.project_id ? task.project_id.toString() : "");
-    setEditAssignedTo(task.assigned_to ? task.assigned_to.toString() : "");
+    if (task.assignees && Array.isArray(task.assignees) && task.assignees.length > 0) {
+      setEditAssignedTo(task.assignees.map((a: any) => a.id.toString()));
+    } else if (task.assigned_to) {
+      setEditAssignedTo([task.assigned_to.toString()]);
+    } else {
+      setEditAssignedTo([]);
+    }
     setEditPriority(task.priority || "Medium");
     setEditStatus(task.status || "In Progress");
     setEditTargetDate(task.target_date ? task.target_date.split("T")[0] : "");
@@ -308,7 +476,7 @@ export default function DailyTasksPage() {
           title: editTitle.trim(),
           description: editDescription.trim() || null,
           project_id: editProjectId ? parseInt(editProjectId) : undefined,
-          assigned_to: editAssignedTo ? parseInt(editAssignedTo) : undefined,
+          assigned_to: editAssignedTo.map((id) => parseInt(id)),
           priority: editPriority,
           status: editStatus,
           target_date: editTargetDate || undefined,
@@ -789,9 +957,21 @@ export default function DailyTasksPage() {
                   </div>
 
                   {canManageAllTasks ? (
-                    <div className="space-y-1.5">
-                      <Label className="font-semibold text-slate-700">
-                        {assignToAll ? "Assignee Target" : "Assign Team Member *"}
+                    <div className="space-y-1.5 md:col-span-3">
+                      <Label className="font-semibold text-slate-700 text-xs flex items-center justify-between">
+                        <span>
+                          <Users className="h-3.5 w-3.5 inline text-sky-500 mr-1" />
+                          Assign Team Members * {assignedTo.length > 0 && `(${assignedTo.length} selected)`}
+                        </span>
+                        {assignedTo.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setAssignedTo([])}
+                            className="text-[10px] text-red-500 hover:underline font-bold"
+                          >
+                            Clear Selection
+                          </button>
+                        )}
                       </Label>
                       {assignToAll ? (
                         <div className="flex items-center gap-2 h-9 px-3 rounded-lg bg-sky-50 border border-sky-200 text-xs font-bold text-sky-900">
@@ -799,14 +979,41 @@ export default function DailyTasksPage() {
                           <span>All Available Employees ({employees.length} Members)</span>
                         </div>
                       ) : (
-                        <Select value={assignedTo} onValueChange={(val) => setAssignedTo(val || "")}>
-                          <SelectTrigger><SelectValue placeholder="Select Employee" /></SelectTrigger>
-                          <SelectContent>
-                            {employees.map((e) => (
-                              <SelectItem key={e.id} value={e.id.toString()}>{e.name} ({e.role})</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <div className="border border-slate-200 rounded-xl bg-white p-2 space-y-1 max-h-36 overflow-y-auto">
+                          {employees.map((e) => {
+                            const isSelected = assignedTo.includes(e.id.toString());
+                            return (
+                              <div
+                                key={e.id}
+                                onClick={() => {
+                                  setAssignedTo((prev) =>
+                                    isSelected
+                                      ? prev.filter((x) => x !== e.id.toString())
+                                      : [...prev, e.id.toString()]
+                                  );
+                                }}
+                                className={`flex items-center justify-between p-1.5 rounded-lg text-xs cursor-pointer transition-all ${
+                                  isSelected
+                                    ? "bg-sky-50 text-sky-900 font-bold border border-sky-200"
+                                    : "hover:bg-slate-50 text-slate-700"
+                                }`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => {}}
+                                    className="rounded border-slate-300 text-sky-600 h-3.5 w-3.5 cursor-pointer"
+                                  />
+                                  <span>{e.name}</span>
+                                </div>
+                                <Badge variant="outline" className="text-[10px] font-semibold text-slate-500">
+                                  {e.role}
+                                </Badge>
+                              </div>
+                            );
+                          })}
+                        </div>
                       )}
                     </div>
                   ) : (
@@ -912,7 +1119,7 @@ export default function DailyTasksPage() {
                   )}
                 </div>
 
-                {/* Subtasks / Checklist */}
+                {/* Subtasks / Checklist with Attachments */}
                 <div className="space-y-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
                   <Label className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
                     <ListTodo className="h-4 w-4 text-sky-500" /> Add Checklist Sub-tasks (Optional)
@@ -941,20 +1148,58 @@ export default function DailyTasksPage() {
                   </div>
 
                   {initialChecklists.length > 0 && (
-                    <div className="space-y-1.5 pt-1 max-h-48 overflow-y-auto pr-1">
+                    <div className="space-y-2 pt-1 max-h-48 overflow-y-auto pr-1">
                       {initialChecklists.map((item, idx) => (
-                        <div key={idx} className="flex items-start justify-between gap-2 p-2 bg-white rounded-lg border border-slate-200 text-xs">
-                          <span className="text-slate-800 font-medium whitespace-pre-wrap break-words [overflow-wrap:anywhere] flex-1 leading-relaxed">
-                            ✓ {item}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveInitialChecklist(idx)}
-                            className="text-red-500 hover:text-red-700 p-0.5 shrink-0 mt-0.5"
-                            title="Remove sub-task"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
+                        <div key={idx} className="p-2 bg-white rounded-lg border border-slate-200 text-xs space-y-1.5">
+                          <div className="flex items-start justify-between gap-2">
+                            <span className="text-slate-800 font-medium whitespace-pre-wrap break-words [overflow-wrap:anywhere] flex-1 leading-relaxed">
+                              ✓ {item.item_text}
+                            </span>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleOpenSubTaskAttModal({
+                                  isInitial: true,
+                                  initialIndex: idx,
+                                  itemText: item.item_text,
+                                  attachments: item.attachments || []
+                                })}
+                                className="h-6 px-1.5 text-[10px] font-bold text-sky-700 border-sky-300 hover:bg-sky-50 gap-1"
+                              >
+                                <Paperclip className="h-3 w-3 text-sky-500" />
+                                {item.attachments && item.attachments.length > 0 ? `${item.attachments.length}` : "+ Attach"}
+                              </Button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveInitialChecklist(idx)}
+                                className="text-red-500 hover:text-red-700 p-0.5"
+                                title="Remove sub-task"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Sub-task Attachment Pills */}
+                          {item.attachments && item.attachments.length > 0 && (
+                            <div className="flex flex-wrap gap-1 pt-1 border-t border-slate-100">
+                              {item.attachments.map((att, attIdx) => (
+                                <a
+                                  key={attIdx}
+                                  href={att.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-[10px] font-bold text-sky-700 bg-sky-50 border border-sky-200 px-1.5 py-0.5 rounded hover:underline"
+                                >
+                                  <Link2 className="h-2.5 w-2.5" />
+                                  <span className="truncate max-w-[120px]">{att.title || att.url}</span>
+                                </a>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -1531,18 +1776,52 @@ export default function DailyTasksPage() {
                 </Select>
               </div>
 
-              <div className="space-y-1.5">
-                <Label className="font-semibold text-slate-700 text-xs">Assigned Member</Label>
-                <Select value={editAssignedTo} onValueChange={(val) => setEditAssignedTo(val || "")}>
-                  <SelectTrigger><SelectValue placeholder="Assignee" /></SelectTrigger>
-                  <SelectContent>
-                    {employees.map((e) => (
-                      <SelectItem key={e.id} value={e.id.toString()}>{e.name} ({e.role})</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label className="font-semibold text-slate-700 text-xs flex items-center justify-between">
+                  <span>
+                    <Users className="h-3.5 w-3.5 inline text-sky-500 mr-1" />
+                    Assigned Team Members * {editAssignedTo.length > 0 && `(${editAssignedTo.length} selected)`}
+                  </span>
+                </Label>
+                <div className="border border-slate-200 rounded-xl bg-white p-2 space-y-1 max-h-36 overflow-y-auto">
+                  {employees.map((e) => {
+                    const isSelected = editAssignedTo.includes(e.id.toString());
+                    return (
+                      <div
+                        key={e.id}
+                        onClick={() => {
+                          setEditAssignedTo((prev) =>
+                            isSelected
+                              ? prev.filter((x) => x !== e.id.toString())
+                              : [...prev, e.id.toString()]
+                          );
+                        }}
+                        className={`flex items-center justify-between p-1 rounded-lg text-xs cursor-pointer transition-all ${
+                          isSelected
+                            ? "bg-sky-50 text-sky-900 font-bold border border-sky-200"
+                            : "hover:bg-slate-50 text-slate-700"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => {}}
+                            className="rounded border-slate-300 text-sky-600 h-3.5 w-3.5 cursor-pointer"
+                          />
+                          <span>{e.name}</span>
+                        </div>
+                        <Badge variant="outline" className="text-[10px] font-semibold text-slate-500">
+                          {e.role}
+                        </Badge>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
+            </div>
 
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <Label className="font-semibold text-slate-700 text-xs">Priority</Label>
                 <Select value={editPriority} onValueChange={(val) => setEditPriority(val || "Medium")}>
@@ -1555,9 +1834,7 @@ export default function DailyTasksPage() {
                   </SelectContent>
                 </Select>
               </div>
-            </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <Label className="font-semibold text-slate-700 text-xs">Status</Label>
                 <Select value={editStatus} onValueChange={(val) => setEditStatus(val || "In Progress")}>
@@ -1797,25 +2074,127 @@ export default function DailyTasksPage() {
                             <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block border-b border-slate-200 pb-1">
                               Sub-tasks & Checklist
                             </span>
-                            <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                            <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
                               {checklists.length === 0 ? (
                                 <p className="text-[11px] text-slate-400 italic">No checklist sub-tasks yet.</p>
                               ) : (
                                 checklists.map((c) => (
                                   <div
                                     key={c.id}
-                                    onClick={() => handleToggleChecklist(c.id, c.is_completed)}
-                                    className="flex items-start gap-2 text-xs cursor-pointer text-slate-800 hover:text-sky-700 p-1.5 rounded-lg hover:bg-white border border-transparent hover:border-slate-200 transition-all"
+                                    className="p-2 bg-white rounded-lg border border-slate-200 text-xs space-y-1"
                                   >
-                                    <input
-                                      type="checkbox"
-                                      checked={c.is_completed}
-                                      onChange={() => {}}
-                                      className="rounded border-slate-300 text-sky-600 h-3.5 w-3.5 mt-0.5 shrink-0 cursor-pointer"
-                                    />
-                                    <span className={`whitespace-pre-wrap break-words [overflow-wrap:anywhere] min-w-0 max-w-full flex-1 leading-relaxed ${c.is_completed ? "line-through text-slate-400 font-normal" : "font-semibold text-slate-800"}`}>
-                                      {c.item_text}
-                                    </span>
+                                    <div className="flex items-start justify-between gap-1.5">
+                                      <div
+                                        onClick={() => handleToggleChecklist(c.id, c.is_completed)}
+                                        className="flex items-start gap-2 cursor-pointer flex-1 min-w-0"
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={c.is_completed}
+                                          onChange={() => {}}
+                                          className="rounded border-slate-300 text-sky-600 h-3.5 w-3.5 mt-0.5 shrink-0 cursor-pointer"
+                                        />
+                                        {editingSubTaskId === c.id ? (
+                                          <div className="flex items-center gap-1 flex-1" onClick={(e) => e.stopPropagation()}>
+                                            <Input
+                                              value={editingSubTaskText}
+                                              onChange={(e) => setEditingSubTaskText(e.target.value)}
+                                              className="h-6 text-xs bg-white flex-1"
+                                              onKeyDown={(e) => {
+                                                if (e.key === "Enter") {
+                                                  handleUpdateSubTaskText(c.id, c.attachments);
+                                                }
+                                              }}
+                                            />
+                                            <Button
+                                              size="sm"
+                                              onClick={() => handleUpdateSubTaskText(c.id, c.attachments)}
+                                              className="h-6 px-2 text-[10px] bg-sky-600 text-white font-bold"
+                                            >
+                                              Save
+                                            </Button>
+                                          </div>
+                                        ) : (
+                                          <span className={`whitespace-pre-wrap break-words [overflow-wrap:anywhere] flex-1 leading-relaxed ${c.is_completed ? "line-through text-slate-400 font-normal" : "font-semibold text-slate-800"}`}>
+                                            {c.item_text}
+                                          </span>
+                                        )}
+                                      </div>
+
+                                      <div className="flex items-center gap-1 shrink-0">
+                                        {/* Sub-task Attachment Button */}
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleOpenSubTaskAttModal({
+                                              checklistId: c.id,
+                                              taskId: task.id,
+                                              itemText: c.item_text,
+                                              attachments: c.attachments || []
+                                            });
+                                          }}
+                                          className="p-1 text-slate-500 hover:text-sky-600 hover:bg-sky-50 rounded text-[10px] font-bold flex items-center gap-0.5 border border-slate-200"
+                                          title="Manage sub-task attachments"
+                                        >
+                                          <Paperclip className="h-3 w-3 text-sky-500" />
+                                          {c.attachments && c.attachments.length > 0 ? (
+                                            <span className="text-sky-700">{c.attachments.length}</span>
+                                          ) : (
+                                            <span>+ Attach</span>
+                                          )}
+                                        </button>
+
+                                        {/* Edit Subtask Text Button */}
+                                        {editingSubTaskId !== c.id && (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setEditingSubTaskId(c.id);
+                                              setEditingSubTaskText(c.item_text);
+                                            }}
+                                            className="p-1 text-slate-400 hover:text-sky-600 rounded"
+                                            title="Edit sub-task text"
+                                          >
+                                            <Edit3 className="h-3 w-3" />
+                                          </button>
+                                        )}
+
+                                        {/* Delete Subtask Button */}
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDeleteSubTask(c.id);
+                                          }}
+                                          className="p-1 text-slate-400 hover:text-red-600 rounded"
+                                          title="Delete sub-task"
+                                        >
+                                          <Trash2 className="h-3 w-3" />
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    {/* Render Sub-task Attachments */}
+                                    {c.attachments && c.attachments.length > 0 && (
+                                      <div className="flex flex-wrap gap-1 pt-1.5 border-t border-slate-100 pl-5">
+                                        {c.attachments.map((att: any, attIdx: number) => (
+                                          <a
+                                            key={attIdx}
+                                            href={att.url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="inline-flex items-center gap-1 text-[10px] font-bold text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 px-1.5 py-0.5 rounded transition-all"
+                                          >
+                                            <Link2 className="h-2.5 w-2.5 text-sky-500" />
+                                            <span className="truncate max-w-[120px]">{att.title || att.url}</span>
+                                            <ExternalLink className="h-2.5 w-2.5 opacity-60" />
+                                          </a>
+                                        ))}
+                                      </div>
+                                    )}
                                   </div>
                                 ))
                               )}
@@ -1877,8 +2256,20 @@ export default function DailyTasksPage() {
                           </Badge>
                         )}
                       </div>
-                      <div className="text-[11px] text-slate-500">
-                        Assignee: <span className="font-medium text-slate-700">{task.assignee_name || "Unassigned"}</span>
+                      <div className="text-[11px] text-slate-500 space-y-0.5">
+                        <span className="font-semibold text-slate-700 block">Assigned Team:</span>
+                        {task.assignees && task.assignees.length > 0 ? (
+                          <div className="flex flex-wrap gap-1 mt-0.5">
+                            {task.assignees.map((a: any) => (
+                              <Badge key={a.id} variant="secondary" className="bg-sky-50 text-sky-900 border-sky-200 text-[10px] py-0.5 px-1.5 font-bold flex items-center gap-1">
+                                <User className="h-3 w-3 text-sky-600" />
+                                <span>{a.name} ({a.role})</span>
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="font-medium text-slate-700">{task.assignee_name || "Unassigned"}</span>
+                        )}
                       </div>
                     </TableCell>
 
@@ -2060,6 +2451,82 @@ export default function DailyTasksPage() {
           </TableBody>
         </Table>
       </div>
+
+      {/* SUB-TASK ATTACHMENT MANAGEMENT MODAL */}
+      <Dialog open={subTaskAttModalOpen} onOpenChange={setSubTaskAttModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base font-bold text-slate-900">
+              <Paperclip className="h-5 w-5 text-sky-500" />
+              Manage Sub-task Attachments
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 pt-2">
+            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800">
+              Sub-task: <span className="text-sky-700 font-bold">{subTaskAttTarget?.itemText}</span>
+            </div>
+
+            {/* Existing Attachments List */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-bold text-slate-800">Attached Links / Documents</Label>
+              {(!subTaskAttTarget?.attachments || subTaskAttTarget.attachments.length === 0) ? (
+                <p className="text-xs text-slate-400 italic">No attachments added to this sub-task yet.</p>
+              ) : (
+                <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                  {subTaskAttTarget.attachments.map((att, idx) => (
+                    <div key={idx} className="flex items-center justify-between gap-2 p-2 bg-white border border-slate-200 rounded-lg text-xs">
+                      <a
+                        href={att.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-bold text-sky-600 hover:underline flex items-center gap-1.5 truncate"
+                      >
+                        <Link2 className="h-3.5 w-3.5 shrink-0 text-sky-500" />
+                        <span className="truncate">{att.title || att.url}</span>
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteAttachmentFromSubTask(idx)}
+                        className="text-red-500 hover:text-red-700 p-1 text-xs font-bold shrink-0 cursor-pointer"
+                        title="Remove Attachment"
+                      >
+                        <XCircle className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Add New Attachment Form */}
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+              <Label className="text-xs font-bold text-slate-900 flex items-center gap-1">
+                <Plus className="h-3.5 w-3.5 text-sky-500" /> Add Attachment to Sub-task
+              </Label>
+              <Input
+                placeholder="Attachment Title (e.g. Figma Design / API Spec)"
+                value={newSubTaskAttTitle}
+                onChange={(e) => setNewSubTaskAttTitle(e.target.value)}
+                className="bg-white text-xs h-8"
+              />
+              <Input
+                placeholder="Attachment URL (e.g. https://...)"
+                value={newSubTaskAttUrl}
+                onChange={(e) => setNewSubTaskAttUrl(e.target.value)}
+                className="bg-white text-xs h-8"
+              />
+              <Button
+                type="button"
+                onClick={handleAddAttachmentToSubTask}
+                className="w-full bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs h-8 flex items-center justify-center gap-1.5"
+              >
+                <Paperclip className="h-3.5 w-3.5" /> Save Attachment
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
