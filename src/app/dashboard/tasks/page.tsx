@@ -928,7 +928,7 @@ export default function DailyTasksPage() {
                   />
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className={`grid grid-cols-1 ${canManageAllTasks ? "md:grid-cols-2" : "md:grid-cols-3"} gap-3`}>
                   <div className="space-y-1.5">
                     <Label className="font-semibold text-slate-700">Project *</Label>
                     <Select value={projectId} onValueChange={(val) => setProjectId(val || "")}>
@@ -956,67 +956,7 @@ export default function DailyTasksPage() {
                     </Select>
                   </div>
 
-                  {canManageAllTasks ? (
-                    <div className="space-y-1.5 md:col-span-3">
-                      <Label className="font-semibold text-slate-700 text-xs flex items-center justify-between">
-                        <span>
-                          <Users className="h-3.5 w-3.5 inline text-sky-500 mr-1" />
-                          Assign Team Members * {assignedTo.length > 0 && `(${assignedTo.length} selected)`}
-                        </span>
-                        {assignedTo.length > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => setAssignedTo([])}
-                            className="text-[10px] text-red-500 hover:underline font-bold"
-                          >
-                            Clear Selection
-                          </button>
-                        )}
-                      </Label>
-                      {assignToAll ? (
-                        <div className="flex items-center gap-2 h-9 px-3 rounded-lg bg-sky-50 border border-sky-200 text-xs font-bold text-sky-900">
-                          <Sparkles className="h-3.5 w-3.5 text-sky-600 animate-pulse" />
-                          <span>All Available Employees ({employees.length} Members)</span>
-                        </div>
-                      ) : (
-                        <div className="border border-slate-200 rounded-xl bg-white p-2 space-y-1 max-h-36 overflow-y-auto">
-                          {employees.map((e) => {
-                            const isSelected = assignedTo.includes(e.id.toString());
-                            return (
-                              <div
-                                key={e.id}
-                                onClick={() => {
-                                  setAssignedTo((prev) =>
-                                    isSelected
-                                      ? prev.filter((x) => x !== e.id.toString())
-                                      : [...prev, e.id.toString()]
-                                  );
-                                }}
-                                className={`flex items-center justify-between p-1.5 rounded-lg text-xs cursor-pointer transition-all ${
-                                  isSelected
-                                    ? "bg-sky-50 text-sky-900 font-bold border border-sky-200"
-                                    : "hover:bg-slate-50 text-slate-700"
-                                }`}
-                              >
-                                <div className="flex items-center gap-2">
-                                  <input
-                                    type="checkbox"
-                                    checked={isSelected}
-                                    onChange={() => {}}
-                                    className="rounded border-slate-300 text-sky-600 h-3.5 w-3.5 cursor-pointer"
-                                  />
-                                  <span>{e.name}</span>
-                                </div>
-                                <Badge variant="outline" className="text-[10px] font-semibold text-slate-500">
-                                  {e.role}
-                                </Badge>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  ) : (
+                  {!canManageAllTasks && (
                     <div className="space-y-1.5">
                       <Label className="font-semibold text-slate-700">Priority</Label>
                       <Select value={priority} onValueChange={(val) => setPriority(val || "Medium")}>
@@ -1031,6 +971,68 @@ export default function DailyTasksPage() {
                     </div>
                   )}
                 </div>
+
+                {canManageAllTasks && (
+                  <div className="space-y-1.5">
+                    <Label className="font-semibold text-slate-700 text-xs flex items-center justify-between">
+                      <span>
+                        <Users className="h-3.5 w-3.5 inline text-sky-500 mr-1" />
+                        Assign Team Members * {assignedTo.length > 0 && `(${assignedTo.length} selected)`}
+                      </span>
+                      {assignedTo.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setAssignedTo([])}
+                          className="text-[10px] text-red-500 hover:underline font-bold"
+                        >
+                          Clear Selection
+                        </button>
+                      )}
+                    </Label>
+                    {assignToAll ? (
+                      <div className="flex items-center gap-2 h-9 px-3 rounded-lg bg-sky-50 border border-sky-200 text-xs font-bold text-sky-900">
+                        <Sparkles className="h-3.5 w-3.5 text-sky-600 animate-pulse" />
+                        <span>All Available Employees ({employees.length} Members)</span>
+                      </div>
+                    ) : (
+                      <div className="border border-slate-200 rounded-xl bg-white p-2 space-y-1 max-h-36 overflow-y-auto">
+                        {employees.map((e) => {
+                          const isSelected = assignedTo.includes(e.id.toString());
+                          return (
+                            <div
+                              key={e.id}
+                              onClick={() => {
+                                setAssignedTo((prev) =>
+                                  isSelected
+                                    ? prev.filter((x) => x !== e.id.toString())
+                                    : [...prev, e.id.toString()]
+                                );
+                              }}
+                              className={`flex items-center justify-between p-1.5 rounded-lg text-xs cursor-pointer transition-all ${
+                                isSelected
+                                  ? "bg-sky-50 text-sky-900 font-bold border border-sky-200"
+                                  : "hover:bg-slate-50 text-slate-700"
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => {}}
+                                  className="rounded border-slate-300 text-sky-600 h-3.5 w-3.5 cursor-pointer"
+                                />
+                                <span>{e.name}</span>
+                              </div>
+                              <Badge variant="outline" className="text-[10px] font-semibold text-slate-500">
+                                {e.role}
+                              </Badge>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Special Mass Assignment for CEO, PM, Admin */}
                 {canManageAllTasks && (
