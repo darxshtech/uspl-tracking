@@ -57,6 +57,11 @@ export async function GET(req: Request) {
           }
         }
       }
+
+      // Auto-correct any records where login_time exists but status was left as Absent
+      await pool.query(
+        "UPDATE attendance SET status = 'Present' WHERE login_time IS NOT NULL AND status = 'Absent'"
+      );
     }
 
     let query = `
@@ -117,6 +122,12 @@ export async function PUT(req: Request) {
     const halfDayThreshold = fullDayHours / 2;
 
     let computedStatus = status || "Present";
+
+    // If login_time is provided and shift is active (no logout_time), ensure status is not left as Absent
+    if (login_time && !logout_time && (computedStatus === "Absent" || !status)) {
+      computedStatus = "Present";
+    }
+
     // If shift is closed with logout_time and not a special leave/holiday, strictly enforce working hours status
     if (logout_time && finalHours !== null && (!status || status === "Present" || status === "Half Day" || status === "Absent")) {
       if (finalHours < halfDayThreshold) {
