@@ -72,6 +72,11 @@ async function syncAutoAbsentRecords(todayIST: string) {
         }
       }
     }
+
+    // Auto-correct any records where login_time exists but status was left as Absent
+    await pool.query(
+      "UPDATE attendance SET status = 'Present' WHERE login_time IS NOT NULL AND status = 'Absent'"
+    );
   } catch (err) {
     console.error("Auto absent sync error:", err);
   }

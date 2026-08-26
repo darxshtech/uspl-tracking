@@ -427,15 +427,17 @@ export default function AttendanceCalendarView({
                   {/* Attendance Records on this day */}
                   {attendance && attendance.length > 0 && (
                     <div className="space-y-1">
-                      {attendance.map((rec: any) => (
+                      {attendance.map((rec: any) => {
+                        const isPresent = rec.status?.includes("Present") || (rec.login_time && !rec.logout_time && !rec.status?.includes("Leave") && rec.status !== "Holiday");
+                        return (
                         <div
                           key={rec.id}
                           className={`p-1.5 rounded-lg text-[10px] border shadow-xs leading-tight ${
-                            rec.status?.includes("Present")
+                            isPresent
                               ? "bg-emerald-50 border-emerald-200 text-emerald-900"
                               : rec.status === "Half Day"
                               ? "bg-amber-50 border-amber-200 text-amber-900"
-                              : rec.status === "Absent"
+                              : rec.status === "Absent" && !rec.login_time
                               ? "bg-red-50 border-red-200 text-red-900"
                               : "bg-sky-50 border-sky-200 text-sky-900"
                           }`}

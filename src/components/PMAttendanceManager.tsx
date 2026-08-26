@@ -202,7 +202,8 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
     setEditingRecord(rec);
     setEditLoginTime(rec.login_time || "09:30:00 AM");
     setEditLogoutTime(rec.logout_time || "06:30:00 PM");
-    setEditStatus(rec.status || "Present");
+    const initialStatus = rec.login_time && rec.status === "Absent" ? "Present" : (rec.status || "Present");
+    setEditStatus(initialStatus);
     setEditHours(rec.total_hours !== null && rec.total_hours !== undefined ? rec.total_hours.toString() : "9.00");
   };
 
@@ -907,7 +908,7 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
                           </Badge>
                         );
                       }
-                      if (s === "Present") {
+                      if (s === "Present" || (rec.login_time && !rec.logout_time && !s.includes("Leave") && s !== "Holiday")) {
                         return <Badge className="bg-emerald-500 hover:bg-emerald-500 text-white font-bold text-xs">Present</Badge>;
                       }
                       if (s === "Half Day") {
@@ -919,16 +920,16 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
                       if (s.includes("Leave")) {
                         return <Badge className="bg-indigo-500 hover:bg-indigo-500 text-white font-bold text-xs">{s}</Badge>;
                       }
-                      if (s === "Absent") {
-                        return <Badge className="bg-red-500 hover:bg-red-500 text-white font-bold text-xs">Absent</Badge>;
-                      }
                       if (s === "Holiday") {
                         return <Badge className="bg-blue-500 hover:bg-blue-500 text-white font-bold text-xs">Holiday</Badge>;
+                      }
+                      if (s === "Absent" && !rec.login_time) {
+                        return <Badge className="bg-red-500 hover:bg-red-500 text-white font-bold text-xs">Absent</Badge>;
                       }
                       if (rec.login_time) {
                         return <Badge className="bg-emerald-500 hover:bg-emerald-500 text-white font-bold text-xs">Present</Badge>;
                       }
-                      return <Badge variant="outline" className="font-bold text-xs text-slate-700">{s || "Present"}</Badge>;
+                      return <Badge className="bg-red-500 hover:bg-red-500 text-white font-bold text-xs">Absent</Badge>;
                     })()}
                   </TableCell>
                   <TableCell className="text-right">
@@ -956,7 +957,7 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
                           </Button>
                         </>
                       )}
-                      {rec.status === "Absent" && (
+                      {rec.status === "Absent" && !rec.login_time && (
                         <Button
                           size="sm"
                           onClick={() => openEditModal(rec)}
