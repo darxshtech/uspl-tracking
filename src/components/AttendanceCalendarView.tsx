@@ -454,7 +454,8 @@ export default function AttendanceCalendarView({
                             {rec.login_time || "--"} &rarr; {rec.logout_time || "--"}
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
