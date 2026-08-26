@@ -21,6 +21,7 @@ export default async function DashboardPage() {
   let readyForTestCount = 0;
   let completedCount = 0;
 
+
   try {
     if (isExecutive) {
       const [pRows]: any = await pool.query("SELECT COUNT(*) as cnt FROM projects");
