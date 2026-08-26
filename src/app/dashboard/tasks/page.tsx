@@ -223,6 +223,30 @@ export default function DailyTasksPage() {
     return map;
   }, [tasks]);
 
+  // Filter employees assigned to the currently selected project for Create Task Modal
+  const projectAssignedEmployees = useMemo(() => {
+    if (!projectId) return employees;
+    const selectedProj = projects.find((p) => p.id.toString() === projectId);
+    if (selectedProj && selectedProj.members && Array.isArray(selectedProj.members) && selectedProj.members.length > 0) {
+      const memberIds = new Set(selectedProj.members.map((m: any) => m.id));
+      if (selectedProj.created_by) memberIds.add(selectedProj.created_by);
+      return employees.filter((e) => memberIds.has(e.id));
+    }
+    return employees;
+  }, [projectId, projects, employees]);
+
+  // Filter employees assigned to the currently selected project for Edit Task Modal
+  const editProjectAssignedEmployees = useMemo(() => {
+    if (!editProjectId) return employees;
+    const selectedProj = projects.find((p) => p.id.toString() === editProjectId);
+    if (selectedProj && selectedProj.members && Array.isArray(selectedProj.members) && selectedProj.members.length > 0) {
+      const memberIds = new Set(selectedProj.members.map((m: any) => m.id));
+      if (selectedProj.created_by) memberIds.add(selectedProj.created_by);
+      return employees.filter((e) => memberIds.has(e.id));
+    }
+    return employees;
+  }, [editProjectId, projects, employees]);
+
   const todayStr = new Date().toISOString().split("T")[0];
   const tomorrowDate = new Date();
   tomorrowDate.setDate(tomorrowDate.getDate() + 1);
@@ -948,6 +972,11 @@ export default function DailyTasksPage() {
                       <span>
                         <Users className="h-3.5 w-3.5 inline text-sky-500 mr-1" />
                         Assign Team Members * {assignedTo.length > 0 && `(${assignedTo.length} selected)`}
+                        {projectId && (
+                          <span className="ml-1 text-[10px] text-sky-700 font-bold bg-sky-50 px-1.5 py-0.5 rounded border border-sky-200">
+                            Project Members ({projectAssignedEmployees.length})
+                          </span>
+                        )}
                       </span>
                       {assignedTo.length > 0 && (
                         <button
@@ -962,43 +991,47 @@ export default function DailyTasksPage() {
                     {assignToAll ? (
                       <div className="flex items-center gap-2 h-9 px-3 rounded-lg bg-sky-50 border border-sky-200 text-xs font-bold text-sky-900">
                         <Sparkles className="h-3.5 w-3.5 text-sky-600 animate-pulse" />
-                        <span>All Available Employees ({employees.length} Members)</span>
+                        <span>All Project Team Members ({projectAssignedEmployees.length} Members)</span>
                       </div>
                     ) : (
                       <div className="border border-slate-200 rounded-xl bg-white p-2 space-y-1 max-h-36 overflow-y-auto">
-                        {employees.map((e) => {
-                          const isSelected = assignedTo.includes(e.id.toString());
-                          return (
-                            <div
-                              key={e.id}
-                              onClick={() => {
-                                setAssignedTo((prev) =>
+                        {projectAssignedEmployees.length === 0 ? (
+                          <p className="text-xs text-slate-400 italic p-2 text-center">No team members assigned to this project.</p>
+                        ) : (
+                          projectAssignedEmployees.map((e) => {
+                            const isSelected = assignedTo.includes(e.id.toString());
+                            return (
+                              <div
+                                key={e.id}
+                                onClick={() => {
+                                  setAssignedTo((prev) =>
+                                    isSelected
+                                      ? prev.filter((x) => x !== e.id.toString())
+                                      : [...prev, e.id.toString()]
+                                  );
+                                }}
+                                className={`flex items-center justify-between p-1.5 rounded-lg text-xs cursor-pointer transition-all ${
                                   isSelected
-                                    ? prev.filter((x) => x !== e.id.toString())
-                                    : [...prev, e.id.toString()]
-                                );
-                              }}
-                              className={`flex items-center justify-between p-1.5 rounded-lg text-xs cursor-pointer transition-all ${
-                                isSelected
-                                  ? "bg-sky-50 text-sky-900 font-bold border border-sky-200"
-                                  : "hover:bg-slate-50 text-slate-700"
-                              }`}
-                            >
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="checkbox"
-                                  checked={isSelected}
-                                  onChange={() => {}}
-                                  className="rounded border-slate-300 text-sky-600 h-3.5 w-3.5 cursor-pointer"
-                                />
-                                <span>{e.name}</span>
+                                    ? "bg-sky-50 text-sky-900 font-bold border border-sky-200"
+                                    : "hover:bg-slate-50 text-slate-700"
+                                }`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => {}}
+                                    className="rounded border-slate-300 text-sky-600 h-3.5 w-3.5 cursor-pointer"
+                                  />
+                                  <span>{e.name}</span>
+                                </div>
+                                <Badge variant="outline" className="text-[10px] font-semibold text-slate-500">
+                                  {e.role}
+                                </Badge>
                               </div>
-                              <Badge variant="outline" className="text-[10px] font-semibold text-slate-500">
-                                {e.role}
-                              </Badge>
-                            </div>
-                          );
-                        })}
+                            );
+                          })
+                        )}
                       </div>
                     )}
                   </div>
@@ -1823,42 +1856,51 @@ export default function DailyTasksPage() {
                   <span>
                     <Users className="h-3.5 w-3.5 inline text-sky-500 mr-1" />
                     Assigned Team Members * {editAssignedTo.length > 0 && `(${editAssignedTo.length} selected)`}
+                    {editProjectId && (
+                      <span className="ml-1 text-[10px] text-sky-700 font-bold bg-sky-50 px-1.5 py-0.5 rounded border border-sky-200">
+                        Project Members ({editProjectAssignedEmployees.length})
+                      </span>
+                    )}
                   </span>
                 </Label>
                 <div className="border border-slate-200 rounded-xl bg-white p-2 space-y-1 max-h-36 overflow-y-auto">
-                  {employees.map((e) => {
-                    const isSelected = editAssignedTo.includes(e.id.toString());
-                    return (
-                      <div
-                        key={e.id}
-                        onClick={() => {
-                          setEditAssignedTo((prev) =>
+                  {editProjectAssignedEmployees.length === 0 ? (
+                    <p className="text-xs text-slate-400 italic p-2 text-center">No team members assigned to this project.</p>
+                  ) : (
+                    editProjectAssignedEmployees.map((e) => {
+                      const isSelected = editAssignedTo.includes(e.id.toString());
+                      return (
+                        <div
+                          key={e.id}
+                          onClick={() => {
+                            setEditAssignedTo((prev) =>
+                              isSelected
+                                ? prev.filter((x) => x !== e.id.toString())
+                                : [...prev, e.id.toString()]
+                            );
+                          }}
+                          className={`flex items-center justify-between p-1 rounded-lg text-xs cursor-pointer transition-all ${
                             isSelected
-                              ? prev.filter((x) => x !== e.id.toString())
-                              : [...prev, e.id.toString()]
-                          );
-                        }}
-                        className={`flex items-center justify-between p-1 rounded-lg text-xs cursor-pointer transition-all ${
-                          isSelected
-                            ? "bg-sky-50 text-sky-900 font-bold border border-sky-200"
-                            : "hover:bg-slate-50 text-slate-700"
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => {}}
-                            className="rounded border-slate-300 text-sky-600 h-3.5 w-3.5 cursor-pointer"
-                          />
-                          <span>{e.name}</span>
+                              ? "bg-sky-50 text-sky-900 font-bold border border-sky-200"
+                              : "hover:bg-slate-50 text-slate-700"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {}}
+                              className="rounded border-slate-300 text-sky-600 h-3.5 w-3.5 cursor-pointer"
+                            />
+                            <span>{e.name}</span>
+                          </div>
+                          <Badge variant="outline" className="text-[10px] font-semibold text-slate-500">
+                            {e.role}
+                          </Badge>
                         </div>
-                        <Badge variant="outline" className="text-[10px] font-semibold text-slate-500">
-                          {e.role}
-                        </Badge>
-                      </div>
-                    );
-                  })}
+                      );
+                    })
+                  )}
                 </div>
               </div>
             </div>
