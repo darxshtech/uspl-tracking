@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS `tasks` (
   `remarks` TEXT DEFAULT NULL,
   `task_link` TEXT DEFAULT NULL,
   `task_links` JSON DEFAULT NULL,
+  `attachments` JSON DEFAULT NULL,
   `testing_started_at` TIMESTAMP NULL DEFAULT NULL,
   `testing_ended_at` TIMESTAMP NULL DEFAULT NULL,
   `issues_count` INT DEFAULT 0,

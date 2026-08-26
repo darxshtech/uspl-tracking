@@ -95,11 +95,19 @@ export async function GET() {
         parsedLinks = [r.task_link];
       }
 
+      let parsedAttachments: any[] = [];
+      if (typeof r.attachments === "string") {
+        try { parsedAttachments = JSON.parse(r.attachments); } catch (_) {}
+      } else if (Array.isArray(r.attachments)) {
+        parsedAttachments = r.attachments;
+      }
+
       const taskAssignees = assigneesMap[r.id] || (r.assigned_to ? [{ id: r.assigned_to, name: r.assignee_name }] : []);
 
       return {
         ...r,
         task_links: parsedLinks,
+        attachments: parsedAttachments,
         checklists: checklistMap[r.id] || [],
         assignees: taskAssignees,
       };
@@ -156,6 +164,7 @@ export async function POST(req: Request) {
       target_date, 
       timeline, 
       checklists, 
+      attachments,
       assigned_by_type,
       assign_to_all,
       is_mock_task
@@ -181,6 +190,7 @@ export async function POST(req: Request) {
 
     const finalAssignedByType = assigned_by_type || (role === "Developer" || role === "Tester" ? "Self Tested" : role);
     const isExecutiveOrAdmin = ["Admin", "CEO", "PM"].includes(role);
+    const taskAttachmentsJson = Array.isArray(attachments) && attachments.length > 0 ? JSON.stringify(attachments) : null;
 
     // MASS / MOCK TASK ASSIGNMENT TO ALL EMPLOYEES
     if (assign_to_all && isExecutiveOrAdmin) {
@@ -191,8 +201,8 @@ export async function POST(req: Request) {
       let createdCount = 0;
       for (const emp of allEmployees) {
         const [result]: any = await pool.query(
-          `INSERT INTO tasks (title, description, project_id, created_by, assigned_to, priority, due_date, target_date, status, assigned_by_type) 
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Assigned', ?)`,
+          `INSERT INTO tasks (title, description, project_id, created_by, assigned_to, priority, due_date, target_date, status, assigned_by_type, attachments) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Assigned', ?, ?)`,
           [
             title,
             description || null,
@@ -202,7 +212,8 @@ export async function POST(req: Request) {
             priority || "Medium",
             due_date || taskTargetDate,
             taskTargetDate,
-            finalAssignedByType
+            finalAssignedByType,
+            taskAttachmentsJson
           ]
         );
 
@@ -271,8 +282,8 @@ export async function POST(req: Request) {
     const primaryAssignee = assignedUserIds[0];
 
     const [result]: any = await pool.query(
-      `INSERT INTO tasks (title, description, project_id, created_by, assigned_to, priority, due_date, target_date, status, assigned_by_type) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (title, description, project_id, created_by, assigned_to, priority, due_date, target_date, status, assigned_by_type, attachments) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         title,
         description || null,
@@ -283,7 +294,8 @@ export async function POST(req: Request) {
         due_date || taskTargetDate,
         taskTargetDate,
         role === "Developer" || role === "Tester" ? "In Progress" : "Assigned",
-        finalAssignedByType
+        finalAssignedByType,
+        taskAttachmentsJson
       ]
     );
 
@@ -397,6 +409,7 @@ export async function PATCH(req: Request) {
       remarks, 
       task_link, 
       task_links, 
+      attachments,
       progress_percentage, 
       hours_spent, 
       blockers, 
@@ -447,6 +460,7 @@ export async function PATCH(req: Request) {
       }
 
       const primaryAssignee = assignedUserIds && assignedUserIds.length > 0 ? assignedUserIds[0] : (assigned_to !== undefined ? assigned_to : null);
+      const attachmentsJson = attachments !== undefined ? (Array.isArray(attachments) ? JSON.stringify(attachments) : null) : undefined;
 
       await pool.query(
         `UPDATE tasks 
@@ -462,24 +476,43 @@ export async function PATCH(req: Request) {
              progress_percentage = IFNULL(?, progress_percentage),
              hours_spent = IFNULL(?, hours_spent),
              blockers = IFNULL(?, blockers),
-             remarks = IFNULL(?, remarks)
+             remarks = IFNULL(?, remarks),
+             attachments = ${attachmentsJson !== undefined ? "?" : "attachments"}
          WHERE id = ?`,
-        [
-          title !== undefined ? title : null,
-          description !== undefined ? description : null,
-          project_id !== undefined ? project_id : null,
-          primaryAssignee,
-          priority !== undefined ? priority : null,
-          target_date !== undefined ? target_date : null,
-          due_date !== undefined ? due_date : null,
-          status !== undefined ? status : null,
-          assigned_by_type !== undefined ? assigned_by_type : null,
-          progress_percentage !== undefined ? progress_percentage : null,
-          hours_spent !== undefined ? hours_spent : null,
-          blockers !== undefined ? blockers : null,
-          remarks !== undefined ? remarks : null,
-          id
-        ]
+        attachmentsJson !== undefined
+          ? [
+              title !== undefined ? title : null,
+              description !== undefined ? description : null,
+              project_id !== undefined ? project_id : null,
+              primaryAssignee,
+              priority !== undefined ? priority : null,
+              target_date !== undefined ? target_date : null,
+              due_date !== undefined ? due_date : null,
+              status !== undefined ? status : null,
+              assigned_by_type !== undefined ? assigned_by_type : null,
+              progress_percentage !== undefined ? progress_percentage : null,
+              hours_spent !== undefined ? hours_spent : null,
+              blockers !== undefined ? blockers : null,
+              remarks !== undefined ? remarks : null,
+              attachmentsJson,
+              id
+            ]
+          : [
+              title !== undefined ? title : null,
+              description !== undefined ? description : null,
+              project_id !== undefined ? project_id : null,
+              primaryAssignee,
+              priority !== undefined ? priority : null,
+              target_date !== undefined ? target_date : null,
+              due_date !== undefined ? due_date : null,
+              status !== undefined ? status : null,
+              assigned_by_type !== undefined ? assigned_by_type : null,
+              progress_percentage !== undefined ? progress_percentage : null,
+              hours_spent !== undefined ? hours_spent : null,
+              blockers !== undefined ? blockers : null,
+              remarks !== undefined ? remarks : null,
+              id
+            ]
       );
 
       // Update junction table for multi-assignees if provided

@@ -78,27 +78,28 @@ export default function DailyTasksPage() {
   const [assignedByType, setAssignedByType] = useState<"PM" | "CEO" | "Tester" | "Self Tested">("Self Tested");
   const [timeline, setTimeline] = useState<"today" | "tomorrow" | "custom">("today");
   const [customDate, setCustomDate] = useState("");
-  const [initialChecklists, setInitialChecklists] = useState<{ id?: number; item_text: string; is_completed?: boolean; attachments?: { title: string; url: string }[] }[]>([]);
+  const [initialChecklists, setInitialChecklists] = useState<{ id?: number; item_text: string; is_completed?: boolean }[]>([]);
   const [newChecklistInput, setNewChecklistInput] = useState("");
+  const [editingInitialChecklistIdx, setEditingInitialChecklistIdx] = useState<number | null>(null);
+  const [editingInitialChecklistText, setEditingInitialChecklistText] = useState("");
+
+  // Task-level attachments state (for Create & Edit modals)
+  const [initialTaskAttachments, setInitialTaskAttachments] = useState<{ title: string; url: string }[]>([]);
+  const [newTaskAttTitle, setNewTaskAttTitle] = useState("");
+  const [newTaskAttUrl, setNewTaskAttUrl] = useState("");
+
+  const [editTaskAttachments, setEditTaskAttachments] = useState<{ title: string; url: string }[]>([]);
+  const [editTaskAttTitle, setEditTaskAttTitle] = useState("");
+  const [editTaskAttUrl, setEditTaskAttUrl] = useState("");
+
   const [assignToAll, setAssignToAll] = useState(false);
   const [isMockTask, setIsMockTask] = useState(false);
 
-  // Sub-task creation & attachment state
+  // Sub-task creation state
   const [activeChecklistTaskId, setActiveChecklistTaskId] = useState<number | null>(null);
   const [newChecklistText, setNewChecklistText] = useState("");
-  const [subTaskAttModalOpen, setSubTaskAttModalOpen] = useState(false);
-  const [subTaskAttTarget, setSubTaskAttTarget] = useState<{
-    isInitial?: boolean;
-    initialIndex?: number;
-    checklistId?: number;
-    taskId?: number;
-    itemText: string;
-    attachments: { title: string; url: string }[];
-  } | null>(null);
-  const [newSubTaskAttTitle, setNewSubTaskAttTitle] = useState("");
-  const [newSubTaskAttUrl, setNewSubTaskAttUrl] = useState("");
 
-  // Inline editing sub-task state
+  // Inline editing active sub-task state
   const [editingSubTaskId, setEditingSubTaskId] = useState<number | null>(null);
   const [editingSubTaskText, setEditingSubTaskText] = useState("");
 
@@ -231,107 +232,69 @@ export default function DailyTasksPage() {
     if (!newChecklistInput.trim()) return;
     setInitialChecklists((prev) => [
       ...prev,
-      { item_text: newChecklistInput.trim(), attachments: [] }
+      { item_text: newChecklistInput.trim() }
     ]);
     setNewChecklistInput("");
   };
 
   const handleRemoveInitialChecklist = (index: number) => {
     setInitialChecklists((prev) => prev.filter((_, i) => i !== index));
+    if (editingInitialChecklistIdx === index) {
+      setEditingInitialChecklistIdx(null);
+      setEditingInitialChecklistText("");
+    }
   };
 
-  // Sub-task attachment handlers
-  const handleOpenSubTaskAttModal = (target: {
-    isInitial?: boolean;
-    initialIndex?: number;
-    checklistId?: number;
-    taskId?: number;
-    itemText: string;
-    attachments: { title: string; url: string }[];
-  }) => {
-    setSubTaskAttTarget(target);
-    setNewSubTaskAttTitle("");
-    setNewSubTaskAttUrl("");
-    setSubTaskAttModalOpen(true);
+  const handleStartEditInitialChecklist = (index: number, currentText: string) => {
+    setEditingInitialChecklistIdx(index);
+    setEditingInitialChecklistText(currentText);
   };
 
-  const handleAddAttachmentToSubTask = async () => {
-    if (!subTaskAttTarget) return;
-    if (!newSubTaskAttTitle.trim() || !newSubTaskAttUrl.trim()) {
+  const handleSaveEditInitialChecklist = (index: number) => {
+    if (!editingInitialChecklistText.trim()) return;
+    setInitialChecklists((prev) =>
+      prev.map((item, i) => (i === index ? { ...item, item_text: editingInitialChecklistText.trim() } : item))
+    );
+    setEditingInitialChecklistIdx(null);
+    setEditingInitialChecklistText("");
+  };
+
+  // Task-level attachment handlers for Create Task Modal
+  const handleAddInitialTaskAttachment = () => {
+    if (!newTaskAttTitle.trim() || !newTaskAttUrl.trim()) {
       showWarning("Missing Details", "Please enter both an attachment title and URL.");
       return;
     }
-
-    let urlToUse = newSubTaskAttUrl.trim();
+    let urlToUse = newTaskAttUrl.trim();
     if (!urlToUse.startsWith("http://") && !urlToUse.startsWith("https://")) {
       urlToUse = "https://" + urlToUse;
     }
-
-    const newAtt = { title: newSubTaskAttTitle.trim(), url: urlToUse };
-    const updatedAtts = [...(subTaskAttTarget.attachments || []), newAtt];
-
-    if (subTaskAttTarget.isInitial && subTaskAttTarget.initialIndex !== undefined) {
-      const idx = subTaskAttTarget.initialIndex;
-      setInitialChecklists((prev) =>
-        prev.map((item, i) => (i === idx ? { ...item, attachments: updatedAtts } : item))
-      );
-      setSubTaskAttTarget((prev) => prev ? { ...prev, attachments: updatedAtts } : null);
-    } else if (subTaskAttTarget.checklistId) {
-      try {
-        const res = await fetch("/api/tasks", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "edit_checklist",
-            checklist_id: subTaskAttTarget.checklistId,
-            item_text: subTaskAttTarget.itemText,
-            attachments: updatedAtts,
-          }),
-        });
-        if (res.ok) {
-          setSubTaskAttTarget((prev) => prev ? { ...prev, attachments: updatedAtts } : null);
-          fetchTasks();
-        }
-      } catch (err) {
-        console.error(err);
-      }
-    }
-
-    setNewSubTaskAttTitle("");
-    setNewSubTaskAttUrl("");
-    showToast("Attachment added to sub-task!");
+    setInitialTaskAttachments((prev) => [...prev, { title: newTaskAttTitle.trim(), url: urlToUse }]);
+    setNewTaskAttTitle("");
+    setNewTaskAttUrl("");
   };
 
-  const handleDeleteAttachmentFromSubTask = async (attIndex: number) => {
-    if (!subTaskAttTarget) return;
-    const updatedAtts = (subTaskAttTarget.attachments || []).filter((_, i) => i !== attIndex);
+  const handleRemoveInitialTaskAttachment = (index: number) => {
+    setInitialTaskAttachments((prev) => prev.filter((_, i) => i !== index));
+  };
 
-    if (subTaskAttTarget.isInitial && subTaskAttTarget.initialIndex !== undefined) {
-      const idx = subTaskAttTarget.initialIndex;
-      setInitialChecklists((prev) =>
-        prev.map((item, i) => (i === idx ? { ...item, attachments: updatedAtts } : item))
-      );
-      setSubTaskAttTarget((prev) => prev ? { ...prev, attachments: updatedAtts } : null);
-    } else if (subTaskAttTarget.checklistId) {
-      try {
-        const res = await fetch("/api/tasks", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "edit_checklist",
-            checklist_id: subTaskAttTarget.checklistId,
-            item_text: subTaskAttTarget.itemText,
-            attachments: updatedAtts,
-          }),
-        });
-        if (res.ok) {
-          setSubTaskAttTarget((prev) => prev ? { ...prev, attachments: updatedAtts } : null);
-          fetchTasks();
-        }
-      } catch (err) {
-        console.error(err);
-      }
+  // Task-level attachment handlers for Edit Task Modal
+  const handleAddEditTaskAttachment = () => {
+    if (!editTaskAttTitle.trim() || !editTaskAttUrl.trim()) {
+      showWarning("Missing Details", "Please enter both an attachment title and URL.");
+      return;
     }
+    let urlToUse = editTaskAttUrl.trim();
+    if (!urlToUse.startsWith("http://") && !urlToUse.startsWith("https://")) {
+      urlToUse = "https://" + urlToUse;
+    }
+    setEditTaskAttachments((prev) => [...prev, { title: editTaskAttTitle.trim(), url: urlToUse }]);
+    setEditTaskAttTitle("");
+    setEditTaskAttUrl("");
+  };
+
+  const handleRemoveEditTaskAttachment = (index: number) => {
+    setEditTaskAttachments((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleDeleteSubTask = async (checklistId: number) => {
@@ -353,7 +316,7 @@ export default function DailyTasksPage() {
     }
   };
 
-  const handleUpdateSubTaskText = async (checklistId: number, currentAtts: any[]) => {
+  const handleUpdateSubTaskText = async (checklistId: number) => {
     if (!editingSubTaskText.trim()) return;
     try {
       const res = await fetch("/api/tasks", {
@@ -363,7 +326,6 @@ export default function DailyTasksPage() {
           action: "edit_checklist",
           checklist_id: checklistId,
           item_text: editingSubTaskText.trim(),
-          attachments: currentAtts || [],
         }),
       });
       if (res.ok) {
@@ -403,6 +365,7 @@ export default function DailyTasksPage() {
           timeline,
           target_date: timeline === "custom" ? customDate : undefined,
           checklists: initialChecklists,
+          attachments: initialTaskAttachments,
           assign_to_all: assignToAll,
           is_mock_task: isMockTask,
         }),
@@ -422,6 +385,9 @@ export default function DailyTasksPage() {
         setCustomDate("");
         setInitialChecklists([]);
         setNewChecklistInput("");
+        setInitialTaskAttachments([]);
+        setNewTaskAttTitle("");
+        setNewTaskAttUrl("");
         setAssignToAll(false);
         setIsMockTask(false);
         showToast(data.message || "Task created successfully!");
@@ -457,6 +423,9 @@ export default function DailyTasksPage() {
     setEditHoursSpent(parseFloat(task.hours_spent) || 0);
     setEditBlockers(task.blockers || "");
     setEditRemarks(task.remarks || "");
+    setEditTaskAttachments(task.attachments && Array.isArray(task.attachments) ? task.attachments : []);
+    setEditTaskAttTitle("");
+    setEditTaskAttUrl("");
     setEditTaskModalOpen(true);
   };
 
@@ -483,8 +452,9 @@ export default function DailyTasksPage() {
           assigned_by_type: editAssignedByType,
           progress_percentage: editProgressPercentage,
           hours_spent: editHoursSpent,
-          blockers: editBlockers.trim() || null,
-          remarks: editRemarks.trim() || null,
+          blockers: editBlockers || null,
+          remarks: editRemarks || null,
+          attachments: editTaskAttachments,
         }),
       });
 
@@ -1121,7 +1091,79 @@ export default function DailyTasksPage() {
                   )}
                 </div>
 
-                {/* Subtasks / Checklist with Attachments */}
+                {/* Task-Level Attachments & Reference Links */}
+                <div className="space-y-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                  <Label className="font-bold text-slate-900 flex items-center justify-between text-xs">
+                    <span className="flex items-center gap-1.5">
+                      <Paperclip className="h-4 w-4 text-sky-500" /> Task Attachments & Reference Links (Optional)
+                    </span>
+                    {initialTaskAttachments.length > 0 && (
+                      <span className="text-[10px] text-sky-600 font-bold">{initialTaskAttachments.length} Attached</span>
+                    )}
+                  </Label>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <Input
+                      placeholder="Attachment Title (e.g. Figma / Spec)"
+                      value={newTaskAttTitle}
+                      onChange={(e) => setNewTaskAttTitle(e.target.value)}
+                      className="bg-white text-xs h-8"
+                    />
+                    <div className="flex gap-1.5">
+                      <Input
+                        placeholder="URL (e.g. https://...)"
+                        value={newTaskAttUrl}
+                        onChange={(e) => setNewTaskAttUrl(e.target.value)}
+                        className="bg-white text-xs h-8 flex-1"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleAddInitialTaskAttachment();
+                          }
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={handleAddInitialTaskAttachment}
+                        className="h-8 px-3 bg-sky-600 hover:bg-sky-700 text-white font-semibold text-xs shrink-0 flex items-center gap-1"
+                      >
+                        <Plus className="h-3.5 w-3.5" /> Add
+                      </Button>
+                    </div>
+                  </div>
+
+                  {initialTaskAttachments.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 pt-1.5 border-t border-slate-200 max-h-32 overflow-y-auto">
+                      {initialTaskAttachments.map((att, idx) => (
+                        <div
+                          key={idx}
+                          className="inline-flex items-center gap-1.5 bg-white border border-slate-200 px-2 py-1 rounded-lg text-xs font-medium text-slate-800"
+                        >
+                          <a
+                            href={att.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="font-bold text-sky-600 hover:underline flex items-center gap-1 max-w-[150px] truncate"
+                          >
+                            <Link2 className="h-3 w-3 shrink-0 text-sky-500" />
+                            <span className="truncate">{att.title || att.url}</span>
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveInitialTaskAttachment(idx)}
+                            className="text-red-500 hover:text-red-700 p-0.5 rounded shrink-0 cursor-pointer"
+                            title="Remove attachment"
+                          >
+                            <XCircle className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Subtasks / Checklist */}
                 <div className="space-y-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
                   <Label className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
                     <ListTodo className="h-4 w-4 text-sky-500" /> Add Checklist Sub-tasks (Optional)
@@ -1143,64 +1185,62 @@ export default function DailyTasksPage() {
                       type="button"
                       size="sm"
                       onClick={handleAddInitialChecklist}
-                      className="h-8 bg-sky-600 text-white font-semibold text-xs"
+                      className="h-8 bg-sky-600 text-white font-semibold text-xs shrink-0"
                     >
                       Add
                     </Button>
                   </div>
 
                   {initialChecklists.length > 0 && (
-                    <div className="space-y-2 pt-1 max-h-48 overflow-y-auto pr-1">
+                    <div className="space-y-1.5 pt-1 max-h-48 overflow-y-auto pr-1">
                       {initialChecklists.map((item, idx) => (
-                        <div key={idx} className="p-2 bg-white rounded-lg border border-slate-200 text-xs space-y-1.5">
-                          <div className="flex items-start justify-between gap-2">
-                            <span className="text-slate-800 font-medium whitespace-pre-wrap break-words [overflow-wrap:anywhere] flex-1 leading-relaxed">
-                              ✓ {item.item_text}
-                            </span>
-                            <div className="flex items-center gap-1 shrink-0">
+                        <div key={idx} className="p-2 bg-white rounded-lg border border-slate-200 text-xs flex items-center justify-between gap-2">
+                          {editingInitialChecklistIdx === idx ? (
+                            <div className="flex items-center gap-1.5 flex-1">
+                              <Input
+                                value={editingInitialChecklistText}
+                                onChange={(e) => setEditingInitialChecklistText(e.target.value)}
+                                className="h-7 text-xs bg-white flex-1"
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    handleSaveEditInitialChecklist(idx);
+                                  }
+                                }}
+                              />
                               <Button
                                 type="button"
-                                variant="outline"
                                 size="sm"
-                                onClick={() => handleOpenSubTaskAttModal({
-                                  isInitial: true,
-                                  initialIndex: idx,
-                                  itemText: item.item_text,
-                                  attachments: item.attachments || []
-                                })}
-                                className="h-6 px-1.5 text-[10px] font-bold text-sky-700 border-sky-300 hover:bg-sky-50 gap-1"
+                                onClick={() => handleSaveEditInitialChecklist(idx)}
+                                className="h-7 px-2.5 bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs shrink-0"
                               >
-                                <Paperclip className="h-3 w-3 text-sky-500" />
-                                {item.attachments && item.attachments.length > 0 ? `${item.attachments.length}` : "+ Attach"}
+                                Save
                               </Button>
-
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveInitialChecklist(idx)}
-                                className="text-red-500 hover:text-red-700 p-0.5"
-                                title="Remove sub-task"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
                             </div>
-                          </div>
-
-                          {/* Sub-task Attachment Pills */}
-                          {item.attachments && item.attachments.length > 0 && (
-                            <div className="flex flex-wrap gap-1 pt-1 border-t border-slate-100">
-                              {item.attachments.map((att, attIdx) => (
-                                <a
-                                  key={attIdx}
-                                  href={att.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-[10px] font-bold text-sky-700 bg-sky-50 border border-sky-200 px-1.5 py-0.5 rounded hover:underline"
+                          ) : (
+                            <>
+                              <span className="text-slate-800 font-medium whitespace-pre-wrap break-words [overflow-wrap:anywhere] flex-1 leading-relaxed">
+                                ✓ {item.item_text}
+                              </span>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartEditInitialChecklist(idx, item.item_text)}
+                                  className="text-sky-600 hover:text-sky-800 hover:bg-sky-50 p-1 rounded cursor-pointer"
+                                  title="Edit sub-task text"
                                 >
-                                  <Link2 className="h-2.5 w-2.5" />
-                                  <span className="truncate max-w-[120px]">{att.title || att.url}</span>
-                                </a>
-                              ))}
-                            </div>
+                                  <Edit3 className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveInitialChecklist(idx)}
+                                  className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1 rounded cursor-pointer"
+                                  title="Delete sub-task"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            </>
                           )}
                         </div>
                       ))}
@@ -1918,6 +1958,78 @@ export default function DailyTasksPage() {
               />
             </div>
 
+            {/* Task Attachments in Edit Task Modal */}
+            <div className="space-y-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
+              <Label className="font-bold text-slate-900 flex items-center justify-between text-xs">
+                <span className="flex items-center gap-1.5">
+                  <Paperclip className="h-4 w-4 text-sky-500" /> Task Attachments & Reference Links
+                </span>
+                {editTaskAttachments.length > 0 && (
+                  <span className="text-[10px] text-sky-600 font-bold">{editTaskAttachments.length} Attached</span>
+                )}
+              </Label>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <Input
+                  placeholder="Attachment Title (e.g. Figma / Spec)"
+                  value={editTaskAttTitle}
+                  onChange={(e) => setEditTaskAttTitle(e.target.value)}
+                  className="bg-white text-xs h-8"
+                />
+                <div className="flex gap-1.5">
+                  <Input
+                    placeholder="URL (e.g. https://...)"
+                    value={editTaskAttUrl}
+                    onChange={(e) => setEditTaskAttUrl(e.target.value)}
+                    className="bg-white text-xs h-8 flex-1"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleAddEditTaskAttachment();
+                      }
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleAddEditTaskAttachment}
+                    className="h-8 px-3 bg-sky-600 hover:bg-sky-700 text-white font-semibold text-xs shrink-0 flex items-center gap-1"
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Add
+                  </Button>
+                </div>
+              </div>
+
+              {editTaskAttachments.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 pt-1.5 border-t border-slate-200 max-h-32 overflow-y-auto">
+                  {editTaskAttachments.map((att, idx) => (
+                    <div
+                      key={idx}
+                      className="inline-flex items-center gap-1.5 bg-white border border-slate-200 px-2 py-1 rounded-lg text-xs font-medium text-slate-800"
+                    >
+                      <a
+                        href={att.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-bold text-sky-600 hover:underline flex items-center gap-1 max-w-[150px] truncate"
+                      >
+                        <Link2 className="h-3 w-3 shrink-0 text-sky-500" />
+                        <span className="truncate">{att.title || att.url}</span>
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveEditTaskAttachment(idx)}
+                        className="text-red-500 hover:text-red-700 p-0.5 rounded shrink-0 cursor-pointer"
+                        title="Remove attachment"
+                      >
+                        <XCircle className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <Button
               type="submit"
               disabled={savingEditTask}
@@ -2057,6 +2169,28 @@ export default function DailyTasksPage() {
                         </div>
                       </div>
 
+                      {/* Task Attachments & Links */}
+                      {task.attachments && task.attachments.length > 0 && (
+                        <div className="mt-2 space-y-1">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Task Attachments & Links:</span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {task.attachments.map((att: any, attIdx: number) => (
+                              <a
+                                key={attIdx}
+                                href={att.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-sky-50 text-sky-800 hover:bg-sky-100 text-xs font-bold border border-sky-200 transition-all"
+                              >
+                                <Paperclip className="h-3 w-3 text-sky-600 shrink-0" />
+                                <span className="truncate max-w-[150px]">{att.title || att.url}</span>
+                                <ExternalLink className="h-2.5 w-2.5 opacity-60 shrink-0" />
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
                       {/* Sub-tasks / Daily Checklist Section */}
                       <div className="mt-2.5 space-y-1.5">
                         <div className="flex items-center gap-2">
@@ -2083,120 +2217,75 @@ export default function DailyTasksPage() {
                                 checklists.map((c) => (
                                   <div
                                     key={c.id}
-                                    className="p-2 bg-white rounded-lg border border-slate-200 text-xs space-y-1"
+                                    className="p-2 bg-white rounded-lg border border-slate-200 text-xs flex items-center justify-between gap-1.5"
                                   >
-                                    <div className="flex items-start justify-between gap-1.5">
-                                      <div
-                                        onClick={() => handleToggleChecklist(c.id, c.is_completed)}
-                                        className="flex items-start gap-2 cursor-pointer flex-1 min-w-0"
-                                      >
-                                        <input
-                                          type="checkbox"
-                                          checked={c.is_completed}
-                                          onChange={() => {}}
-                                          className="rounded border-slate-300 text-sky-600 h-3.5 w-3.5 mt-0.5 shrink-0 cursor-pointer"
-                                        />
-                                        {editingSubTaskId === c.id ? (
-                                          <div className="flex items-center gap-1 flex-1" onClick={(e) => e.stopPropagation()}>
-                                            <Input
-                                              value={editingSubTaskText}
-                                              onChange={(e) => setEditingSubTaskText(e.target.value)}
-                                              className="h-6 text-xs bg-white flex-1"
-                                              onKeyDown={(e) => {
-                                                if (e.key === "Enter") {
-                                                  handleUpdateSubTaskText(c.id, c.attachments);
-                                                }
-                                              }}
-                                            />
-                                            <Button
-                                              size="sm"
-                                              onClick={() => handleUpdateSubTaskText(c.id, c.attachments)}
-                                              className="h-6 px-2 text-[10px] bg-sky-600 text-white font-bold"
-                                            >
-                                              Save
-                                            </Button>
-                                          </div>
-                                        ) : (
-                                          <span className={`whitespace-pre-wrap break-words [overflow-wrap:anywhere] flex-1 leading-relaxed ${c.is_completed ? "line-through text-slate-400 font-normal" : "font-semibold text-slate-800"}`}>
-                                            {c.item_text}
-                                          </span>
-                                        )}
-                                      </div>
-
-                                      <div className="flex items-center gap-1 shrink-0">
-                                        {/* Sub-task Attachment Button */}
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleOpenSubTaskAttModal({
-                                              checklistId: c.id,
-                                              taskId: task.id,
-                                              itemText: c.item_text,
-                                              attachments: c.attachments || []
-                                            });
-                                          }}
-                                          className="p-1 text-slate-500 hover:text-sky-600 hover:bg-sky-50 rounded text-[10px] font-bold flex items-center gap-0.5 border border-slate-200"
-                                          title="Manage sub-task attachments"
-                                        >
-                                          <Paperclip className="h-3 w-3 text-sky-500" />
-                                          {c.attachments && c.attachments.length > 0 ? (
-                                            <span className="text-sky-700">{c.attachments.length}</span>
-                                          ) : (
-                                            <span>+ Attach</span>
-                                          )}
-                                        </button>
-
-                                        {/* Edit Subtask Text Button */}
-                                        {editingSubTaskId !== c.id && (
-                                          <button
-                                            type="button"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              setEditingSubTaskId(c.id);
-                                              setEditingSubTaskText(c.item_text);
+                                    <div
+                                      onClick={() => handleToggleChecklist(c.id, c.is_completed)}
+                                      className="flex items-start gap-2 cursor-pointer flex-1 min-w-0"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={c.is_completed}
+                                        onChange={() => {}}
+                                        className="rounded border-slate-300 text-sky-600 h-3.5 w-3.5 mt-0.5 shrink-0 cursor-pointer"
+                                      />
+                                      {editingSubTaskId === c.id ? (
+                                        <div className="flex items-center gap-1 flex-1" onClick={(e) => e.stopPropagation()}>
+                                          <Input
+                                            value={editingSubTaskText}
+                                            onChange={(e) => setEditingSubTaskText(e.target.value)}
+                                            className="h-6 text-xs bg-white flex-1"
+                                            onKeyDown={(e) => {
+                                              if (e.key === "Enter") {
+                                                handleUpdateSubTaskText(c.id);
+                                              }
                                             }}
-                                            className="p-1 text-slate-400 hover:text-sky-600 rounded"
-                                            title="Edit sub-task text"
+                                          />
+                                          <Button
+                                            size="sm"
+                                            onClick={() => handleUpdateSubTaskText(c.id)}
+                                            className="h-6 px-2 text-[10px] bg-sky-600 text-white font-bold"
                                           >
-                                            <Edit3 className="h-3 w-3" />
-                                          </button>
-                                        )}
-
-                                        {/* Delete Subtask Button */}
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleDeleteSubTask(c.id);
-                                          }}
-                                          className="p-1 text-slate-400 hover:text-red-600 rounded"
-                                          title="Delete sub-task"
-                                        >
-                                          <Trash2 className="h-3 w-3" />
-                                        </button>
-                                      </div>
+                                            Save
+                                          </Button>
+                                        </div>
+                                      ) : (
+                                        <span className={`whitespace-pre-wrap break-words [overflow-wrap:anywhere] flex-1 leading-relaxed ${c.is_completed ? "line-through text-slate-400 font-normal" : "font-semibold text-slate-800"}`}>
+                                          {c.item_text}
+                                        </span>
+                                      )}
                                     </div>
 
-                                    {/* Render Sub-task Attachments */}
-                                    {c.attachments && c.attachments.length > 0 && (
-                                      <div className="flex flex-wrap gap-1 pt-1.5 border-t border-slate-100 pl-5">
-                                        {c.attachments.map((att: any, attIdx: number) => (
-                                          <a
-                                            key={attIdx}
-                                            href={att.url}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            onClick={(e) => e.stopPropagation()}
-                                            className="inline-flex items-center gap-1 text-[10px] font-bold text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 px-1.5 py-0.5 rounded transition-all"
-                                          >
-                                            <Link2 className="h-2.5 w-2.5 text-sky-500" />
-                                            <span className="truncate max-w-[120px]">{att.title || att.url}</span>
-                                            <ExternalLink className="h-2.5 w-2.5 opacity-60" />
-                                          </a>
-                                        ))}
-                                      </div>
-                                    )}
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      {/* Edit Subtask Text Button */}
+                                      {editingSubTaskId !== c.id && (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setEditingSubTaskId(c.id);
+                                            setEditingSubTaskText(c.item_text);
+                                          }}
+                                          className="p-1 text-slate-400 hover:text-sky-600 rounded cursor-pointer"
+                                          title="Edit sub-task text"
+                                        >
+                                          <Edit3 className="h-3.5 w-3.5" />
+                                        </button>
+                                      )}
+
+                                      {/* Delete Subtask Button */}
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleDeleteSubTask(c.id);
+                                        }}
+                                        className="p-1 text-slate-400 hover:text-red-600 rounded cursor-pointer"
+                                        title="Delete sub-task"
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </button>
+                                    </div>
                                   </div>
                                 ))
                               )}
@@ -2453,82 +2542,6 @@ export default function DailyTasksPage() {
           </TableBody>
         </Table>
       </div>
-
-      {/* SUB-TASK ATTACHMENT MANAGEMENT MODAL */}
-      <Dialog open={subTaskAttModalOpen} onOpenChange={setSubTaskAttModalOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-base font-bold text-slate-900">
-              <Paperclip className="h-5 w-5 text-sky-500" />
-              Manage Sub-task Attachments
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4 pt-2">
-            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800">
-              Sub-task: <span className="text-sky-700 font-bold">{subTaskAttTarget?.itemText}</span>
-            </div>
-
-            {/* Existing Attachments List */}
-            <div className="space-y-1.5">
-              <Label className="text-xs font-bold text-slate-800">Attached Links / Documents</Label>
-              {(!subTaskAttTarget?.attachments || subTaskAttTarget.attachments.length === 0) ? (
-                <p className="text-xs text-slate-400 italic">No attachments added to this sub-task yet.</p>
-              ) : (
-                <div className="space-y-1.5 max-h-36 overflow-y-auto">
-                  {subTaskAttTarget.attachments.map((att, idx) => (
-                    <div key={idx} className="flex items-center justify-between gap-2 p-2 bg-white border border-slate-200 rounded-lg text-xs">
-                      <a
-                        href={att.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-bold text-sky-600 hover:underline flex items-center gap-1.5 truncate"
-                      >
-                        <Link2 className="h-3.5 w-3.5 shrink-0 text-sky-500" />
-                        <span className="truncate">{att.title || att.url}</span>
-                      </a>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteAttachmentFromSubTask(idx)}
-                        className="text-red-500 hover:text-red-700 p-1 text-xs font-bold shrink-0 cursor-pointer"
-                        title="Remove Attachment"
-                      >
-                        <XCircle className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Add New Attachment Form */}
-            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-              <Label className="text-xs font-bold text-slate-900 flex items-center gap-1">
-                <Plus className="h-3.5 w-3.5 text-sky-500" /> Add Attachment to Sub-task
-              </Label>
-              <Input
-                placeholder="Attachment Title (e.g. Figma Design / API Spec)"
-                value={newSubTaskAttTitle}
-                onChange={(e) => setNewSubTaskAttTitle(e.target.value)}
-                className="bg-white text-xs h-8"
-              />
-              <Input
-                placeholder="Attachment URL (e.g. https://...)"
-                value={newSubTaskAttUrl}
-                onChange={(e) => setNewSubTaskAttUrl(e.target.value)}
-                className="bg-white text-xs h-8"
-              />
-              <Button
-                type="button"
-                onClick={handleAddAttachmentToSubTask}
-                className="w-full bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs h-8 flex items-center justify-center gap-1.5"
-              >
-                <Paperclip className="h-3.5 w-3.5" /> Save Attachment
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

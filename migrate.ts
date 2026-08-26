@@ -84,6 +84,15 @@ async function main() {
       console.log("task_checklists attachments column might already exist: ", e.message);
     }
 
+    // Add attachments column to tasks table
+    console.log("Adding attachments column to tasks table...");
+    try {
+      await connection.query(`ALTER TABLE tasks ADD COLUMN attachments JSON DEFAULT NULL`);
+      console.log("Added attachments column to tasks");
+    } catch (e: any) {
+      console.log("tasks attachments column might already exist: ", e.message);
+    }
+
     // Create task_assignees junction table for multi-select team member assignments
     console.log("Creating task_assignees table...");
     await connection.query(`
