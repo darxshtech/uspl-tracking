@@ -35,6 +35,7 @@ export default function AttendanceWidget() {
   // Check In Modal State
   const [checkInModalOpen, setCheckInModalOpen] = useState(false);
   const [manualCheckInTime, setManualCheckInTime] = useState("");
+  const [checkinError, setCheckinError] = useState<string | null>(null);
 
   // Check Out Modal State
   const [checkOutModalOpen, setCheckOutModalOpen] = useState(false);
@@ -208,15 +209,7 @@ export default function AttendanceWidget() {
     const formattedTime12 = convert24To12Hour(manualCheckInTime);
     const localDate = getTodayDateStr();
 
-    const updatedLocalRecord = {
-      user_id: userId,
-      date: localDate,
-      login_time: formattedTime12,
-      logout_time: null,
-      status: "Present",
-    };
-    setRecord(updatedLocalRecord);
-    localStorage.setItem(getShiftKey(), JSON.stringify(updatedLocalRecord));
+    setCheckinError(null);
 
     try {
       const res = await fetch("/api/attendance/active", {
@@ -227,8 +220,22 @@ export default function AttendanceWidget() {
 
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error || "Check-in failed");
+        setCheckinError(data.error || "Check-in failed");
+        setRecord(null);
+        localStorage.removeItem(getShiftKey());
+        return;
       }
+
+      const updatedLocalRecord = {
+        user_id: userId,
+        date: localDate,
+        login_time: formattedTime12,
+        logout_time: null,
+        status: "Present",
+      };
+      setRecord(updatedLocalRecord);
+      localStorage.setItem(getShiftKey(), JSON.stringify(updatedLocalRecord));
+
       setCheckInModalOpen(false);
       fetchActiveAttendance();
     } catch (err: any) {
@@ -393,6 +400,19 @@ export default function AttendanceWidget() {
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleConfirmCheckIn} className="space-y-3 pt-2">
+            {/* Check-In Blocked Error Alert */}
+            {checkinError && (
+              <div className="p-3 rounded-xl bg-red-50 border border-red-300 text-xs text-red-950 space-y-1 shadow-xs">
+                <div className="flex items-center gap-1.5 font-bold text-red-900">
+                  <AlertTriangle className="h-4 w-4 text-red-600 shrink-0" />
+                  <span>Check-In Blocked</span>
+                </div>
+                <p className="text-[11px] text-red-900 leading-relaxed font-medium">
+                  {checkinError}
+                </p>
+              </div>
+            )}
+
             {/* Yesterday / Previous Shift Half Day Warning Alert */}
             {yesterdayHalfDay && (
               <div className="p-3 rounded-xl bg-amber-50 border border-amber-300 text-xs text-amber-950 space-y-1 shadow-xs">

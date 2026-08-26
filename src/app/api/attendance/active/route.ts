@@ -115,6 +115,8 @@ export async function POST(req: Request) {
     const userId = (session.user as any).id;
     const userEmail = session.user?.email || "";
     const userName = session.user?.name || "Employee";
+    const userRole = role;
+    const isManagement = ["Admin", "CEO", "PM"].includes(role);
     const fullDayHours = await getFullDayHours();
 
     // 1. CEO cannot punch or log attendance
@@ -133,6 +135,47 @@ export async function POST(req: Request) {
 
     // CHECK-IN ACTION
     if (action === "check-in") {
+      // 1. Check if user currently has an approved/pending leave or holiday logged for today
+      const [todayLeaveRows]: any = await pool.query(
+        `SELECT * FROM attendance 
+         WHERE user_id = ? AND date = ? AND (status LIKE '%Leave%' OR status = 'Holiday')`,
+        [userId, todayIST]
+      );
+
+      if (todayLeaveRows.length > 0) {
+        const todayLeave = todayLeaveRows[0];
+        const leaveStatusName = todayLeave.status || "Leave";
+        
+        // Strict Block for Developers/Testers unless overridden by PM/Admin or override_leave flag passed
+        if (!isManagement && !body.override_leave) {
+          return NextResponse.json(
+            {
+              error: `You have an active ${leaveStatusName} logged for today (${todayIST}). Check-in is disabled during leave. Please contact your Project Manager or Management to override or cancel your leave if you are working today.`,
+              is_leave_blocked: true,
+              leave_status: leaveStatusName,
+            },
+            { status: 400 }
+          );
+        }
+
+        // If PM/CEO/Admin or explicitly overridden, log override note
+        const overrideNote = ` [Leave Overridden by ${session.user?.name || userRole}]`;
+        await pool.query(
+          `UPDATE attendance 
+           SET status = 'Present', login_time = IFNULL(login_time, ?), notes = CONCAT(IFNULL(notes, ''), ?)
+           WHERE id = ?`,
+          [nowTime12, overrideNote, todayLeave.id]
+        );
+      } else {
+        // Normal check-in insert/update
+        await pool.query(
+          `INSERT INTO attendance (user_id, date, status, login_time) 
+           VALUES (?, ?, 'Present', ?) 
+           ON DUPLICATE KEY UPDATE login_time = IFNULL(login_time, ?), status = 'Present'`,
+          [userId, todayIST, nowTime12, nowTime12]
+        );
+      }
+
       // 2. Check if user already has an active open shift that wasn't closed
       const [openRows]: any = await pool.query(
         `SELECT * FROM attendance 
@@ -144,7 +187,7 @@ export async function POST(req: Request) {
         [userId]
       );
 
-      if (openRows.length > 0) {
+      if (openRows.length > 0 && openRows[0].date !== todayIST) {
         const active = openRows[0];
         return NextResponse.json(
           { 
@@ -153,13 +196,6 @@ export async function POST(req: Request) {
           { status: 400 }
         );
       }
-
-      await pool.query(
-        `INSERT INTO attendance (user_id, date, status, login_time) 
-         VALUES (?, ?, 'Present', ?) 
-         ON DUPLICATE KEY UPDATE login_time = IFNULL(login_time, ?), status = 'Present'`,
-        [userId, todayIST, nowTime12, nowTime12]
-      );
 
       // Check if previous shift was a Half Day to dispatch alert notification
       const [prevRows]: any = await pool.query(
