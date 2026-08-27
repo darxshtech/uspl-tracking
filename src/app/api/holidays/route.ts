@@ -11,7 +11,7 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const year = searchParams.get("year");
 
-    let query = "SELECT * FROM holidays";
+    let query = "SELECT id, date, title, title AS name, description, created_by, created_at FROM holidays";
     let params: any[] = [];
 
     if (year) {
@@ -21,7 +21,7 @@ export async function GET(req: Request) {
 
     query += " ORDER BY date ASC";
 
-    const [rows] = await pool.query(query, params);
+    const [rows]: any = await pool.query(query, params);
     return NextResponse.json(rows);
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -30,24 +30,25 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
-  if (!session || !["CEO", "PM"].includes((session.user as any).role)) {
-    return NextResponse.json({ error: "Unauthorized: PM or CEO role required to add holidays" }, { status: 403 });
+  if (!session || !["Admin", "CEO", "PM"].includes((session.user as any).role)) {
+    return NextResponse.json({ error: "Unauthorized: Admin, PM or CEO role required to manage holidays" }, { status: 403 });
   }
 
   try {
     const userId = (session.user as any).id;
     const body = await req.json();
-    const { name, date, description } = body;
+    const { name, title, date, description } = body;
+    const holidayTitle = (title || name || "").trim();
 
-    if (!name || !date) {
-      return NextResponse.json({ error: "Holiday name and date are required" }, { status: 400 });
+    if (!holidayTitle || !date) {
+      return NextResponse.json({ error: "Holiday title and date are required" }, { status: 400 });
     }
 
     const [result]: any = await pool.query(
-      `INSERT INTO holidays (name, date, description, created_by) 
+      `INSERT INTO holidays (title, date, description, created_by) 
        VALUES (?, ?, ?, ?) 
-       ON DUPLICATE KEY UPDATE name = VALUES(name), description = VALUES(description)`,
-      [name, date, description || null, userId]
+       ON DUPLICATE KEY UPDATE title = VALUES(title), description = VALUES(description)`,
+      [holidayTitle, date, description || null, userId]
     );
 
     // Notify all employees about the upcoming holiday
@@ -55,27 +56,29 @@ export async function POST(req: Request) {
       `INSERT INTO notifications (title, message, type) 
        VALUES (?, ?, 'info')`,
       [
-        `📅 Upcoming Holiday: ${name}`,
-        `A company holiday has been scheduled on ${new Date(date).toLocaleDateString()} for "${name}". Attendance is not required on this date.`,
+        `📅 Upcoming Holiday: ${holidayTitle}`,
+        `A company holiday has been scheduled on ${new Date(date).toLocaleDateString()} for "${holidayTitle}". Attendance is not required on this date.`,
       ]
     );
 
     return NextResponse.json({
       success: true,
       id: result.insertId,
-      name,
+      name: holidayTitle,
+      title: holidayTitle,
       date,
-      message: `Holiday "${name}" added successfully on ${date}`,
+      message: `Holiday "${holidayTitle}" scheduled successfully on ${date}`,
     });
   } catch (error: any) {
+    console.error("Error creating holiday:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
 
 export async function DELETE(req: Request) {
   const session = await getServerSession(authOptions);
-  if (!session || !["CEO", "PM"].includes((session.user as any).role)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+  if (!session || !["Admin", "CEO", "PM"].includes((session.user as any).role)) {
+    return NextResponse.json({ error: "Unauthorized: Admin, PM or CEO role required to manage holidays" }, { status: 403 });
   }
 
   try {
