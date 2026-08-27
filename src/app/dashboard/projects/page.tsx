@@ -1194,7 +1194,9 @@ export default function ProjectsPage() {
                                               </div>
 
                                               {task.description && (
-                                                <p className="text-[11px] text-slate-600 line-clamp-1">{task.description}</p>
+                                                <p className="text-xs text-slate-600 mt-1.5 whitespace-pre-wrap leading-relaxed bg-white/70 p-2.5 rounded-lg border border-slate-200/60">
+                                                  {task.description}
+                                                </p>
                                               )}
                                             </div>
 
