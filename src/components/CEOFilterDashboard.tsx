@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -22,7 +22,13 @@ import {
   Flame,
   Users,
   RefreshCw,
-  Sliders
+  Sliders,
+  UserX,
+  Plus,
+  ArrowRight,
+  Sparkles,
+  CheckCircle,
+  AlertCircle
 } from "lucide-react";
 import { showToast, showError, showSuccess, showWarning } from "@/lib/swal";
 import { formatHoursAndMinutes } from "@/lib/timeUtils";
@@ -37,7 +43,7 @@ export default function CEOFilterDashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
 
-  // Shift Working Hours Policy State (Full-Day threshold e.g. 9 or 8)
+  // Shift Working Hours Policy State
   const [fullDayPolicyHours, setFullDayPolicyHours] = useState<number>(9);
   const [policyInputHours, setPolicyInputHours] = useState<string>("9");
   const [policyModalOpen, setPolicyModalOpen] = useState(false);
@@ -47,6 +53,7 @@ export default function CEOFilterDashboard() {
   const [selectedProject, setSelectedProject] = useState("ALL");
   const [selectedStatus, setSelectedStatus] = useState("ALL");
   const [selectedAssignee, setSelectedAssignee] = useState("ALL");
+  const [activeWorkloadTab, setActiveWorkloadTab] = useState<"all" | "active" | "idle">("all");
 
   useEffect(() => {
     fetchPolicy();
@@ -129,7 +136,7 @@ export default function CEOFilterDashboard() {
         const warnings: any[] = [];
 
         eData.forEach((emp: any) => {
-          if (emp.role === "CEO") return;
+          if (emp.role === "CEO" || emp.role === "Admin") return;
           const empLogs = aData.attendance.filter(
             (rec: any) =>
               (String(rec.user_id) === String(emp.id) || String(rec.employee_id) === String(emp.id)) &&
@@ -139,7 +146,7 @@ export default function CEOFilterDashboard() {
           );
 
           if (empLogs.length > 0) {
-            const latestClosed = empLogs[0]; // ordered by date DESC
+            const latestClosed = empLogs[0];
             const hours = parseFloat(latestClosed.total_hours || 0);
             if (latestClosed.status === "Half Day" || (latestClosed.total_hours !== null && hours < policyHours)) {
               const dateStr = latestClosed.date instanceof Date 
@@ -176,13 +183,12 @@ export default function CEOFilterDashboard() {
   useEffect(() => {
     fetchData();
 
-    // Auto-refresh every 15 seconds to keep numbers live in real-time
+    // Auto-refresh every 15 seconds
     const interval = setInterval(() => {
       if (typeof document !== "undefined" && document.hidden) return;
       fetchData();
     }, 15000);
 
-    // Refresh on window refocus
     const handleFocus = () => fetchData();
     window.addEventListener("focus", handleFocus);
 
@@ -192,45 +198,86 @@ export default function CEOFilterDashboard() {
     };
   }, [fetchData]);
 
+  // Helper to check if task is assigned to employee (single or multi-assignee)
+  const isTaskAssignedToEmployee = (task: any, empId: number) => {
+    if (String(task.assigned_to) === String(empId)) return true;
+    if (Array.isArray(task.assignees)) {
+      return task.assignees.some((a: any) => String(a.id) === String(empId));
+    }
+    return false;
+  };
+
+  // Helper to check if task is actively being worked on
+  const isActiveTask = (status: string) => {
+    return ["In Progress", "Planning", "Ready for Testing", "Testing", "Changes Required"].includes(status);
+  };
+
+  // Build Comprehensive Employee Progress Matrix
+  const employeeProgressList = useMemo(() => {
+    return employees.map((emp) => {
+      const empTasks = tasks.filter((t) => isTaskAssignedToEmployee(t, emp.id));
+      const empProjectsCount = new Set(empTasks.map((t) => t.project_id).filter(Boolean)).size;
+      
+      const empCompleted = empTasks.filter((t) => 
+        ["Completed", "Ready for Demo", "Tested (PASS)"].includes(t.status)
+      ).length;
+      
+      const empActiveTasks = empTasks.filter((t) => isActiveTask(t.status));
+      const empInProgress = empTasks.filter((t) => t.status === "In Progress" || t.status === "Planning").length;
+      const empBlocked = empTasks.filter((t) => t.blockers && t.status !== "Completed" && t.status !== "Ready for Demo").length;
+      const empTotalHours = empTasks.reduce((sum, t) => sum + (parseFloat(t.hours_spent) || 0), 0);
+      const empRate = empTasks.length > 0 ? Math.round((empCompleted / empTasks.length) * 100) : 0;
+      
+      const isDevOrTester = emp.role === "Developer" || emp.role === "Tester";
+      const hasNoActiveTasks = isDevOrTester && empActiveTasks.length === 0;
+
+      // Last task details
+      const lastTask = empTasks.length > 0 ? empTasks[0] : null;
+
+      return {
+        ...emp,
+        totalTasks: empTasks.length,
+        assignedProjectsCount: empProjectsCount,
+        completedCount: empCompleted,
+        activeTasksCount: empActiveTasks.length,
+        inProgressCount: empInProgress,
+        blockedCount: empBlocked,
+        totalHours: empTotalHours,
+        completionRate: empRate,
+        hasNoActiveTasks,
+        lastTask,
+      };
+    });
+  }, [employees, tasks]);
+
+  // List of Developers & Testers with NO active tasks
+  const idleEmployees = useMemo(() => {
+    return employeeProgressList.filter((emp) => emp.hasNoActiveTasks);
+  }, [employeeProgressList]);
+
+  // Filtered employee matrix based on search / filter tab
+  const filteredEmployeeMatrix = useMemo(() => {
+    return employeeProgressList.filter((emp) => {
+      const matchAssignee = selectedAssignee === "ALL" || String(emp.id) === String(selectedAssignee);
+      if (!matchAssignee) return false;
+
+      if (activeWorkloadTab === "active") {
+        return emp.activeTasksCount > 0;
+      }
+      if (activeWorkloadTab === "idle") {
+        return emp.hasNoActiveTasks;
+      }
+      return true;
+    });
+  }, [employeeProgressList, selectedAssignee, activeWorkloadTab]);
+
   // Filter tasks based on selections
   const filteredTasks = tasks.filter((t) => {
     const matchProject = selectedProject === "ALL" || String(t.project_id) === String(selectedProject);
     const matchStatus = selectedStatus === "ALL" || t.status === selectedStatus;
-    const matchAssignee = selectedAssignee === "ALL" || String(t.assigned_to) === String(selectedAssignee);
+    const matchAssignee = selectedAssignee === "ALL" || isTaskAssignedToEmployee(t, parseInt(selectedAssignee, 10));
     return matchProject && matchStatus && matchAssignee;
   });
-
-  const completedCount = filteredTasks.filter((t) => 
-    t.status === "Completed" || t.status === "Ready for Demo" || t.status === "Tested (PASS)"
-  ).length;
-  const inProgressCount = filteredTasks.filter((t) => t.status === "In Progress" || t.status === "Planning").length;
-  const readyForTestingCount = filteredTasks.filter((t) => t.status === "Ready for Testing" || t.status === "Testing").length;
-  const changesRequiredCount = filteredTasks.filter((t) => t.status === "Changes Required").length;
-  const completionRate = filteredTasks.length > 0 ? Math.round((completedCount / filteredTasks.length) * 100) : 0;
-
-  // Build Employee Progress Breakdown Matrix with robust type matching
-  const employeeProgressList = employees.map((emp) => {
-    const empTasks = tasks.filter((t) => String(t.assigned_to) === String(emp.id));
-    const empProjectsCount = new Set(empTasks.map((t) => t.project_id).filter(Boolean)).size;
-    const empCompleted = empTasks.filter((t) => 
-      t.status === "Completed" || t.status === "Ready for Demo" || t.status === "Tested (PASS)"
-    ).length;
-    const empInProgress = empTasks.filter((t) => t.status === "In Progress" || t.status === "Planning").length;
-    const empBlocked = empTasks.filter((t) => t.blockers && t.status !== "Completed" && t.status !== "Ready for Demo").length;
-    const empTotalHours = empTasks.reduce((sum, t) => sum + (parseFloat(t.hours_spent) || 0), 0);
-    const empRate = empTasks.length > 0 ? Math.round((empCompleted / empTasks.length) * 100) : 0;
-
-    return {
-      ...emp,
-      totalTasks: empTasks.length,
-      assignedProjectsCount: empProjectsCount,
-      completedCount: empCompleted,
-      inProgressCount: empInProgress,
-      blockedCount: empBlocked,
-      totalHours: empTotalHours,
-      completionRate: empRate,
-    };
-  }).filter((emp) => selectedAssignee === "ALL" || String(emp.id) === String(selectedAssignee));
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -255,11 +302,86 @@ export default function CEOFilterDashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Yesterday's / Previous Shift Half Day Warning Highlighting Banner */}
+      {/* 1. BENCH / UNASSIGNED DEVELOPERS ALERT MONITOR */}
+      {idleEmployees.length > 0 && (
+        <div className="rounded-2xl border-2 border-amber-300 bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/10 p-5 shadow-md shadow-amber-500/5 animate-fade-in relative overflow-hidden">
+          <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+            <div className="flex items-start gap-3.5">
+              <div className="p-2.5 rounded-2xl bg-amber-500 text-white shrink-0 shadow-md shadow-amber-500/20 ring-4 ring-amber-100">
+                <UserX className="h-6 w-6" />
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[11px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-amber-500 text-white shadow-xs">
+                    ⚠️ Idle / Unassigned Staff Alert
+                  </span>
+                  <span className="text-xs font-bold text-amber-950 bg-amber-200/80 px-2.5 py-0.5 rounded-md border border-amber-300">
+                    {idleEmployees.length} {idleEmployees.length === 1 ? "Employee" : "Employees"} Currently Have No Active Task
+                  </span>
+                </div>
+
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900 leading-snug">
+                    Staff Available for Work Allocation
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-0.5">
+                    The following developers or testers do not have any task currently <strong>In Progress</strong> or <strong>In QA</strong>:
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <Link href="/dashboard/tasks">
+              <Button size="sm" className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs gap-1.5 shadow-md shrink-0">
+                <Plus className="h-4 w-4 text-sky-400" /> Go to Daily Tasks Hub to Assign
+              </Button>
+            </Link>
+          </div>
+
+          {/* Idle Employee Cards Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 mt-4 pt-3 border-t border-amber-200/80">
+            {idleEmployees.map((emp) => (
+              <div
+                key={emp.id}
+                className="p-3 rounded-xl bg-white border border-amber-200 shadow-xs flex items-center justify-between gap-3 hover:border-amber-400 transition-colors"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="h-9 w-9 rounded-full bg-amber-100 border border-amber-300 text-amber-900 font-bold flex items-center justify-center text-xs shrink-0">
+                    {emp.name.slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-bold text-slate-900 text-xs truncate flex items-center gap-1.5">
+                      <span className="truncate">{emp.name}</span>
+                      <Badge variant="outline" className="text-[9px] px-1 py-0 bg-amber-50 text-amber-800 border-amber-200 shrink-0">
+                        {emp.role}
+                      </Badge>
+                    </div>
+                    <p className="text-[10px] text-amber-700 font-semibold mt-0.5 truncate">
+                      {emp.totalTasks > 0 ? `${emp.completedCount}/${emp.totalTasks} Done (Idle)` : "No tasks assigned"}
+                    </p>
+                  </div>
+                </div>
+
+                <Link href={`/dashboard/tasks`}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 text-[10px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300 shrink-0"
+                    title={`Assign task to ${emp.name}`}
+                  >
+                    + Assign
+                  </Button>
+                </Link>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 2. Half Day Shift Warnings Banner */}
       {!bannerDismissed && halfDayWarnings.length > 0 && (
         <div className="rounded-2xl border-2 border-amber-400 bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-amber-500/15 p-5 shadow-lg shadow-amber-500/10 animate-fade-in relative overflow-hidden backdrop-blur-xs">
-          <div className="absolute right-0 top-0 w-80 h-80 bg-amber-400/15 rounded-full blur-3xl pointer-events-none"></div>
-          
           <div className="relative z-10 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-5">
             <div className="flex items-start gap-4">
               <div className="p-3 rounded-2xl bg-amber-500 text-white shrink-0 shadow-md shadow-amber-500/30 ring-4 ring-amber-100">
@@ -330,10 +452,10 @@ export default function CEOFilterDashboard() {
         </div>
       )}
 
-      {/* Real-time KPI Summary & Daily/Monthly Visual Progress Charts */}
+      {/* 3. Real-time KPI Summary & Daily/Monthly Visual Progress Charts */}
       <DailyMonthlyProgressSummary tasks={tasks} onRefresh={() => fetchData(false)} />
 
-      {/* Filter Control Bar */}
+      {/* 4. Filter Control Bar */}
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
           <div className="flex items-center gap-2 text-sm font-bold text-slate-800">
@@ -459,16 +581,49 @@ export default function CEOFilterDashboard() {
         </div>
       </div>
 
-      {/* Employee Progress Breakdown Matrix */}
+      {/* 5. Employee Progress Breakdown Matrix with Workload Tabs */}
       <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-            <Users className="h-5 w-5 text-sky-500" />
-            Live Employee Deliverables & Progress Matrix
-          </h3>
-          <span className="text-xs font-semibold text-slate-500">
-            {employeeProgressList.length} Team Members Tracked
-          </span>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+              <Users className="h-5 w-5 text-sky-500" />
+              Live Employee Deliverables & Workload Matrix
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Auditing employee active tasks, completed ratios, and bench availability.
+            </p>
+          </div>
+
+          {/* Workload Status Quick Filter Tabs */}
+          <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={() => setActiveWorkloadTab("all")}
+              className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors ${
+                activeWorkloadTab === "all" ? "bg-white text-slate-900 shadow-2xs" : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              All Staff ({employeeProgressList.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveWorkloadTab("active")}
+              className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors flex items-center gap-1 ${
+                activeWorkloadTab === "active" ? "bg-emerald-600 text-white shadow-2xs" : "text-emerald-700 hover:bg-emerald-50"
+              }`}
+            >
+              <CheckCircle className="h-3 w-3" /> Active ({employeeProgressList.filter(e => e.activeTasksCount > 0).length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveWorkloadTab("idle")}
+              className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors flex items-center gap-1 ${
+                activeWorkloadTab === "idle" ? "bg-amber-500 text-white shadow-2xs" : "text-amber-700 hover:bg-amber-50"
+              }`}
+            >
+              <AlertCircle className="h-3 w-3" /> No Active Tasks ({idleEmployees.length})
+            </button>
+          </div>
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
@@ -477,11 +632,11 @@ export default function CEOFilterDashboard() {
               <TableRow>
                 <TableHead className="font-bold">Team Member</TableHead>
                 <TableHead className="font-bold">Role</TableHead>
+                <TableHead className="font-bold text-center">Workload Status</TableHead>
                 <TableHead className="font-bold text-center">Projects</TableHead>
                 <TableHead className="font-bold text-center">Total Tasks</TableHead>
                 <TableHead className="font-bold text-center">Completed</TableHead>
                 <TableHead className="font-bold text-center">In Progress</TableHead>
-                <TableHead className="font-bold text-center">Blockers</TableHead>
                 <TableHead className="font-bold text-center">Hours Logged</TableHead>
                 <TableHead className="font-bold text-right">Completion Rate</TableHead>
               </TableRow>
@@ -489,15 +644,39 @@ export default function CEOFilterDashboard() {
             <TableBody>
               {loading ? (
                 <TableRow><TableCell colSpan={9} className="text-center py-8">Calculating live team metrics...</TableCell></TableRow>
-              ) : employeeProgressList.length === 0 ? (
-                <TableRow><TableCell colSpan={9} className="text-center text-slate-500 py-10">No employees match filter.</TableCell></TableRow>
+              ) : filteredEmployeeMatrix.length === 0 ? (
+                <TableRow><TableCell colSpan={9} className="text-center text-slate-500 py-10">No employees match the selected workload filter.</TableCell></TableRow>
               ) : (
-                employeeProgressList.map((emp) => (
-                  <TableRow key={emp.id} className="hover:bg-slate-50/80 transition-colors">
-                    <TableCell className="font-bold text-slate-900">{emp.name}</TableCell>
+                filteredEmployeeMatrix.map((emp) => (
+                  <TableRow key={emp.id} className={`transition-colors ${emp.hasNoActiveTasks ? "bg-amber-50/30 hover:bg-amber-50/60" : "hover:bg-slate-50/80"}`}>
+                    <TableCell className="font-bold text-slate-900">
+                      <div className="flex items-center gap-2">
+                        <div className={`h-7 w-7 rounded-full text-xs font-bold flex items-center justify-center ${
+                          emp.hasNoActiveTasks ? "bg-amber-100 text-amber-800 border border-amber-300" : "bg-sky-100 text-sky-800"
+                        }`}>
+                          {emp.name.slice(0, 2).toUpperCase()}
+                        </div>
+                        <span>{emp.name}</span>
+                      </div>
+                    </TableCell>
+                    
                     <TableCell>
                       <Badge variant="outline" className="font-semibold text-[11px]">{emp.role}</Badge>
                     </TableCell>
+
+                    {/* Workload Status Badge */}
+                    <TableCell className="text-center">
+                      {emp.hasNoActiveTasks ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-300">
+                          ⚠️ On Bench (0 Active)
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                          ⚡ {emp.activeTasksCount} Active {emp.activeTasksCount === 1 ? "Task" : "Tasks"}
+                        </span>
+                      )}
+                    </TableCell>
+
                     <TableCell className="text-center font-bold text-slate-800">{emp.assignedProjectsCount}</TableCell>
                     <TableCell className="text-center font-bold text-slate-900">{emp.totalTasks}</TableCell>
                     <TableCell className="text-center">
@@ -506,14 +685,9 @@ export default function CEOFilterDashboard() {
                       </span>
                     </TableCell>
                     <TableCell className="text-center">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-sky-100 text-sky-800">
-                        {emp.inProgressCount}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {emp.blockedCount > 0 ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-800">
-                          {emp.blockedCount}
+                      {emp.inProgressCount > 0 ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-sky-100 text-sky-800">
+                          {emp.inProgressCount}
                         </span>
                       ) : (
                         <span className="text-slate-400 text-xs">0</span>
@@ -547,7 +721,7 @@ export default function CEOFilterDashboard() {
         </div>
       </div>
 
-      {/* Filtered Tasks Table */}
+      {/* 6. Filtered Tasks Table */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
