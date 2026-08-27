@@ -23,7 +23,8 @@ import {
   ChevronRight, 
   Shield,
   KeyRound,
-  BookOpen
+  BookOpen,
+  FolderArchive
 } from "lucide-react";
 import { getRoleDisplayName, getRoleIconEmoji } from "@/lib/roleUtils";
 
@@ -121,6 +122,7 @@ export default function DashboardClientShell({ children, user }: DashboardClient
     { name: "Shift Warnings", href: "/dashboard/warnings", icon: AlertTriangle, roles: ["Admin", "CEO", "PM"] },
     { name: "Profile & Tenure", href: "/dashboard/profile", icon: Users, roles: ["Admin", "CEO", "PM", "Developer", "Tester"] },
     { name: "Credentials", href: "/dashboard/credentials", icon: KeyRound, roles: ["Admin", "CEO", "PM", "Developer", "Tester"] },
+    { name: "Document Vault", href: "/dashboard/documents", icon: FolderArchive, roles: ["Admin", "CEO", "PM", "Developer", "Tester"] },
     { name: "Company Policies", href: "/dashboard/policies", icon: BookOpen, roles: ["Admin", "CEO", "PM"] },
   ];
 
