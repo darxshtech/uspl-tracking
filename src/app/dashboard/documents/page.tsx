@@ -42,7 +42,9 @@ import {
   AlertTriangle,
   FolderOpen,
   Sparkles,
-  File
+  File,
+  Receipt,
+  CircleDollarSign
 } from "lucide-react";
 
 export default function DocumentsVaultPage() {
@@ -349,7 +351,7 @@ export default function DocumentsVaultPage() {
       if (res.ok) {
         setDeleteDocConfirm(null);
         fetchDocuments();
-        showToast("Document removed from vault.");
+        showToast("Document & cloud file deleted successfully!");
       } else {
         showError("Failed to delete", "Could not delete document.");
       }
@@ -392,6 +394,8 @@ export default function DocumentsVaultPage() {
   // Category Color
   const getCategoryBadgeColor = (category: string) => {
     switch (category) {
+      case "Quotation":
+        return "bg-emerald-50 text-emerald-700 border-emerald-200";
       case "Marketing":
         return "bg-pink-50 text-pink-700 border-pink-200";
       case "Admin":
@@ -449,14 +453,15 @@ export default function DocumentsVaultPage() {
   // Summary Metrics
   const metrics = useMemo(() => {
     const total = documents.length;
+    const quotation = documents.filter((d) => d.category === "Quotation").length;
     const marketing = documents.filter((d) => d.category === "Marketing").length;
     const admin = documents.filter((d) => d.category === "Admin").length;
     const projectDocs = documents.filter((d) => d.category === "Project Document").length;
     const standalone = documents.filter((d) => !d.project_id).length;
-    return { total, marketing, admin, projectDocs, standalone };
+    return { total, quotation, marketing, admin, projectDocs, standalone };
   }, [documents]);
 
-  const categories = ["All", "Marketing", "Admin", "Project Document", "Technical", "General"];
+  const categories = ["All", "Quotation", "Marketing", "Admin", "Project Document", "Technical", "General"];
 
   return (
     <div className="space-y-6 animate-fade-in pb-12">
@@ -469,7 +474,7 @@ export default function DocumentsVaultPage() {
           </h1>
           <p className="text-slate-500 mt-1">
             {canManage
-              ? "Upload, organize, and grant granular team access for Marketing, Admin, and Project specifications (PDF, Word, Images, Spreadsheets)."
+              ? "Upload, organize, and grant granular team access for Quotations, Marketing, Admin, and Project specifications (PDF, Word, Images, Spreadsheets)."
               : "Access official company documentation, assets, and project specifications shared with you."}
           </p>
         </div>
@@ -492,7 +497,7 @@ export default function DocumentsVaultPage() {
                     <Label htmlFor="docTitle" className="font-semibold text-slate-700">Document Title *</Label>
                     <Input
                       id="docTitle"
-                      placeholder="e.g. Brand Identity Kit, NDA Agreement..."
+                      placeholder="e.g. Client Quotation Q4, Brand Identity Kit..."
                       value={docTitle}
                       onChange={(e) => setDocTitle(e.target.value)}
                       required
@@ -504,6 +509,7 @@ export default function DocumentsVaultPage() {
                     <Select value={docCategory} onValueChange={setDocCategory}>
                       <SelectTrigger><SelectValue placeholder="Select Category" /></SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="Quotation">💰 Quotations & Proposals</SelectItem>
                         <SelectItem value="Marketing">📢 Marketing & Creative</SelectItem>
                         <SelectItem value="Admin">🛡️ Admin & Operational</SelectItem>
                         <SelectItem value="Project Document">💼 Project Document / PR</SelectItem>
@@ -540,7 +546,7 @@ export default function DocumentsVaultPage() {
                   <textarea
                     id="docDesc"
                     rows={2}
-                    placeholder="Brief description of the document purpose, version, or usage guidelines..."
+                    placeholder="Brief description of the document purpose, quotation scope, or usage guidelines..."
                     value={docDescription}
                     onChange={(e) => setDocDescription(e.target.value)}
                     className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500"
@@ -680,24 +686,31 @@ export default function DocumentsVaultPage() {
       </div>
 
       {/* KPI Stats Ribbon */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs">
           <div className="text-xs font-semibold text-slate-500 flex items-center gap-1.5">
-            <FolderArchive className="h-4 w-4 text-sky-500" /> Total Documents
+            <FolderArchive className="h-4 w-4 text-sky-500" /> Total Docs
           </div>
           <div className="text-2xl font-black text-slate-900 mt-1">{metrics.total}</div>
         </div>
 
+        <div className="p-4 rounded-2xl bg-emerald-50/50 border border-emerald-200 shadow-xs">
+          <div className="text-xs font-semibold text-emerald-700 flex items-center gap-1.5">
+            <Receipt className="h-4 w-4 text-emerald-600" /> Quotations
+          </div>
+          <div className="text-2xl font-black text-emerald-900 mt-1">{metrics.quotation}</div>
+        </div>
+
         <div className="p-4 rounded-2xl bg-pink-50/50 border border-pink-200 shadow-xs">
           <div className="text-xs font-semibold text-pink-700 flex items-center gap-1.5">
-            <Sparkles className="h-4 w-4 text-pink-600" /> Marketing Assets
+            <Sparkles className="h-4 w-4 text-pink-600" /> Marketing
           </div>
           <div className="text-2xl font-black text-pink-900 mt-1">{metrics.marketing}</div>
         </div>
 
         <div className="p-4 rounded-2xl bg-amber-50/50 border border-amber-200 shadow-xs">
           <div className="text-xs font-semibold text-amber-700 flex items-center gap-1.5">
-            <Shield className="h-4 w-4 text-amber-600" /> Admin Documents
+            <Shield className="h-4 w-4 text-amber-600" /> Admin Files
           </div>
           <div className="text-2xl font-black text-amber-900 mt-1">{metrics.admin}</div>
         </div>
@@ -711,7 +724,7 @@ export default function DocumentsVaultPage() {
 
         <div className="p-4 rounded-2xl bg-indigo-50/50 border border-indigo-200 shadow-xs col-span-2 sm:col-span-1">
           <div className="text-xs font-semibold text-indigo-700 flex items-center gap-1.5">
-            <Layers className="h-4 w-4 text-indigo-600" /> Standalone Files
+            <Layers className="h-4 w-4 text-indigo-600" /> Standalone
           </div>
           <div className="text-2xl font-black text-indigo-900 mt-1">{metrics.standalone}</div>
         </div>
@@ -731,7 +744,7 @@ export default function DocumentsVaultPage() {
                   : "bg-slate-100 hover:bg-slate-200 text-slate-700"
               }`}
             >
-              {cat === "All" ? "All Categories" : cat}
+              {cat === "All" ? "All Categories" : cat === "Quotation" ? "💰 Quotations" : cat}
             </button>
           ))}
         </div>
@@ -840,7 +853,7 @@ export default function DocumentsVaultPage() {
                   {/* Top Badges */}
                   <div className="flex items-center justify-between gap-2">
                     <Badge variant="outline" className={`text-[10px] font-bold px-2 py-0.5 ${categoryClass}`}>
-                      {doc.category}
+                      {doc.category === "Quotation" ? "💰 Quotation" : doc.category}
                     </Badge>
 
                     <div className="flex items-center gap-1.5">
@@ -1005,7 +1018,7 @@ export default function DocumentsVaultPage() {
 
                     <TableCell>
                       <Badge variant="outline" className={`text-[10px] font-bold ${categoryClass}`}>
-                        {doc.category}
+                        {doc.category === "Quotation" ? "💰 Quotation" : doc.category}
                       </Badge>
                     </TableCell>
 
@@ -1180,11 +1193,12 @@ export default function DocumentsVaultPage() {
               <Select value={editCategory} onValueChange={setEditCategory}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Marketing">Marketing & Creative</SelectItem>
-                  <SelectItem value="Admin">Admin & Operational</SelectItem>
-                  <SelectItem value="Project Document">Project Document / PR</SelectItem>
-                  <SelectItem value="Technical">Technical Architecture</SelectItem>
-                  <SelectItem value="General">General Company Asset</SelectItem>
+                  <SelectItem value="Quotation">💰 Quotations & Proposals</SelectItem>
+                  <SelectItem value="Marketing">📢 Marketing & Creative</SelectItem>
+                  <SelectItem value="Admin">🛡️ Admin & Operational</SelectItem>
+                  <SelectItem value="Project Document">💼 Project Document / PR</SelectItem>
+                  <SelectItem value="Technical">⚙️ Technical Architecture</SelectItem>
+                  <SelectItem value="General">📂 General Company Asset</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -1194,7 +1208,7 @@ export default function DocumentsVaultPage() {
               <Select value={editProjectId} onValueChange={setEditProjectId}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="standalone">Standalone / General Company Asset</SelectItem>
+                  <SelectItem value="standalone">⭐ Standalone / General Company Asset</SelectItem>
                   {projects.map((p) => (
                     <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
                   ))}
@@ -1248,7 +1262,7 @@ export default function DocumentsVaultPage() {
                 Are you sure you want to delete <span className="font-bold text-slate-900">{deleteDocConfirm.title}</span> from the vault?
               </p>
               <div className="rounded-xl bg-red-50 p-3 text-xs text-red-700 border border-red-200">
-                ⚠️ This will revoke access for all assigned developers and remove the document from the company repository.
+                ⚠️ This will permanently delete the file from Cloudinary and database, and revoke all team access.
               </div>
               <div className="flex justify-end gap-2 pt-2">
                 <Button variant="outline" onClick={() => setDeleteDocConfirm(null)} disabled={deleting}>

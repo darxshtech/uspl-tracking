@@ -12,13 +12,13 @@ async function migrate() {
   });
 
   try {
-    // 1. Create documents table
+    // 1. Create documents table if not exists
     await connection.query(`
       CREATE TABLE IF NOT EXISTS documents (
         id INT AUTO_INCREMENT PRIMARY KEY,
         title VARCHAR(255) NOT NULL,
         description TEXT NULL,
-        category ENUM('Marketing', 'Admin', 'Project Document', 'Technical', 'General') NOT NULL DEFAULT 'Project Document',
+        category VARCHAR(100) NOT NULL DEFAULT 'Project Document',
         file_url VARCHAR(1000) NOT NULL,
         file_name VARCHAR(255) NOT NULL,
         file_type VARCHAR(50) NULL,
@@ -33,7 +33,12 @@ async function migrate() {
         INDEX idx_doc_created_by (created_by)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
-    console.log('✓ `documents` table created / verified.');
+
+    // Ensure category column is VARCHAR(100) to support Quotation, Marketing, Admin, etc.
+    await connection.query(`
+      ALTER TABLE documents MODIFY COLUMN category VARCHAR(100) NOT NULL DEFAULT 'Project Document';
+    `);
+    console.log('✓ `documents` table & category column updated.');
 
     // 2. Create document_access table for granular access control
     await connection.query(`

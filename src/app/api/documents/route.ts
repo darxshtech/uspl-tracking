@@ -2,6 +2,95 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import pool from "@/lib/db";
+import { v2 as cloudinary } from "cloudinary";
+import path from "path";
+import fs from "fs/promises";
+
+// Configure Cloudinary if environment variables are present
+const isCloudinaryConfigured = Boolean(
+  process.env.CLOUDINARY_CLOUD_NAME &&
+  process.env.CLOUDINARY_API_KEY &&
+  process.env.CLOUDINARY_API_SECRET
+);
+
+if (isCloudinaryConfigured) {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+    secure: true,
+  });
+}
+
+function extractCloudinaryDetails(url: string) {
+  try {
+    const parsed = new URL(url);
+    if (!parsed.hostname.includes("cloudinary.com")) return null;
+
+    const parts = parsed.pathname.split("/");
+    const uploadIndex = parts.indexOf("upload");
+    if (uploadIndex === -1) return null;
+
+    const resourceType = uploadIndex >= 2 ? parts[uploadIndex - 1] : "image";
+
+    // Subpath after /upload/ (and optional version /v12345/)
+    let afterUpload = parts.slice(uploadIndex + 1);
+    if (afterUpload.length > 0 && /^v\d+$/.test(afterUpload[0])) {
+      afterUpload = afterUpload.slice(1);
+    }
+
+    const fullPathWithExt = afterUpload.join("/");
+    const publicIdWithoutExt = fullPathWithExt.replace(/\.[^/.]+$/, "");
+
+    return {
+      resourceType,
+      publicId: publicIdWithoutExt,
+      fullPathWithExt,
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+async function deleteAssetFile(fileUrl: string) {
+  if (!fileUrl) return;
+
+  // 1. If Cloudinary asset
+  if (isCloudinaryConfigured && fileUrl.includes("cloudinary.com")) {
+    const details = extractCloudinaryDetails(fileUrl);
+    if (details) {
+      try {
+        // Attempt deletion with detected resource_type
+        const res = await cloudinary.uploader.destroy(details.publicId, {
+          resource_type: details.resourceType as any,
+          invalidate: true,
+        });
+
+        // Fallback: try raw resource_type and full filename
+        if (res?.result !== "ok") {
+          await cloudinary.uploader.destroy(details.fullPathWithExt, {
+            resource_type: "raw",
+            invalidate: true,
+          }).catch(() => {});
+          await cloudinary.uploader.destroy(details.publicId, {
+            resource_type: "raw",
+            invalidate: true,
+          }).catch(() => {});
+        }
+      } catch (err) {
+        console.error("Error destroying asset in Cloudinary:", err);
+      }
+    }
+  }
+
+  // 2. If locally stored in /public/uploads
+  if (fileUrl.startsWith("/uploads/")) {
+    try {
+      const localPath = path.join(process.cwd(), "public", fileUrl.replace(/^\//, ""));
+      await fs.unlink(localPath).catch(() => {});
+    } catch (_) {}
+  }
+}
 
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
@@ -258,8 +347,15 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "Document ID required" }, { status: 400 });
     }
 
+    // 1. Fetch file_url before deleting record
+    const [docRows]: any = await pool.query("SELECT file_url FROM documents WHERE id = ?", [id]);
+    if (docRows.length > 0 && docRows[0].file_url) {
+      await deleteAssetFile(docRows[0].file_url);
+    }
+
+    // 2. Delete database record
     await pool.query("DELETE FROM documents WHERE id = ?", [id]);
-    return NextResponse.json({ success: true, message: "Document removed successfully" });
+    return NextResponse.json({ success: true, message: "Document removed from vault and cloud storage" });
   } catch (error: any) {
     console.error("Error deleting document:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
