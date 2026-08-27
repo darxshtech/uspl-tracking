@@ -231,7 +231,6 @@ export default function CEOFilterDashboard() {
       const isDevOrTester = emp.role === "Developer" || emp.role === "Tester";
       const hasNoActiveTasks = isDevOrTester && empActiveTasks.length === 0;
 
-      // Last task details
       const lastTask = empTasks.length > 0 ? empTasks[0] : null;
 
       return {
@@ -282,21 +281,21 @@ export default function CEOFilterDashboard() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "Planning":
-        return <Badge className="bg-purple-600 text-white font-bold">Planning</Badge>;
+        return <Badge className="bg-purple-600 text-white font-bold whitespace-nowrap">Planning</Badge>;
       case "In Progress":
-        return <Badge className="bg-sky-500 text-white font-bold">In Progress</Badge>;
+        return <Badge className="bg-sky-500 text-white font-bold whitespace-nowrap">In Progress</Badge>;
       case "Ready for Testing":
-        return <Badge className="bg-amber-500 text-white font-bold animate-pulse">Ready for Testing</Badge>;
+        return <Badge className="bg-amber-500 text-white font-bold animate-pulse whitespace-nowrap">Ready for Testing</Badge>;
       case "Tested (PASS)":
-        return <Badge className="bg-emerald-600 text-white font-bold">Tested (PASS)</Badge>;
+        return <Badge className="bg-emerald-600 text-white font-bold whitespace-nowrap">Tested (PASS)</Badge>;
       case "Ready for Demo":
-        return <Badge className="bg-indigo-600 text-white font-bold shadow-xs">🚀 Ready for Demo</Badge>;
+        return <Badge className="bg-indigo-600 text-white font-bold shadow-xs whitespace-nowrap">🚀 Ready for Demo</Badge>;
       case "Completed":
-        return <Badge className="bg-emerald-500 text-white font-bold">Completed</Badge>;
+        return <Badge className="bg-emerald-500 text-white font-bold whitespace-nowrap">Completed</Badge>;
       case "Changes Required":
-        return <Badge className="bg-red-500 text-white font-bold">Changes Required (FAIL)</Badge>;
+        return <Badge className="bg-red-500 text-white font-bold whitespace-nowrap">Changes Required (FAIL)</Badge>;
       default:
-        return <Badge variant="outline">{status}</Badge>;
+        return <Badge variant="outline" className="whitespace-nowrap">{status}</Badge>;
     }
   };
 
@@ -626,19 +625,19 @@ export default function CEOFilterDashboard() {
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-          <Table>
+        <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden overflow-x-auto">
+          <Table className="min-w-[950px]">
             <TableHeader className="bg-slate-50">
               <TableRow>
-                <TableHead className="font-bold">Team Member</TableHead>
-                <TableHead className="font-bold">Role</TableHead>
-                <TableHead className="font-bold text-center">Workload Status</TableHead>
-                <TableHead className="font-bold text-center">Projects</TableHead>
-                <TableHead className="font-bold text-center">Total Tasks</TableHead>
-                <TableHead className="font-bold text-center">Completed</TableHead>
-                <TableHead className="font-bold text-center">In Progress</TableHead>
-                <TableHead className="font-bold text-center">Hours Logged</TableHead>
-                <TableHead className="font-bold text-right">Completion Rate</TableHead>
+                <TableHead className="font-bold min-w-[200px]">Team Member</TableHead>
+                <TableHead className="font-bold min-w-[100px]">Role</TableHead>
+                <TableHead className="font-bold text-center min-w-[150px]">Workload Status</TableHead>
+                <TableHead className="font-bold text-center min-w-[90px]">Projects</TableHead>
+                <TableHead className="font-bold text-center min-w-[90px]">Total Tasks</TableHead>
+                <TableHead className="font-bold text-center min-w-[90px]">Completed</TableHead>
+                <TableHead className="font-bold text-center min-w-[90px]">In Progress</TableHead>
+                <TableHead className="font-bold text-center min-w-[110px]">Hours Logged</TableHead>
+                <TableHead className="font-bold text-right min-w-[120px]">Completion Rate</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -651,12 +650,12 @@ export default function CEOFilterDashboard() {
                   <TableRow key={emp.id} className={`transition-colors ${emp.hasNoActiveTasks ? "bg-amber-50/30 hover:bg-amber-50/60" : "hover:bg-slate-50/80"}`}>
                     <TableCell className="font-bold text-slate-900">
                       <div className="flex items-center gap-2">
-                        <div className={`h-7 w-7 rounded-full text-xs font-bold flex items-center justify-center ${
+                        <div className={`h-7 w-7 rounded-full text-xs font-bold flex items-center justify-center shrink-0 ${
                           emp.hasNoActiveTasks ? "bg-amber-100 text-amber-800 border border-amber-300" : "bg-sky-100 text-sky-800"
                         }`}>
                           {emp.name.slice(0, 2).toUpperCase()}
                         </div>
-                        <span>{emp.name}</span>
+                        <span className="truncate">{emp.name}</span>
                       </div>
                     </TableCell>
                     
@@ -730,17 +729,17 @@ export default function CEOFilterDashboard() {
           </h3>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-          <Table>
+        <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden overflow-x-auto">
+          <Table className="min-w-[1000px]">
             <TableHeader className="bg-slate-50">
               <TableRow>
-                <TableHead className="font-bold">Task</TableHead>
-                <TableHead className="font-bold">Project</TableHead>
-                <TableHead className="font-bold">Assignee</TableHead>
-                <TableHead className="font-bold">Status</TableHead>
-                <TableHead className="font-bold">Progress</TableHead>
-                <TableHead className="font-bold">Hours</TableHead>
-                <TableHead className="font-bold">Blockers / Notes</TableHead>
+                <TableHead className="font-bold w-[34%] min-w-[300px]">Task Details</TableHead>
+                <TableHead className="font-bold w-[16%] min-w-[160px]">Project</TableHead>
+                <TableHead className="font-bold w-[12%] min-w-[130px]">Assignee</TableHead>
+                <TableHead className="font-bold w-[12%] min-w-[130px]">Status</TableHead>
+                <TableHead className="font-bold w-[10%] min-w-[110px]">Progress</TableHead>
+                <TableHead className="font-bold w-[6%] min-w-[80px]">Hours</TableHead>
+                <TableHead className="font-bold w-[10%] min-w-[140px]">Blockers / Notes</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -751,20 +750,39 @@ export default function CEOFilterDashboard() {
               ) : (
                 filteredTasks.map((t) => (
                   <TableRow key={t.id} className="hover:bg-slate-50/80 transition-colors">
-                    <TableCell className="max-w-xs align-top">
-                      <div className="font-bold text-slate-900 text-sm">{t.title}</div>
+                    {/* Task Title & Description */}
+                    <TableCell className="align-top py-3.5 pr-4">
+                      <div className="font-bold text-slate-900 text-sm break-words whitespace-normal leading-snug">
+                        {t.title}
+                      </div>
                       {t.description && (
-                        <p className="text-xs text-slate-500 whitespace-pre-wrap break-words mt-0.5 leading-relaxed">
+                        <p className="text-xs text-slate-500 whitespace-pre-wrap break-words mt-1 leading-relaxed bg-slate-50/70 p-2.5 rounded-lg border border-slate-150">
                           {t.description}
                         </p>
                       )}
                     </TableCell>
-                    <TableCell className="align-top text-xs font-semibold text-slate-800">{t.project_name || "N/A"}</TableCell>
-                    <TableCell className="align-top text-xs text-slate-700 font-medium">{t.assignee_name || "Unassigned"}</TableCell>
-                    <TableCell className="align-top">{getStatusBadge(t.status)}</TableCell>
-                    <TableCell className="align-top">
+
+                    {/* Project Name */}
+                    <TableCell className="align-top py-3.5 px-3">
+                      <div className="text-xs font-semibold text-slate-800 break-words whitespace-normal leading-relaxed">
+                        {t.project_name || "N/A"}
+                      </div>
+                    </TableCell>
+
+                    {/* Assignee */}
+                    <TableCell className="align-top py-3.5 px-3 text-xs text-slate-700 font-medium whitespace-nowrap">
+                      {t.assignee_name || "Unassigned"}
+                    </TableCell>
+
+                    {/* Status */}
+                    <TableCell className="align-top py-3.5 px-2 whitespace-nowrap">
+                      {getStatusBadge(t.status)}
+                    </TableCell>
+
+                    {/* Progress */}
+                    <TableCell className="align-top py-3.5 px-3 whitespace-nowrap">
                       <div className="flex items-center gap-2">
-                        <div className="w-14 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                        <div className="w-14 bg-slate-100 rounded-full h-1.5 overflow-hidden shrink-0">
                           <div
                             className="bg-sky-500 h-full"
                             style={{ width: `${t.progress_percentage || 0}%` }}
@@ -773,14 +791,20 @@ export default function CEOFilterDashboard() {
                         <span className="text-[11px] font-bold text-slate-700">{t.progress_percentage || 0}%</span>
                       </div>
                     </TableCell>
-                    <TableCell className="align-top font-bold text-slate-900 text-xs">{formatHoursAndMinutes(t.hours_spent)}</TableCell>
-                    <TableCell className="align-top max-w-xs text-xs">
+
+                    {/* Hours */}
+                    <TableCell className="align-top py-3.5 px-3 font-bold text-slate-900 text-xs whitespace-nowrap">
+                      {formatHoursAndMinutes(t.hours_spent)}
+                    </TableCell>
+
+                    {/* Blockers / Notes */}
+                    <TableCell className="align-top py-3.5 pl-3 text-xs">
                       {t.blockers ? (
-                        <span className="text-red-700 font-semibold bg-red-50 px-2 py-0.5 rounded border border-red-200 inline-block">
+                        <span className="text-red-700 font-semibold bg-red-50 px-2 py-0.5 rounded border border-red-200 inline-block break-words">
                           ⚠️ {t.blockers}
                         </span>
                       ) : t.daily_summary ? (
-                        <span className="text-slate-600">{t.daily_summary}</span>
+                        <span className="text-slate-600 break-words">{t.daily_summary}</span>
                       ) : (
                         <span className="text-slate-400">None</span>
                       )}
