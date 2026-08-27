@@ -16,15 +16,18 @@ import {
   CheckCircle2, 
   Calendar, 
   Moon, 
-  Info 
+  Info,
+  Sparkles
 } from "lucide-react";
 
 export default function AttendanceWidget() {
   const { data: session } = useSession();
   const role = (session?.user as any)?.role;
   const userId = (session?.user as any)?.id;
+  const isManagement = ["Admin", "CEO", "PM"].includes(role);
 
   const [record, setRecord] = useState<any>(null);
+  const [todayHoliday, setTodayHoliday] = useState<any>(null);
   const [yesterdayHalfDay, setYesterdayHalfDay] = useState<any>(null);
   const [fullDayHours, setFullDayHours] = useState<number>(9);
   const [loading, setLoading] = useState(false);
@@ -48,14 +51,6 @@ export default function AttendanceWidget() {
 
   const getCurrent24HourTime = () => {
     const now = new Date();
-    const hours = now.getHours().toString().padStart(2, "0");
-    const minutes = now.getMinutes().toString().padStart(2, "0");
-    return `${hours}:${minutes}`;
-  };
-
-  const getMaxAllowedCheckout24HourTime = () => {
-    const now = new Date();
-    now.setMinutes(now.getMinutes() + 30);
     const hours = now.getHours().toString().padStart(2, "0");
     const minutes = now.getMinutes().toString().padStart(2, "0");
     return `${hours}:${minutes}`;
@@ -129,6 +124,7 @@ export default function AttendanceWidget() {
       const data = await res.json();
       if (data) {
         if (data.fullDayHours) setFullDayHours(data.fullDayHours);
+        if (data.todayHoliday !== undefined) setTodayHoliday(data.todayHoliday);
         if (data.yesterdayHalfDay) setYesterdayHalfDay(data.yesterdayHalfDay);
         else setYesterdayHalfDay(null);
 
@@ -182,6 +178,11 @@ export default function AttendanceWidget() {
   }, [role, userId, syncOfflineQueue]);
 
   const openCheckInDialog = () => {
+    if (todayHoliday && !isManagement) {
+      setCheckinError(`Today (${todayHoliday.title || "Holiday"}) is an official company holiday. Adding IN/OUT times on holidays is restricted to PM, Admin, and CEO.`);
+    } else {
+      setCheckinError(null);
+    }
     setManualCheckInTime(getCurrent24HourTime());
     setCheckInModalOpen(true);
   };
@@ -204,6 +205,11 @@ export default function AttendanceWidget() {
 
   const handleConfirmCheckIn = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (todayHoliday && !isManagement) {
+      setCheckinError(`Today (${todayHoliday.title || "Holiday"}) is an official company holiday. Adding IN/OUT times on holidays is restricted to PM, Admin, and CEO.`);
+      return;
+    }
+
     setLoading(true);
 
     const formattedTime12 = convert24To12Hour(manualCheckInTime);
@@ -400,7 +406,7 @@ export default function AttendanceWidget() {
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleConfirmCheckIn} className="space-y-3 pt-2">
-            {/* Check-In Blocked Error Alert */}
+            {/* Check-In Blocked Error Alert (Leave or Holiday) */}
             {checkinError && (
               <div className="p-3 rounded-xl bg-red-50 border border-red-300 text-xs text-red-950 space-y-1 shadow-xs">
                 <div className="flex items-center gap-1.5 font-bold text-red-900">
@@ -409,6 +415,21 @@ export default function AttendanceWidget() {
                 </div>
                 <p className="text-[11px] text-red-900 leading-relaxed font-medium">
                   {checkinError}
+                </p>
+              </div>
+            )}
+
+            {/* Holiday Notice Alert */}
+            {todayHoliday && (
+              <div className="p-3 rounded-xl bg-sky-50 border border-sky-200 text-xs text-sky-950 space-y-1 shadow-xs">
+                <div className="flex items-center gap-1.5 font-bold text-sky-900">
+                  <Sparkles className="h-4 w-4 text-sky-600 shrink-0" />
+                  <span>🎉 Official Company Holiday: {todayHoliday.title || "Scheduled Holiday"}</span>
+                </div>
+                <p className="text-[11px] text-sky-800 leading-relaxed font-medium">
+                  {isManagement 
+                    ? "As Management (PM/Admin/CEO), you can punch and record holiday work." 
+                    : "Shift punches on company holidays are disabled for team members."}
                 </p>
               </div>
             )}
@@ -447,6 +468,7 @@ export default function AttendanceWidget() {
                 type="time"
                 value={manualCheckInTime}
                 onChange={(e) => setManualCheckInTime(e.target.value)}
+                disabled={Boolean(todayHoliday && !isManagement)}
                 className="text-base font-bold"
                 required
               />
@@ -454,48 +476,44 @@ export default function AttendanceWidget() {
 
             <Button
               type="submit"
-              disabled={loading}
+              disabled={loading || Boolean(todayHoliday && !isManagement)}
               className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2 shadow-sm"
             >
-              {loading ? "Checking In..." : "Confirm & Check In"}
+              {loading ? "Checking in..." : todayHoliday && !isManagement ? "Check-in Disabled on Holiday" : "Confirm Check-In (IST)"}
             </Button>
           </form>
         </DialogContent>
       </Dialog>
 
-      {/* MANUAL CHECK OUT DIALOG (+30 Min Buffer & Overnight Support) */}
+      {/* MANUAL CHECK OUT DIALOG */}
       <Dialog open={checkOutModalOpen} onOpenChange={setCheckOutModalOpen}>
         <DialogContent className="w-[92vw] sm:max-w-sm max-h-[90vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base font-bold text-slate-900">
-              <LogOut className="h-5 w-5 text-slate-900" />
-              Daily Shift Check-Out
+              <LogOut className="h-5 w-5 text-sky-600" />
+              Complete Shift Check-Out
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleConfirmCheckOut} className="space-y-3 pt-2">
             <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700 space-y-1">
-              <div className="font-bold text-slate-900">Shift Started: {record?.date} at {record?.login_time || "N/A"}</div>
-              <div className="text-[11px] text-sky-700 font-medium flex items-center gap-1 pt-0.5">
-                <Info className="h-3 w-3 text-sky-500" />
-                <span>You can add out time up to <strong>+30 mins</strong> in advance for meetings.</span>
+              <div className="flex items-center gap-1 font-bold text-slate-900">
+                <Clock className="h-3.5 w-3.5 text-sky-500" />
+                Shift Started: <span className="text-emerald-700 font-extrabold">{record?.login_time || "N/A"}</span>
               </div>
+              <p className="text-slate-500 text-[11px]">
+                Shift Date: <strong>{record?.date ? String(record.date).split("T")[0] : getTodayDateStr()}</strong>. Full day requires <strong>{fullDayHours} hrs</strong>.
+              </p>
             </div>
 
             <div className="space-y-1.5">
-              <div className="flex justify-between items-center">
-                <Label htmlFor="checkOutTime" className="font-semibold text-slate-700 text-xs">
-                  Check-Out Time *
-                </Label>
-                <span className="text-[10px] text-slate-500">Max limit: {getMaxAllowedCheckout24HourTime()}</span>
-              </div>
+              <Label htmlFor="checkOutTime" className="font-semibold text-slate-700 text-xs">
+                Check-Out Time (IST) *
+              </Label>
               <Input
                 id="checkOutTime"
                 type="time"
                 value={manualCheckOutTime}
-                onChange={(e) => {
-                  setManualCheckOutTime(e.target.value);
-                  setCheckoutError(null);
-                }}
+                onChange={(e) => setManualCheckOutTime(e.target.value)}
                 className="text-base font-bold"
                 required
               />
@@ -560,8 +578,20 @@ export default function AttendanceWidget() {
         </Badge>
       )}
 
+      {/* Holiday Indicator for Regular Employees */}
+      {!isCheckedIn && !isCheckedOut && todayHoliday && !isManagement && (
+        <Badge
+          variant="outline"
+          className="text-[11px] sm:text-xs font-bold text-sky-800 bg-sky-50 border-sky-300 py-1 px-2.5 shadow-2xs gap-1.5"
+          title={`Official Company Holiday: ${todayHoliday.title || "Holiday"}`}
+        >
+          <span>🎉</span>
+          <span className="truncate max-w-[120px] sm:max-w-none">Holiday ({todayHoliday.title || "Off"})</span>
+        </Badge>
+      )}
+
       {/* Check In Button */}
-      {!isCheckedIn && !isCheckedOut && (
+      {!isCheckedIn && !isCheckedOut && (!todayHoliday || isManagement) && (
         <Button
           size="sm"
           onClick={openCheckInDialog}

@@ -33,6 +33,13 @@ export async function GET() {
 
     const todayIST = getCurrentISTDate();
 
+    // Check if today is a scheduled company holiday
+    const [holidayRows]: any = await pool.query(
+      "SELECT id, title, title AS name, date, description FROM holidays WHERE date = ?",
+      [todayIST]
+    );
+    const todayHoliday = holidayRows.length > 0 ? holidayRows[0] : null;
+
     // Fetch previous completed shift to check if yesterday was Half Day
     const [prevRows]: any = await pool.query(
       `SELECT * FROM attendance 
@@ -76,6 +83,7 @@ export async function GET() {
           ...activeShift,
           isOvernightShift: isShiftFromPreviousDay,
         },
+        todayHoliday,
         fullDayHours,
         yesterdayHalfDay,
         currentDate: todayIST,
@@ -96,6 +104,7 @@ export async function GET() {
     return NextResponse.json({
       isCeo: false,
       todayRecord,
+      todayHoliday,
       fullDayHours,
       yesterdayHalfDay,
       currentDate: todayIST,
@@ -113,8 +122,6 @@ export async function POST(req: Request) {
   try {
     const role = (session.user as any).role;
     const userId = (session.user as any).id;
-    const userEmail = session.user?.email || "";
-    const userName = session.user?.name || "Employee";
     const userRole = role;
     const isManagement = ["Admin", "CEO", "PM"].includes(role);
     const fullDayHours = await getFullDayHours();
@@ -132,6 +139,27 @@ export async function POST(req: Request) {
     const todayIST = getCurrentISTDate();
     const currentISTTime = getCurrentISTTime12();
     const nowTime12 = manual_time || offline_time || currentISTTime;
+
+    const checkDate = targetDate || todayIST;
+
+    // 2. Official Company Holiday Restriction Check
+    // ONLY PM, Admin, and CEO can add IN/OUT times on official company holidays
+    const [holidayRows]: any = await pool.query(
+      "SELECT id, title, date, description FROM holidays WHERE date = ?",
+      [checkDate]
+    );
+    const scheduledHoliday = holidayRows.length > 0 ? holidayRows[0] : null;
+
+    if (scheduledHoliday && !isManagement) {
+      return NextResponse.json(
+        {
+          error: `Today (${scheduledHoliday.title || checkDate}) is an official company holiday. Adding IN/OUT times on holidays is restricted to PM, Admin, and CEO.`,
+          is_holiday_blocked: true,
+          holiday: scheduledHoliday,
+        },
+        { status: 403 }
+      );
+    }
 
     // CHECK-IN ACTION
     if (action === "check-in") {
@@ -159,7 +187,9 @@ export async function POST(req: Request) {
         }
 
         // If PM/CEO/Admin or explicitly overridden, log override note
-        const overrideNote = ` [Leave Overridden by ${session.user?.name || userRole}]`;
+        const overrideNote = scheduledHoliday
+          ? ` [Holiday Work by ${session.user?.name || userRole}]`
+          : ` [Leave Overridden by ${session.user?.name || userRole}]`;
         await pool.query(
           `UPDATE attendance 
            SET status = 'Present', login_time = IFNULL(login_time, ?), notes = CONCAT(IFNULL(notes, ''), ?)
@@ -168,11 +198,12 @@ export async function POST(req: Request) {
         );
       } else {
         // Normal check-in insert/update
+        const initialNotes = scheduledHoliday ? `[Holiday Work by ${userRole}]` : null;
         await pool.query(
-          `INSERT INTO attendance (user_id, date, status, login_time) 
-           VALUES (?, ?, 'Present', ?) 
+          `INSERT INTO attendance (user_id, date, status, login_time, notes) 
+           VALUES (?, ?, 'Present', ?, ?) 
            ON DUPLICATE KEY UPDATE login_time = IFNULL(login_time, ?), status = 'Present'`,
-          [userId, todayIST, nowTime12, nowTime12]
+          [userId, todayIST, nowTime12, initialNotes, nowTime12]
         );
       }
 
@@ -222,31 +253,15 @@ export async function POST(req: Request) {
             hours: prevHours,
             requiredHours: fullDayHours,
           };
-
-          const notifTitle = `⚠️ Half Day Alert (${shiftDateStr})`;
-          const notifMsg = `Your previous shift on ${shiftDateStr} was recorded as a Half Day (${prevHours.toFixed(1)} hrs completed, <${fullDayHours} hrs required). Please ensure you complete your full ${fullDayHours} hours today!`;
-
-          const [existingNotif]: any = await pool.query(
-            "SELECT id FROM notifications WHERE user_id = ? AND title = ? LIMIT 1",
-            [userId, notifTitle]
-          );
-
-          if (!existingNotif || existingNotif.length === 0) {
-            await pool.query(
-              "INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'warning')",
-              [userId, notifTitle, notifMsg]
-            );
-          }
         }
       }
 
       return NextResponse.json({
         success: true,
-        message: `Checked IN successfully at ${nowTime12} (India Time IST)${offline_time ? ' [Synced from offline session]' : ''}`,
         login_time: nowTime12,
         date: todayIST,
         yesterdayNotice,
-        fullDayHours,
+        message: `Checked IN successfully at ${nowTime12} (IST).`,
       });
     }
 
@@ -302,7 +317,7 @@ export async function POST(req: Request) {
 
       // 4. Calculate total hours with overnight awareness & configurable fullDayHours
       const totalHours = calculateHoursDifference(activeShift.login_time, nowTime12, isCrossDay);
-      const halfDayThreshold = fullDayHours / 2; // e.g. 4.5 hrs for 9h shift, 4.0 hrs for 8h shift
+      const halfDayThreshold = fullDayHours / 2;
 
       let status = "Present";
       let isAbsent = false;
