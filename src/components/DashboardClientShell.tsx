@@ -24,7 +24,8 @@ import {
   Shield,
   KeyRound,
   BookOpen,
-  FolderArchive
+  FolderArchive,
+  Mail
 } from "lucide-react";
 import { getRoleDisplayName, getRoleIconEmoji } from "@/lib/roleUtils";
 
@@ -124,6 +125,7 @@ export default function DashboardClientShell({ children, user }: DashboardClient
     { name: "Credentials", href: "/dashboard/credentials", icon: KeyRound, roles: ["Admin", "CEO", "PM", "Developer", "Tester"] },
     { name: "Document Vault", href: "/dashboard/documents", icon: FolderArchive, roles: ["Admin", "CEO", "PM", "Developer", "Tester"] },
     { name: "Company Policies", href: "/dashboard/policies", icon: BookOpen, roles: ["Admin", "CEO", "PM"] },
+    { name: "Email & Cron Logs", href: "/dashboard/cron-logs", icon: Mail, roles: ["Admin", "CEO", "PM"] },
   ];
 
   const visibleNavItems = navItems.filter((item) => item.roles.includes(role));

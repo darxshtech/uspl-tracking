@@ -540,6 +540,12 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
               </Button>
             </Link>
 
+            <Link href="/dashboard/cron-logs">
+              <Button size="sm" variant="outline" className="bg-white hover:bg-emerald-50 text-emerald-700 font-bold text-xs gap-1.5 shadow-xs border-emerald-200">
+                <Mail className="h-3.5 w-3.5 text-emerald-600" /> Email &amp; Cron Logs
+              </Button>
+            </Link>
+
             {/* Shift Working Hours Policy Config Modal (PM / CEO / Admin) */}
             <Dialog open={policyModalOpen} onOpenChange={setPolicyModalOpen}>
               <DialogTrigger render={<Button size="sm" variant="outline" className="bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs gap-1.5 shadow-xs border-slate-300" />}>
