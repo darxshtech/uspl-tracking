@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/attendance-emails?type=auto",
+      "schedule": "0 2 * * *"
+    }
+  ]
+}
