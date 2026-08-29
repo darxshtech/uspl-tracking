@@ -348,7 +348,7 @@ async function processAttendanceEmails(
         if (res.simulated) results.simulated++;
       } else {
         results.failed++;
-        results.errors.push(`Failed sending to ${user.email}`);
+        results.errors.push(`Failed sending to ${user.email}: ${res.error || "Unknown SMTP error"}`);
       }
     });
 
