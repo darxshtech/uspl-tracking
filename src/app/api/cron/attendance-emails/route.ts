@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { sendEmail } from "@/lib/mailer";
 import { getTotalLeavesAllowed } from "@/lib/settings";
+import { logCronExecution } from "@/lib/cronLogger";
 
 export const maxDuration = 60; // Max allowed serverless duration for Vercel functions
 export const dynamic = "force-dynamic";
@@ -363,8 +364,9 @@ async function processAttendanceEmails(
 
 // MAIN CRON ENDPOINT
 export async function GET(req: Request) {
+  const startTime = Date.now();
   const url = new URL(req.url);
-  const typeParam = url.searchParams.get("type") || "auto"; // 'auto', 'weekly', 'monthly', 'both', 'maintenance'
+  const typeParam = (url.searchParams.get("type") || "auto") as any;
   const testEmail = url.searchParams.get("test_email");
   const dryRun = url.searchParams.get("dry_run") === "true";
 
@@ -373,9 +375,11 @@ export async function GET(req: Request) {
   const expectedSecret = process.env.CRON_SECRET || "unitglo_tracking_cron_secret_2026";
   const isAuthorized = authHeader === `Bearer ${expectedSecret}` || authHeader === `Bearer ${process.env.CRON_SECRET}`;
 
-  if (process.env.NODE_ENV === "production" && !isAuthorized && !testEmail) {
+  if (process.env.NODE_ENV === "production" && !isAuthorized && !testEmail && !dryRun) {
     return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
   }
+
+  const triggerSource = testEmail ? "test_email" : dryRun ? "dry_run" : authHeader ? "authorized_trigger" : "cron_schedule";
 
   try {
     // Current IST date context (+05:30)
@@ -435,6 +439,51 @@ export async function GET(req: Request) {
     }
 
     const executedAny = executeMonthlyMaintenance || executeMonthlyEmails || executeWeeklyEmails;
+    const executionDuration = Date.now() - startTime;
+
+    // Log the execution to MySQL cron_logs table
+    let logStatus: "success" | "partial" | "failed" | "skipped" = "success";
+    let totalSent = 0;
+    let totalFailed = 0;
+    let totalRecipients = 0;
+
+    if (executions.monthlyEmails) {
+      totalRecipients += executions.monthlyEmails.results.total;
+      totalSent += executions.monthlyEmails.results.sent;
+      totalFailed += executions.monthlyEmails.results.failed;
+    }
+    if (executions.weeklyEmails) {
+      totalRecipients += executions.weeklyEmails.results.total;
+      totalSent += executions.weeklyEmails.results.sent;
+      totalFailed += executions.weeklyEmails.results.failed;
+    }
+
+    if (!executedAny) {
+      logStatus = "skipped";
+    } else if (totalFailed > 0 && totalSent > 0) {
+      logStatus = "partial";
+    } else if (totalFailed > 0 && totalSent === 0) {
+      logStatus = "failed";
+    }
+
+    await logCronExecution({
+      job_type: typeParam === "auto" ? "auto" : typeParam === "weekly" ? "weekly_emails" : typeParam === "monthly" ? "monthly_emails" : "combined",
+      status: logStatus,
+      trigger_source: triggerSource,
+      target_period: executions.monthlyEmails?.period ? `${executions.monthlyEmails.period.start} to ${executions.monthlyEmails.period.end}` : executions.weeklyEmails?.period ? `${executions.weeklyEmails.period.start} to ${executions.weeklyEmails.period.end}` : istNow.toDateString(),
+      recipients_count: totalRecipients,
+      success_count: totalSent,
+      failed_count: totalFailed,
+      details: {
+        actionsTriggered: {
+          maintenance: executeMonthlyMaintenance,
+          monthlyEmails: executeMonthlyEmails,
+          weeklyEmails: executeWeeklyEmails,
+        },
+        executions,
+      },
+      execution_time_ms: executionDuration,
+    });
 
     return NextResponse.json({
       success: true,
@@ -447,12 +496,24 @@ export async function GET(req: Request) {
         weeklyEmails: executeWeeklyEmails,
       },
       message: executedAny 
-        ? "Cron jobs executed successfully." 
+        ? "Cron jobs executed and logged successfully." 
         : "Auto runner completed: No scheduled jobs needed for today.",
+      executionDurationMs: executionDuration,
       details: executions,
     });
   } catch (error: any) {
     console.error("[Cron Attendance Route Error]:", error);
+    const executionDuration = Date.now() - startTime;
+
+    // Log the error to database
+    await logCronExecution({
+      job_type: typeParam === "auto" ? "auto" : "combined",
+      status: "failed",
+      trigger_source: triggerSource,
+      error_message: error.message,
+      execution_time_ms: executionDuration,
+    });
+
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
