@@ -11,12 +11,17 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  try {
-    const [rows]: any = await pool.query(
-      "SELECT id, name, email, role, phone, bio, is_active, joining_date, created_at FROM users WHERE is_active = 1 ORDER BY id ASC"
-    );
+  const currentRole = (session?.user as any)?.role;
+  const isManager = ["Admin", "CEO", "PM"].includes(currentRole);
 
-    // Fetch task metrics across all active users
+  try {
+    const query = isManager
+      ? "SELECT id, name, email, role, phone, bio, is_active, joining_date, created_at FROM users ORDER BY is_active DESC, id ASC"
+      : "SELECT id, name, email, role, phone, bio, is_active, joining_date, created_at FROM users WHERE is_active = 1 ORDER BY id ASC";
+
+    const [rows]: any = await pool.query(query);
+
+    // Fetch task metrics across all users
     const [tasks]: any = await pool.query(
       "SELECT id, assigned_to, status FROM tasks"
     );
@@ -39,6 +44,7 @@ export async function GET() {
 
       return {
         ...user,
+        is_active: user.is_active === 1 || user.is_active === true,
         total_tasks: totalTasks,
         completed_tasks: completedTasks,
         in_progress_tasks: inProgressTasks,
@@ -95,6 +101,7 @@ export async function POST(req: Request) {
 export async function PUT(req: Request) {
   const session = await getServerSession(authOptions);
   const currentRole = (session?.user as any)?.role;
+  const currentUserId = (session?.user as any)?.id;
 
   if (!session || !["Admin", "CEO", "PM"].includes(currentRole)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
@@ -106,6 +113,14 @@ export async function PUT(req: Request) {
 
     if (!id) {
       return NextResponse.json({ error: "Employee ID is required" }, { status: 400 });
+    }
+
+    // Prevent deactivating own account
+    if (is_active !== undefined && (is_active === false || is_active === 0) && Number(id) === Number(currentUserId)) {
+      return NextResponse.json(
+        { error: "Action Prohibited: You cannot deactivate your own logged-in account." },
+        { status: 400 }
+      );
     }
 
     // Only Admin & CEO can update or assign executive management roles (Admin, CEO, PM)

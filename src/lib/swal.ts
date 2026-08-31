@@ -97,4 +97,54 @@ export const showConfirm = async (
   return result.isConfirmed;
 };
 
+export const showDestructiveConfirm = async (
+  title: string,
+  text?: string,
+  confirmButtonText = "Yes, deactivate",
+  cancelButtonText = "Cancel"
+): Promise<boolean> => {
+  const result = await CustomSwal.fire({
+    title,
+    text,
+    icon: "warning",
+    showCancelButton: true,
+    confirmButtonText,
+    cancelButtonText,
+    reverseButtons: true,
+    customClass: {
+      popup: "rounded-2xl shadow-2xl border border-red-100 bg-white text-slate-900 font-sans p-6",
+      title: "text-lg font-bold text-slate-900",
+      htmlContainer: "text-sm text-slate-600",
+      confirmButton: "rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold px-5 py-2.5 shadow-md shadow-red-600/25 text-sm transition-all cursor-pointer mx-1.5",
+      cancelButton: "rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-5 py-2.5 text-sm transition-all cursor-pointer mx-1.5",
+    },
+  });
+  return result.isConfirmed;
+};
+
+export const showReactivateConfirm = async (
+  title: string,
+  text?: string,
+  confirmButtonText = "Yes, reactivate",
+  cancelButtonText = "Cancel"
+): Promise<boolean> => {
+  const result = await CustomSwal.fire({
+    title,
+    text,
+    icon: "question",
+    showCancelButton: true,
+    confirmButtonText,
+    cancelButtonText,
+    reverseButtons: true,
+    customClass: {
+      popup: "rounded-2xl shadow-2xl border border-emerald-100 bg-white text-slate-900 font-sans p-6",
+      title: "text-lg font-bold text-slate-900",
+      htmlContainer: "text-sm text-slate-600",
+      confirmButton: "rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-5 py-2.5 shadow-md shadow-emerald-600/25 text-sm transition-all cursor-pointer mx-1.5",
+      cancelButton: "rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-5 py-2.5 text-sm transition-all cursor-pointer mx-1.5",
+    },
+  });
+  return result.isConfirmed;
+};
+
 export default CustomSwal;

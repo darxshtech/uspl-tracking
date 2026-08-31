@@ -17,7 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { showError, showSuccess, showWarning, showToast } from "@/lib/swal";
+import { showError, showSuccess, showWarning, showToast, showDestructiveConfirm, showReactivateConfirm } from "@/lib/swal";
 import AttendanceCalendarView from "@/components/AttendanceCalendarView";
 import { 
   Users, 
@@ -95,6 +95,37 @@ export default function EmployeesPage() {
   const [taskStatusFilter, setTaskStatusFilter] = useState("all");
   const [taskProjectFilter, setTaskProjectFilter] = useState("all");
   const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null);
+
+  // Directory Search & Status Tabs
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+  const [roleFilter, setRoleFilter] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const activeCount = useMemo(() => employees.filter((e) => e.is_active).length, [employees]);
+  const inactiveCount = useMemo(() => employees.filter((e) => !e.is_active).length, [employees]);
+
+  const filteredEmployees = useMemo(() => {
+    return employees.filter((emp) => {
+      // Status Filter
+      if (statusFilter === "active" && !emp.is_active) return false;
+      if (statusFilter === "inactive" && emp.is_active) return false;
+
+      // Role Filter
+      if (roleFilter !== "all" && emp.role !== roleFilter) return false;
+
+      // Search Query
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchName = (emp.name || "").toLowerCase().includes(q);
+        const matchEmail = (emp.email || "").toLowerCase().includes(q);
+        const matchPhone = (emp.phone || "").toLowerCase().includes(q);
+        const matchRole = (emp.role || "").toLowerCase().includes(q);
+        if (!matchName && !matchEmail && !matchPhone && !matchRole) return false;
+      }
+
+      return true;
+    });
+  }, [employees, statusFilter, roleFilter, searchQuery]);
 
   useEffect(() => {
     fetchEmployees();
@@ -225,20 +256,48 @@ export default function EmployeesPage() {
     }
   };
 
-  // Quick toggle active / inactive status
+  // Quick toggle active / inactive status with confirmation modal
   const handleToggleActive = async (emp: any) => {
-    const newStatus = !emp.is_active;
+    if (!isManager) {
+      showWarning("Unauthorized", "Only Project Managers, CEOs, and Admins can modify account status.");
+      return;
+    }
+
+    if (emp.id === currentUserId && emp.is_active) {
+      showWarning("Action Prohibited", "You cannot deactivate your own logged-in account.");
+      return;
+    }
+
+    const willDeactivate = emp.is_active;
+
+    if (willDeactivate) {
+      const confirmed = await showDestructiveConfirm(
+        "Deactivate Employee Account?",
+        `Are you sure you want to deactivate ${emp.name}? They will be immediately logged out and blocked from logging in to the portal.`,
+        "Yes, Deactivate",
+        "Cancel"
+      );
+      if (!confirmed) return;
+    } else {
+      const confirmed = await showReactivateConfirm(
+        "Reactivate Employee Account?",
+        `Are you sure you want to reactivate ${emp.name}'s account? Their portal access will be restored immediately.`,
+        "Yes, Reactivate",
+        "Cancel"
+      );
+      if (!confirmed) return;
+    }
 
     try {
       const res = await fetch("/api/employees", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: emp.id, is_active: newStatus }),
+        body: JSON.stringify({ id: emp.id, is_active: !willDeactivate }),
       });
 
       if (res.ok) {
         fetchEmployees();
-        showToast(`Employee ${newStatus ? "activated" : "deactivated"}!`);
+        showToast(`Employee account ${!willDeactivate ? "reactivated" : "deactivated"} successfully!`);
       } else {
         const data = await res.json();
         showError("Failed to update status", data.error || "Unknown error");
@@ -503,6 +562,94 @@ export default function EmployeesPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Directory Filter & Search Toolbar */}
+      <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200 shadow-xs">
+        {/* Status Filter Tabs */}
+        <div className="flex items-center gap-1.5 p-1 bg-slate-100/90 rounded-xl overflow-x-auto">
+          <button
+            type="button"
+            onClick={() => setStatusFilter("all")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer ${
+              statusFilter === "all"
+                ? "bg-white text-slate-900 shadow-xs"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            <span>All Members</span>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${statusFilter === "all" ? "bg-slate-900 text-white" : "bg-slate-200 text-slate-700"}`}>
+              {employees.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setStatusFilter("active")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer ${
+              statusFilter === "active"
+                ? "bg-white text-emerald-800 shadow-xs"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            <span className="flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 inline-block animate-pulse" /> Active
+            </span>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${statusFilter === "active" ? "bg-emerald-600 text-white" : "bg-emerald-100 text-emerald-800"}`}>
+              {activeCount}
+            </span>
+          </button>
+
+          {isManager && (
+            <button
+              type="button"
+              onClick={() => setStatusFilter("inactive")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer ${
+                statusFilter === "inactive"
+                  ? "bg-white text-rose-800 shadow-xs"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <span className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-rose-500 inline-block" /> Inactive / Suspended
+              </span>
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${statusFilter === "inactive" ? "bg-rose-600 text-white" : "bg-rose-100 text-rose-800"}`}>
+                {inactiveCount}
+              </span>
+            </button>
+          )}
+        </div>
+
+        {/* Search & Role Filter */}
+        <div className="flex items-center gap-2.5">
+          <div className="relative flex-1 sm:w-64">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search team member..."
+              className="pl-9 h-9 text-xs bg-slate-50 border-slate-200 focus:bg-white rounded-xl"
+            />
+          </div>
+
+          <Select value={roleFilter} onValueChange={setRoleFilter}>
+            <SelectTrigger className="h-9 text-xs w-[140px] bg-slate-50 border-slate-200 rounded-xl">
+              <SelectValue placeholder="All Roles" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Roles</SelectItem>
+              {isSuperAdminOrCEO && (
+                <>
+                  <SelectItem value="Admin">Admin</SelectItem>
+                  <SelectItem value="CEO">CEO</SelectItem>
+                  <SelectItem value="PM">PM</SelectItem>
+                </>
+              )}
+              <SelectItem value="Developer">Developer</SelectItem>
+              <SelectItem value="Tester">QA Tester</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
       {/* Employees Directory Table */}
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden overflow-x-auto">
         <Table className="min-w-[950px]">
@@ -522,26 +669,53 @@ export default function EmployeesPage() {
               <TableRow>
                 <TableCell colSpan={7} className="text-center py-8">Loading employees and task metrics...</TableCell>
               </TableRow>
-            ) : employees.length === 0 ? (
+            ) : filteredEmployees.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-slate-500 py-10">No employees found.</TableCell>
+                <TableCell colSpan={7} className="text-center text-slate-500 py-10">
+                  <div className="flex flex-col items-center justify-center gap-1">
+                    <AlertCircle className="h-5 w-5 text-slate-400" />
+                    <span>No employees found matching the selected filters.</span>
+                  </div>
+                </TableCell>
               </TableRow>
             ) : (
-              employees.map((emp) => {
+              filteredEmployees.map((emp) => {
                 const totalTasks = emp.total_tasks || 0;
                 const completedTasks = emp.completed_tasks || 0;
                 const completionRatio = emp.completion_ratio || 0;
                 const isDevOrTester = emp.role === "Developer" || emp.role === "Tester";
 
                 return (
-                  <TableRow key={emp.id} className="hover:bg-slate-50/80 transition-colors">
+                  <TableRow
+                    key={emp.id}
+                    className={`${
+                      !emp.is_active
+                        ? "bg-slate-50/70 hover:bg-slate-100/70 opacity-90"
+                        : "hover:bg-slate-50/80"
+                    } transition-colors`}
+                  >
                     <TableCell className="font-bold text-slate-900">
                       <div className="flex items-center gap-2.5">
-                        <div className="h-8 w-8 rounded-full bg-gradient-to-br from-sky-500 to-indigo-600 text-white font-bold flex items-center justify-center text-xs shadow-2xs shrink-0">
+                        <div
+                          className={`h-8 w-8 rounded-full ${
+                            emp.is_active
+                              ? "bg-gradient-to-br from-sky-500 to-indigo-600 text-white"
+                              : "bg-slate-300 text-slate-600"
+                          } font-bold flex items-center justify-center text-xs shadow-2xs shrink-0`}
+                        >
                           {emp.name.slice(0, 2).toUpperCase()}
                         </div>
                         <div>
-                          <div className="font-bold text-slate-900 text-sm">{emp.name}</div>
+                          <div className="flex items-center gap-1.5">
+                            <span className={`font-bold text-sm ${!emp.is_active ? "text-slate-600 line-through decoration-slate-400" : "text-slate-900"}`}>
+                              {emp.name}
+                            </span>
+                            {!emp.is_active && (
+                              <span className="text-[10px] bg-rose-100 text-rose-700 font-bold px-1.5 py-0.2 rounded-md">
+                                Inactive
+                              </span>
+                            )}
+                          </div>
                           {emp.id === currentUserId && (
                             <span className="text-[10px] text-sky-600 font-semibold">(You)</span>
                           )}
@@ -602,17 +776,27 @@ export default function EmployeesPage() {
                     {/* Account Status */}
                     <TableCell className="text-center">
                       <button
+                        type="button"
                         onClick={() => handleToggleActive(emp)}
-                        className="cursor-pointer transition-transform hover:scale-105"
-                        title="Click to toggle Active / Inactive status"
+                        disabled={!isManager}
+                        className={`transition-transform ${isManager ? "cursor-pointer hover:scale-105 active:scale-95" : "cursor-default"}`}
+                        title={
+                          isManager
+                            ? emp.id === currentUserId
+                              ? "You cannot deactivate your own logged-in account"
+                              : emp.is_active
+                              ? "Click to deactivate employee account"
+                              : "Click to reactivate employee account"
+                            : "Account Status"
+                        }
                       >
                         {emp.is_active ? (
-                          <Badge className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold gap-1 text-[11px]">
+                          <Badge className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold gap-1 text-[11px] shadow-2xs">
                             <Power className="h-3 w-3" /> Active
                           </Badge>
                         ) : (
-                          <Badge variant="secondary" className="bg-slate-200 text-slate-600 hover:bg-slate-300 font-bold gap-1 text-[11px]">
-                            <PowerOff className="h-3 w-3" /> Inactive
+                          <Badge className="bg-rose-100 hover:bg-rose-200 text-rose-700 border border-rose-300 font-bold gap-1 text-[11px] shadow-2xs">
+                            <PowerOff className="h-3 w-3 text-rose-600" /> Inactive / Suspended
                           </Badge>
                         )}
                       </button>

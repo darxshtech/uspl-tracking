@@ -28,8 +28,8 @@ export const authOptions: NextAuthOptions = {
           
           const user = rows[0];
           
-          if (!user.is_active) {
-            throw new Error("Account is inactive");
+          if (!user.is_active || user.is_active === 0) {
+            throw new Error("Your account has been deactivated. Please contact your administrator.");
           }
           
           const isValid = await bcrypt.compare(credentials.password, user.password_hash);
