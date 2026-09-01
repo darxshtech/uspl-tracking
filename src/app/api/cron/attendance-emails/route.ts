@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import pool from "@/lib/db";
 import { sendEmail } from "@/lib/mailer";
 import { getTotalLeavesAllowed } from "@/lib/settings";
@@ -370,16 +372,29 @@ export async function GET(req: Request) {
   const testEmail = url.searchParams.get("test_email");
   const dryRun = url.searchParams.get("dry_run") === "true";
 
-  // Authorization check for production
+  // Authorization check for production: Allow either CRON_SECRET header or authenticated manager session (Admin, CEO, PM)
+  const session = await getServerSession(authOptions);
+  const userRole = (session?.user as any)?.role;
+  const isManagerSession = session && ["Admin", "CEO", "PM"].includes(userRole);
+
   const authHeader = req.headers.get("authorization");
   const expectedSecret = process.env.CRON_SECRET || "unitglo_tracking_cron_secret_2026";
-  const isAuthorized = authHeader === `Bearer ${expectedSecret}` || authHeader === `Bearer ${process.env.CRON_SECRET}`;
+  const isAuthorizedSecret = authHeader === `Bearer ${expectedSecret}` || (!!process.env.CRON_SECRET && authHeader === `Bearer ${process.env.CRON_SECRET}`);
+  const isAuthorized = isAuthorizedSecret || isManagerSession;
 
   if (process.env.NODE_ENV === "production" && !isAuthorized && !testEmail && !dryRun) {
     return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
   }
 
-  const triggerSource = testEmail ? "test_email" : dryRun ? "dry_run" : authHeader ? "authorized_trigger" : "cron_schedule";
+  const triggerSource = testEmail
+    ? "test_email"
+    : dryRun
+    ? "dry_run"
+    : isManagerSession
+    ? `manual_${userRole.toLowerCase()}`
+    : isAuthorizedSecret
+    ? "authorized_cron_trigger"
+    : "cron_schedule";
 
   try {
     // Current IST date context (+05:30)

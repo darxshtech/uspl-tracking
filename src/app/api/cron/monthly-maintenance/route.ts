@@ -1,13 +1,20 @@
 import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import pool from "@/lib/db";
 import { getTotalLeavesAllowed } from "@/lib/settings";
 
 // This endpoint should be triggered by an external cron service (like Vercel Cron or a self-hosted cron)
 // on the 1st day of every month at 00:01 AM.
 export async function GET(req: Request) {
-  // Optional: Add a secret key check to prevent unauthorized execution
+  const session = await getServerSession(authOptions);
+  const userRole = (session?.user as any)?.role;
+  const isManagerSession = session && ["Admin", "CEO", "PM"].includes(userRole);
+
   const authHeader = req.headers.get("authorization");
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET || 'secret'}` && process.env.NODE_ENV === 'production') {
+  const isSecretMatch = authHeader === `Bearer ${process.env.CRON_SECRET || 'secret'}`;
+
+  if (!isSecretMatch && !isManagerSession && process.env.NODE_ENV === 'production') {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
