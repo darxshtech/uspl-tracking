@@ -168,8 +168,23 @@ export async function PUT(req: Request) {
       );
     }
 
-    // Only Admin & CEO can update or assign executive management roles (Admin, CEO, PM)
-    if (role && ["Admin", "CEO", "PM"].includes(role) && !["Admin", "CEO"].includes(currentRole)) {
+    // Fetch existing user to verify permissions
+    const [existingUsers]: any = await pool.query("SELECT id, role FROM users WHERE id = ?", [id]);
+    if (existingUsers.length === 0) {
+      return NextResponse.json({ error: "Employee not found" }, { status: 404 });
+    }
+    const targetUserRole = existingUsers[0].role;
+
+    // PM cannot edit Master Admin or CEO accounts
+    if (["Admin", "CEO"].includes(targetUserRole) && !["Admin", "CEO"].includes(currentRole)) {
+      return NextResponse.json(
+        { error: "Access Denied: Only Admin or CEO can modify executive accounts." },
+        { status: 403 }
+      );
+    }
+
+    // Only Admin & CEO can change/promote someone to executive roles (Admin, CEO, PM)
+    if (role && role !== targetUserRole && ["Admin", "CEO", "PM"].includes(role) && !["Admin", "CEO"].includes(currentRole)) {
       return NextResponse.json(
         { error: "Only Admin or CEO can assign executive management roles (CEO, PM, Admin)." },
         { status: 403 }

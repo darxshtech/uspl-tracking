@@ -562,13 +562,15 @@ export default function EmployeesPage() {
                 <Select value={editRole} onValueChange={(val) => setEditRole(val || "Developer")}>
                   <SelectTrigger><SelectValue placeholder="Role" /></SelectTrigger>
                   <SelectContent>
-                    {isSuperAdminOrCEO && (
+                    {isSuperAdminOrCEO ? (
                       <>
                         <SelectItem value="Admin">🏢 Company (Master Admin)</SelectItem>
                         <SelectItem value="CEO">👑 Owner (CEO)</SelectItem>
                         <SelectItem value="PM">📋 PM (Project Manager)</SelectItem>
                       </>
-                    )}
+                    ) : editRole === "PM" ? (
+                      <SelectItem value="PM">📋 PM (Project Manager)</SelectItem>
+                    ) : null}
                     <SelectItem value="Developer">💻 Developer</SelectItem>
                     <SelectItem value="Tester">🧪 QA Tester</SelectItem>
                   </SelectContent>
