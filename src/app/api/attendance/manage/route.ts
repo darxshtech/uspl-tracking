@@ -102,48 +102,65 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: "Unauthorized: PM, CEO or Admin role required" }, { status: 403 });
   }
 
+  const managerName = (session.user as any)?.name || (session.user as any)?.role || "Management";
+
   try {
     const body = await req.json();
-    const { id, login_time, logout_time, status, total_hours: manualHours } = body;
+    const { id, login_time, logout_time, status, total_hours: manualHours, override_full_day, notes: customNotes } = body;
 
     if (!id) {
       return NextResponse.json({ error: "Attendance record ID is required" }, { status: 400 });
     }
 
+    const fullDayHours = await getFullDayHours();
+    const halfDayThreshold = fullDayHours / 2;
+
     // Auto-calculate total hours based on in time and out time or current time, or use override
     let finalHours = manualHours !== undefined && manualHours !== "" && manualHours !== null ? parseFloat(manualHours) : null;
 
-    if (finalHours === null && login_time) {
+    if (override_full_day) {
+      finalHours = fullDayHours;
+    } else if (finalHours === null && login_time) {
       const endTime = logout_time || getCurrentISTTime12();
       finalHours = calculateHoursDifference(login_time, endTime);
     }
 
-    const fullDayHours = await getFullDayHours();
-    const halfDayThreshold = fullDayHours / 2;
-
     let computedStatus = status || "Present";
 
-    // If login_time is provided and shift is active (no logout_time), ensure status is not left as Absent
-    if (login_time && !logout_time && (computedStatus === "Absent" || !status)) {
+    if (override_full_day) {
       computedStatus = "Present";
-    }
-
-    // If shift is closed with logout_time and not a special leave/holiday, strictly enforce working hours status
-    if (logout_time && finalHours !== null && (!status || status === "Present" || status === "Half Day" || status === "Absent")) {
-      if (finalHours < halfDayThreshold) {
-        computedStatus = "Absent";
-      } else if (finalHours < fullDayHours) {
-        computedStatus = "Half Day";
-      } else {
+    } else {
+      // If login_time is provided and shift is active (no logout_time), ensure status is not left as Absent
+      if (login_time && !logout_time && (computedStatus === "Absent" || !status)) {
         computedStatus = "Present";
+      }
+
+      // If shift is closed with logout_time and not a special leave/holiday, strictly enforce working hours status
+      if (logout_time && finalHours !== null && (!status || status === "Present" || status === "Half Day" || status === "Absent")) {
+        if (finalHours < halfDayThreshold) {
+          computedStatus = "Absent";
+        } else if (finalHours < fullDayHours) {
+          computedStatus = "Half Day";
+        } else {
+          computedStatus = "Present";
+        }
       }
     }
 
+    const overrideNote = override_full_day ? ` [Overridden to Full Day by ${managerName}]` : "";
+    
     await pool.query(
       `UPDATE attendance 
-       SET login_time = ?, logout_time = ?, status = ?, total_hours = ?
+       SET login_time = ?, logout_time = ?, status = ?, total_hours = ?, notes = CONCAT(IFNULL(notes, ''), ?)
        WHERE id = ?`,
-      [login_time || null, logout_time || null, computedStatus, finalHours !== null ? finalHours.toFixed(2) : null, id]
+      [
+        login_time || null, 
+        logout_time || null, 
+        computedStatus, 
+        finalHours !== null ? finalHours.toFixed(2) : null,
+        overrideNote,
+        id
+      ]
     );
 
     // Get user ID and date for notification
@@ -156,19 +173,23 @@ export async function PUT(req: Request) {
       const record = attRows[0];
       const recordDate = new Date(record.date).toLocaleDateString();
 
+      const notifTitle = override_full_day 
+        ? "🌟 Attendance Overridden to Full Day" 
+        : "Attendance Record Updated by Management";
+
+      const notifMsg = override_full_day
+        ? `Your shift on ${recordDate} was approved as a FULL DAY (${fullDayHours} hrs) by ${managerName}.`
+        : `Your attendance for ${recordDate} was updated by Management (${computedStatus}, ${formatHoursAndMinutes(finalHours)}).`;
+
       await pool.query(
         "INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'info')",
-        [
-          record.user_id,
-          "Attendance Record Updated by Management",
-          `Your attendance for ${recordDate} was updated by Management (${status}, ${formatHoursAndMinutes(finalHours)}).`
-        ]
+        [record.user_id, notifTitle, notifMsg]
       );
     }
 
     return NextResponse.json({
       success: true,
-      message: "Attendance updated successfully",
+      message: override_full_day ? "Half-day successfully overridden to full day." : "Attendance updated successfully",
       total_hours: finalHours,
     });
   } catch (error: any) {

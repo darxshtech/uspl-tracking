@@ -70,6 +70,8 @@ export default function EmployeesPage() {
   const [password, setPassword] = useState("");
   const [phone, setPhone] = useState("");
   const [role, setRole] = useState("Developer");
+  const [totalLeavesAllowed, setTotalLeavesAllowed] = useState<number>(2);
+  const [monthlySalary, setMonthlySalary] = useState<number>(45000);
   const [submitting, setSubmitting] = useState(false);
 
   // Form state for Edit
@@ -81,6 +83,9 @@ export default function EmployeesPage() {
   const [editPhone, setEditPhone] = useState("");
   const [editBio, setEditBio] = useState("");
   const [editPassword, setEditPassword] = useState("");
+  const [editTotalLeavesAllowed, setEditTotalLeavesAllowed] = useState<number>(2);
+  const [editLeavesCarriedForward, setEditLeavesCarriedForward] = useState<number>(0);
+  const [editMonthlySalary, setEditMonthlySalary] = useState<number>(0);
   const [editIsActive, setEditIsActive] = useState<boolean>(true);
   const [savingEdit, setSavingEdit] = useState(false);
 
@@ -152,7 +157,16 @@ export default function EmployeesPage() {
       const res = await fetch("/api/employees", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, password, role, phone, is_active: true }),
+        body: JSON.stringify({ 
+          name, 
+          email, 
+          password, 
+          role, 
+          phone, 
+          is_active: true,
+          total_leaves_allowed: role === "Admin" || role === "CEO" ? 0 : totalLeavesAllowed,
+          monthly_salary: role === "Admin" || role === "CEO" ? 0 : monthlySalary
+        }),
       });
       if (res.ok) {
         setCreateOpen(false);
@@ -162,6 +176,8 @@ export default function EmployeesPage() {
         setPassword("");
         setPhone("");
         setRole("Developer");
+        setTotalLeavesAllowed(2);
+        setMonthlySalary(45000);
         showToast("Employee created successfully!");
       } else {
         const data = await res.json();
@@ -182,6 +198,9 @@ export default function EmployeesPage() {
     setEditRole(emp.role || "Developer");
     setEditPhone(emp.phone || "");
     setEditBio(emp.bio || "");
+    setEditTotalLeavesAllowed(emp.total_leaves_allowed !== undefined && emp.total_leaves_allowed !== null ? emp.total_leaves_allowed : 2);
+    setEditLeavesCarriedForward(emp.leaves_carried_forward !== undefined ? parseFloat(emp.leaves_carried_forward) : 0);
+    setEditMonthlySalary(emp.monthly_salary !== undefined ? parseFloat(emp.monthly_salary) : 0);
     setEditIsActive(emp.is_active !== 0 && emp.is_active !== false);
     setEditPassword("");
     setEditOpen(true);
@@ -204,6 +223,9 @@ export default function EmployeesPage() {
           phone: editPhone,
           bio: editBio,
           is_active: editIsActive,
+          total_leaves_allowed: editRole === "Admin" || editRole === "CEO" ? 0 : editTotalLeavesAllowed,
+          leaves_carried_forward: editRole === "Admin" || editRole === "CEO" ? 0 : editLeavesCarriedForward,
+          monthly_salary: editRole === "Admin" || editRole === "CEO" ? 0 : editMonthlySalary,
           password: editPassword.trim() || undefined,
         }),
       });
@@ -474,6 +496,44 @@ export default function EmployeesPage() {
                   </Select>
                 </div>
               </div>
+
+              {/* Leave Quota & Base Salary (For Staff: PM, Dev, QA) */}
+              {role !== "Admin" && role !== "CEO" && (
+                <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="totalLeavesAllowed" className="font-semibold text-xs text-slate-700">
+                      Paid Leaves / Mo
+                    </Label>
+                    <Input
+                      id="totalLeavesAllowed"
+                      type="number"
+                      min={0}
+                      max={10}
+                      step={0.5}
+                      value={totalLeavesAllowed}
+                      onChange={(e) => setTotalLeavesAllowed(parseFloat(e.target.value) || 0)}
+                      placeholder="e.g. 2"
+                      className="bg-white text-xs font-bold"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="monthlySalary" className="font-semibold text-xs text-slate-700">
+                      Monthly Salary (₹)
+                    </Label>
+                    <Input
+                      id="monthlySalary"
+                      type="number"
+                      min={0}
+                      step={1000}
+                      value={monthlySalary}
+                      onChange={(e) => setMonthlySalary(parseFloat(e.target.value) || 0)}
+                      placeholder="e.g. 45000"
+                      className="bg-white text-xs font-bold"
+                    />
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-1.5">
                 <Label htmlFor="password" className="font-semibold text-slate-700">Initial Password *</Label>
                 <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required />
@@ -529,6 +589,56 @@ export default function EmployeesPage() {
                 </Select>
               </div>
             </div>
+
+            {/* Leave Quota & Payroll (For Staff) */}
+            {editRole !== "Admin" && editRole !== "CEO" && (
+              <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                <div className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                  🌴 Leave Quota &amp; Base Salary
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="editQuota" className="text-[10px] font-semibold text-slate-600">
+                      Paid Quota / Mo
+                    </Label>
+                    <Input
+                      id="editQuota"
+                      type="number"
+                      step={0.5}
+                      value={editTotalLeavesAllowed}
+                      onChange={(e) => setEditTotalLeavesAllowed(parseFloat(e.target.value) || 0)}
+                      className="bg-white text-xs font-bold"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="editCarry" className="text-[10px] font-semibold text-slate-600">
+                      Carried Forward
+                    </Label>
+                    <Input
+                      id="editCarry"
+                      type="number"
+                      step={0.5}
+                      value={editLeavesCarriedForward}
+                      onChange={(e) => setEditLeavesCarriedForward(parseFloat(e.target.value) || 0)}
+                      className="bg-white text-xs font-bold"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="editSalary" className="text-[10px] font-semibold text-slate-600">
+                      Monthly Salary (₹)
+                    </Label>
+                    <Input
+                      id="editSalary"
+                      type="number"
+                      step={1000}
+                      value={editMonthlySalary}
+                      onChange={(e) => setEditMonthlySalary(parseFloat(e.target.value) || 0)}
+                      className="bg-white text-xs font-bold"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="space-y-1.5">
               <Label className="font-semibold text-slate-700">Account Status</Label>

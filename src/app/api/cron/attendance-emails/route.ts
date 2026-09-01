@@ -49,7 +49,8 @@ function buildAttendanceEmailHtml(
   let presents = 0;
   let halfDays = 0;
   let absences = 0;
-  let leaves = 0;
+  let paidLeaves = 0;
+  let unpaidLeaves = 0;
   let holidays = 0;
   let totalHoursSum = 0;
 
@@ -86,14 +87,19 @@ function buildAttendanceEmailHtml(
       badgeColor = "#b45309";
     } else if (rec.status === "Absent") {
       absences++;
+      unpaidLeaves++;
+      badgeBg = "#fee2e2";
+      badgeColor = "#b91c1c";
+    } else if (rec.status === "Unpaid Leave" || rec.status === "Leave (Rejected)") {
+      unpaidLeaves++;
       badgeBg = "#fee2e2";
       badgeColor = "#b91c1c";
     } else if (rec.status === "Holiday") {
       holidays++;
       badgeBg = "#dbeafe";
       badgeColor = "#1d4ed8";
-    } else if (rec.status?.includes("Leave")) {
-      leaves++;
+    } else if (rec.status === "Paid Leave" || rec.status === "Leave" || rec.status === "Leave (Pending)") {
+      paidLeaves++;
       badgeBg = "#f3e8ff";
       badgeColor = "#7e22ce";
     }
@@ -119,6 +125,15 @@ function buildAttendanceEmailHtml(
       </tr>
     `;
   });
+
+  // Leave calculations
+  const monthlyQuota = user.total_leaves_allowed !== undefined && user.total_leaves_allowed !== null ? Number(user.total_leaves_allowed) : 2;
+  const carriedForward = parseFloat(String(user.leaves_carried_forward || "0"));
+  const availableQuota = Number((monthlyQuota + carriedForward).toFixed(2));
+  const halfDaysDeducted = Math.floor(halfDays / 3);
+  const totalPaidLeavesDeducted = paidLeaves + halfDaysDeducted;
+  const remainingPaidBalance = Math.max(0, Number((availableQuota - totalPaidLeavesDeducted).toFixed(2)));
+  const totalUnpaidLWP = unpaidLeaves + Math.max(0, totalPaidLeavesDeducted - availableQuota);
 
   return `
 <!DOCTYPE html>
@@ -154,7 +169,7 @@ function buildAttendanceEmailHtml(
       </p>
 
       <!-- KPI Summary Cards Grid -->
-      <div style="margin-bottom: 24px;">
+      <div style="margin-bottom: 20px;">
         <table style="width: 100%; border-collapse: separate; border-spacing: 8px;">
           <tr>
             <td style="width: 33.33%; background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 14px 10px; text-align: center;">
@@ -166,8 +181,8 @@ function buildAttendanceEmailHtml(
               <div style="font-size: 11px; font-weight: 600; color: #854d0e; text-transform: uppercase; margin-top: 2px;">Half Days</div>
             </td>
             <td style="width: 33.33%; background-color: #faf5ff; border: 1px solid #e9d5ff; border-radius: 10px; padding: 14px 10px; text-align: center;">
-              <div style="font-size: 20px; font-weight: 700; color: #7e22ce;">${leaves}</div>
-              <div style="font-size: 11px; font-weight: 600; color: #6b21a8; text-transform: uppercase; margin-top: 2px;">Leaves</div>
+              <div style="font-size: 20px; font-weight: 700; color: #7e22ce;">${paidLeaves}</div>
+              <div style="font-size: 11px; font-weight: 600; color: #6b21a8; text-transform: uppercase; margin-top: 2px;">Paid Leaves</div>
             </td>
           </tr>
           <tr>
@@ -176,13 +191,38 @@ function buildAttendanceEmailHtml(
               <div style="font-size: 11px; font-weight: 600; color: #1e40af; text-transform: uppercase; margin-top: 2px;">Holidays</div>
             </td>
             <td style="width: 33.33%; background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 10px; padding: 14px 10px; text-align: center;">
-              <div style="font-size: 20px; font-weight: 700; color: #b91c1c;">${absences}</div>
-              <div style="font-size: 11px; font-weight: 600; color: #991b1b; text-transform: uppercase; margin-top: 2px;">Absences</div>
+              <div style="font-size: 20px; font-weight: 700; color: #b91c1c;">${totalUnpaidLWP}</div>
+              <div style="font-size: 11px; font-weight: 600; color: #991b1b; text-transform: uppercase; margin-top: 2px;">Unpaid (LWP)</div>
             </td>
             <td style="width: 33.33%; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 10px; text-align: center;">
               <div style="font-size: 20px; font-weight: 700; color: #0f172a;">${totalHoursSum.toFixed(1)}h</div>
               <div style="font-size: 11px; font-weight: 600; color: #475569; text-transform: uppercase; margin-top: 2px;">Total Hours</div>
             </td>
+          </tr>
+        </table>
+      </div>
+
+      <!-- Paid Leave Quota Ledger Card -->
+      <div style="background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%); border: 1px solid #86efac; border-radius: 12px; padding: 16px; margin-bottom: 24px;">
+        <h4 style="margin: 0 0 10px 0; font-size: 13px; font-weight: 700; color: #166534; text-transform: uppercase; letter-spacing: 0.04em;">
+          🌴 Monthly Paid Leave Balance Summary
+        </h4>
+        <table style="width: 100%; border-collapse: collapse; font-size: 12px; color: #1e293b;">
+          <tr>
+            <td style="padding: 4px 0; color: #475569;">Monthly Quota:</td>
+            <td style="padding: 4px 0; text-align: right; font-weight: 700;">${monthlyQuota.toFixed(1)} days</td>
+          </tr>
+          <tr>
+            <td style="padding: 4px 0; color: #475569;">Carried from Previous Month:</td>
+            <td style="padding: 4px 0; text-align: right; font-weight: 700;">${carriedForward.toFixed(1)} days</td>
+          </tr>
+          <tr>
+            <td style="padding: 4px 0; color: #475569;">Total Paid Leaves Used (incl. 3:1 half-day ratio):</td>
+            <td style="padding: 4px 0; text-align: right; font-weight: 700; color: #b91c1c;">-${totalPaidLeavesDeducted.toFixed(1)} days</td>
+          </tr>
+          <tr style="border-top: 1px solid #bbf7d0;">
+            <td style="padding: 8px 0 0 0; font-weight: 700; color: #15803d; font-size: 13px;">Remaining Balance Carried Forward:</td>
+            <td style="padding: 8px 0 0 0; text-align: right; font-weight: 800; color: #15803d; font-size: 14px;">${remainingPaidBalance.toFixed(1)} days</td>
           </tr>
         </table>
       </div>

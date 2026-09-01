@@ -16,8 +16,8 @@ export async function GET() {
 
   try {
     const query = isManager
-      ? "SELECT id, name, email, role, phone, bio, is_active, joining_date, created_at FROM users ORDER BY is_active DESC, id ASC"
-      : "SELECT id, name, email, role, phone, bio, is_active, joining_date, created_at FROM users WHERE is_active = 1 ORDER BY id ASC";
+      ? "SELECT id, name, email, role, phone, bio, is_active, total_leaves_allowed, leaves_carried_forward, monthly_salary, joining_date, created_at FROM users ORDER BY is_active DESC, id ASC"
+      : "SELECT id, name, email, role, phone, bio, is_active, total_leaves_allowed, leaves_carried_forward, monthly_salary, joining_date, created_at FROM users WHERE is_active = 1 ORDER BY id ASC";
 
     const [rows]: any = await pool.query(query);
 
@@ -45,6 +45,9 @@ export async function GET() {
       return {
         ...user,
         is_active: user.is_active === 1 || user.is_active === true,
+        monthly_salary: parseFloat(user.monthly_salary || "0"),
+        total_leaves_allowed: user.total_leaves_allowed !== null ? Number(user.total_leaves_allowed) : 2,
+        leaves_carried_forward: parseFloat(user.leaves_carried_forward || "0"),
         total_tasks: totalTasks,
         completed_tasks: completedTasks,
         in_progress_tasks: inProgressTasks,
@@ -68,7 +71,7 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json();
-    const { name, email, password, role, is_active, phone, bio } = body;
+    const { name, email, password, role, is_active, phone, bio, total_leaves_allowed, leaves_carried_forward, monthly_salary } = body;
 
     if (!name || !email || !password || !role) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -85,8 +88,20 @@ export async function POST(req: Request) {
     const passwordHash = await bcrypt.hash(password, 10);
 
     const [result]: any = await pool.query(
-      "INSERT INTO users (name, email, password_hash, role, is_active, phone, bio) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [name, email, passwordHash, role, is_active ?? true, phone || null, bio || null]
+      `INSERT INTO users (name, email, password_hash, role, is_active, phone, bio, total_leaves_allowed, leaves_carried_forward, monthly_salary) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        name, 
+        email, 
+        passwordHash, 
+        role, 
+        is_active ?? true, 
+        phone || null, 
+        bio || null, 
+        total_leaves_allowed !== undefined ? total_leaves_allowed : 2,
+        leaves_carried_forward !== undefined ? leaves_carried_forward : 0.0,
+        monthly_salary !== undefined ? monthly_salary : 0.0
+      ]
     );
 
     return NextResponse.json({ id: result.insertId, name, email, role, is_active }, { status: 201 });
@@ -109,7 +124,7 @@ export async function PUT(req: Request) {
 
   try {
     const body = await req.json();
-    const { id, name, email, role, phone, bio, is_active, password } = body;
+    const { id, name, email, role, phone, bio, is_active, password, total_leaves_allowed, leaves_carried_forward, monthly_salary } = body;
 
     if (!id) {
       return NextResponse.json({ error: "Employee ID is required" }, { status: 400 });
@@ -159,6 +174,18 @@ export async function PUT(req: Request) {
     if (is_active !== undefined) {
       fields.push("is_active = ?");
       params.push(is_active ? 1 : 0);
+    }
+    if (total_leaves_allowed !== undefined) {
+      fields.push("total_leaves_allowed = ?");
+      params.push(total_leaves_allowed);
+    }
+    if (leaves_carried_forward !== undefined) {
+      fields.push("leaves_carried_forward = ?");
+      params.push(leaves_carried_forward);
+    }
+    if (monthly_salary !== undefined) {
+      fields.push("monthly_salary = ?");
+      params.push(monthly_salary);
     }
     if (password && password.trim().length > 0) {
       const passwordHash = await bcrypt.hash(password.trim(), 10);

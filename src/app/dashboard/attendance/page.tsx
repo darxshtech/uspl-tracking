@@ -31,7 +31,13 @@ import {
   Plus,
   Check,
   X,
-  UserCheck
+  UserCheck,
+  Zap,
+  Settings,
+  Sparkles,
+  RefreshCw,
+  Save,
+  HelpCircle
 } from "lucide-react";
 
 export default function AttendancePage() {
@@ -55,6 +61,12 @@ export default function AttendancePage() {
   const [currentISTTime, setCurrentISTTime] = useState("");
   const [currentISTDate, setCurrentISTDate] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
+
+  // Leave Balances & Opening Balance Setup Modal State
+  const [leaveBalances, setLeaveBalances] = useState<any[]>([]);
+  const [openingModalOpen, setOpeningModalOpen] = useState(false);
+  const [editingBalances, setEditingBalances] = useState<Record<number, { monthly_quota: number; carried_forward: number }>>({});
+  const [savingBalances, setSavingBalances] = useState(false);
 
   // Record Leave Modal State (for PM / CEO or self)
   const [leaveModalOpen, setLeaveModalOpen] = useState(false);
@@ -114,9 +126,83 @@ export default function AttendancePage() {
     }
   };
 
+  const handleOverrideToFullDay = async (id: number, employeeName: string) => {
+    try {
+      const res = await fetch("/api/attendance/manage", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id,
+          override_full_day: true,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(`Overridden to Full Day (9.0 hrs) for ${employeeName || "Employee"}!`, "success");
+        fetchAttendance();
+        fetchLeaveBalances();
+      } else {
+        showError("Override Failed", data.error || "Could not override half day.");
+      }
+    } catch (err: any) {
+      showError("Error", err.message || "Network error.");
+    }
+  };
+
+  const fetchLeaveBalances = async () => {
+    try {
+      const res = await fetch("/api/attendance/leave-balances");
+      const data = await res.json();
+      if (data.leaveBalances) {
+        setLeaveBalances(data.leaveBalances);
+        const map: Record<number, { monthly_quota: number; carried_forward: number }> = {};
+        data.leaveBalances.forEach((item: any) => {
+          map[item.user_id] = {
+            monthly_quota: item.monthly_quota,
+            carried_forward: item.carried_forward,
+          };
+        });
+        setEditingBalances(map);
+      }
+    } catch (err) {
+      console.error("Error fetching leave balances:", err);
+    }
+  };
+
+  const handleSaveOpeningBalances = async () => {
+    setSavingBalances(true);
+    try {
+      const payload = Object.entries(editingBalances).map(([userId, val]) => ({
+        user_id: parseInt(userId, 10),
+        monthly_quota: val.monthly_quota,
+        carried_forward: val.carried_forward,
+      }));
+
+      const res = await fetch("/api/attendance/leave-balances", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ updates: payload }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast("Opening leave balances saved successfully!", "success");
+        setOpeningModalOpen(false);
+        fetchLeaveBalances();
+      } else {
+        showError("Failed to Save", data.error || "Could not update balances.");
+      }
+    } catch (err: any) {
+      showError("Error", err.message || "Network error.");
+    } finally {
+      setSavingBalances(false);
+    }
+  };
+
   useEffect(() => {
     setMounted(true);
     fetchAttendance();
+    fetchLeaveBalances();
     if (isManagement) {
       fetchEmployees();
       fetchManagementPendingLeaves();
@@ -259,7 +345,7 @@ export default function AttendancePage() {
             <button
               type="button"
               onClick={() => setViewMode("table")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 viewMode === "table"
                   ? "bg-white text-slate-900 shadow-sm"
                   : "text-slate-600 hover:text-slate-900"
@@ -270,7 +356,7 @@ export default function AttendancePage() {
             <button
               type="button"
               onClick={() => setViewMode("calendar")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 viewMode === "calendar"
                   ? "bg-white text-slate-900 shadow-sm"
                   : "text-slate-600 hover:text-slate-900"
@@ -279,6 +365,18 @@ export default function AttendancePage() {
               <CalendarIcon className="h-3.5 w-3.5 text-sky-500" /> Day-Wise Calendar (Mon-Sun)
             </button>
           </div>
+
+          {/* Management Opening Balances Setup Button */}
+          {isManagement && (
+            <Button
+              size="sm"
+              onClick={() => setOpeningModalOpen(true)}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs gap-1.5 shadow-sm h-9 cursor-pointer"
+            >
+              <Settings className="h-3.5 w-3.5" />
+              Opening Balances Setup
+            </Button>
+          )}
 
           <div className="flex items-center gap-2 bg-slate-900 text-white px-3.5 py-1.5 rounded-xl text-xs font-mono font-semibold shadow-xs">
             <Clock className="h-4 w-4 text-sky-400" />
@@ -306,75 +404,132 @@ export default function AttendancePage() {
 
       {/* Employee Daily Attendance Punch Card (for Developer, Tester, PM) */}
       {!isCEO && !isAdmin && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <h3 className="font-bold text-slate-900 text-lg">Daily Shift Punch (IST 12-Hour)</h3>
+        <div className="space-y-3">
+          {/* Live Leave Balance Ledger Banner for Current User */}
+          {(() => {
+            const myBal = leaveBalances.find((b: any) => b.user_id === currentUserId);
+            if (!myBal) return null;
+            return (
+              <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border border-emerald-200/90 rounded-2xl p-4 shadow-xs flex flex-wrap items-center justify-between gap-3 text-xs animate-fade-in">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-emerald-600 text-white rounded-xl shadow-xs">
+                    <Palmtree className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-emerald-950 text-sm">
+                      My Paid Leave Ledger ({myBal.month})
+                    </h4>
+                    <p className="text-[11px] text-emerald-700 font-medium">
+                      Quota: <strong>{myBal.monthly_quota} days/mo</strong> • Carried Over: <strong>{myBal.carried_forward} days</strong>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="bg-white/90 border border-emerald-200 px-3 py-1.5 rounded-xl text-center shadow-2xs">
+                    <span className="text-[10px] text-slate-500 uppercase font-bold block">Paid Leaves Taken</span>
+                    <span className="font-extrabold text-slate-900 text-xs">
+                      {myBal.paid_leaves_taken} days {myBal.half_days_deducted > 0 && `(+${myBal.half_days_deducted} from 3:1)`}
+                    </span>
+                  </div>
+
+                  <div className="bg-white/90 border border-emerald-200 px-3 py-1.5 rounded-xl text-center shadow-2xs">
+                    <span className="text-[10px] text-slate-500 uppercase font-bold block">Half-Days Logged</span>
+                    <span className={`font-extrabold text-xs ${myBal.half_days_taken > 0 ? "text-amber-700" : "text-slate-900"}`}>
+                      {myBal.half_days_taken} half-days
+                    </span>
+                  </div>
+
+                  <div className="bg-emerald-600 text-white px-3.5 py-1.5 rounded-xl text-center shadow-xs">
+                    <span className="text-[10px] text-emerald-100 uppercase font-bold block">Remaining Paid Balance</span>
+                    <span className="font-black text-sm">
+                      {myBal.remaining_balance} days
+                    </span>
+                  </div>
+
+                  {myBal.total_lwp_days > 0 && (
+                    <div className="bg-rose-50 border border-rose-200 text-rose-800 px-3 py-1.5 rounded-xl text-center shadow-2xs">
+                      <span className="text-[10px] text-rose-600 uppercase font-bold block">Unpaid Leaves (LWP)</span>
+                      <span className="font-extrabold text-xs">
+                        {myBal.total_lwp_days} days
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-slate-900 text-lg">Daily Shift Punch (IST 12-Hour)</h3>
+              </div>
+              <p className="text-xs text-slate-500">
+                Punches are strictly locked to today's date ({currentISTDate || new Date().toISOString().split("T")[0]}). Live shift hours update automatically.
+              </p>
             </div>
-            <p className="text-xs text-slate-500">
-              Punches are strictly locked to today's date ({currentISTDate || new Date().toISOString().split("T")[0]}). Live shift hours update automatically.
-            </p>
-          </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <AttendanceWidget />
+            <div className="flex flex-wrap items-center gap-3">
+              <AttendanceWidget />
 
-            {/* Record / Apply Leave Trigger with Multi-Date Calendar Picker */}
-            <Dialog open={leaveModalOpen} onOpenChange={setLeaveModalOpen}>
-              <DialogTrigger render={<Button variant="outline" className="text-amber-700 border-amber-300 hover:bg-amber-50 font-bold px-4 py-2.5 flex items-center gap-2" />}>
-                <Palmtree className="h-4 w-4 text-amber-600" /> Apply Leave
-              </DialogTrigger>
-              <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-                <DialogHeader>
-                  <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                    <Palmtree className="h-5 w-5 text-amber-600" /> Apply for Leave / Day Off
-                  </DialogTitle>
-                </DialogHeader>
-                <form onSubmit={handleRecordLeave} className="space-y-4 pt-2">
-                  <div className="space-y-1.5">
-                    <Label className="font-bold text-slate-800 text-xs">
-                      Select Leave Days on Calendar *
-                    </Label>
-                    <MultiDateLeavePicker
-                      selectedDates={selectedLeaveDates}
-                      onDatesChange={setSelectedLeaveDates}
-                    />
-                  </div>
+              {/* Record / Apply Leave Trigger with Multi-Date Calendar Picker */}
+              <Dialog open={leaveModalOpen} onOpenChange={setLeaveModalOpen}>
+                <DialogTrigger render={<Button variant="outline" className="text-amber-700 border-amber-300 hover:bg-amber-50 font-bold px-4 py-2.5 flex items-center gap-2 cursor-pointer" />}>
+                  <Palmtree className="h-4 w-4 text-amber-600" /> Apply Leave
+                </DialogTrigger>
+                <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                      <Palmtree className="h-5 w-5 text-amber-600" /> Apply for Leave / Day Off
+                    </DialogTitle>
+                  </DialogHeader>
+                  <form onSubmit={handleRecordLeave} className="space-y-4 pt-2">
+                    <div className="space-y-1.5">
+                      <Label className="font-bold text-slate-800 text-xs">
+                        Select Leave Days on Calendar *
+                      </Label>
+                      <MultiDateLeavePicker
+                        selectedDates={selectedLeaveDates}
+                        onDatesChange={setSelectedLeaveDates}
+                      />
+                    </div>
 
-                  <div className="space-y-1.5">
-                    <Label className="font-semibold text-slate-700 text-xs">Leave Category</Label>
-                    <Select value={leaveType} onValueChange={(val) => setLeaveType(val || "Leave")}>
-                      <SelectTrigger><SelectValue placeholder="Leave Type" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Leave">Casual / Planned Leave</SelectItem>
-                        <SelectItem value="Sick Leave">Sick Leave</SelectItem>
-                        <SelectItem value="Half Day">Half Day</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                    <div className="space-y-1.5">
+                      <Label className="font-semibold text-slate-700 text-xs">Leave Category</Label>
+                      <Select value={leaveType} onValueChange={(val) => setLeaveType(val || "Leave")}>
+                        <SelectTrigger><SelectValue placeholder="Leave Type" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Leave">Casual / Planned Leave</SelectItem>
+                          <SelectItem value="Sick Leave">Sick Leave</SelectItem>
+                          <SelectItem value="Half Day">Half Day</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
 
-                  <div className="space-y-1.5">
-                    <Label htmlFor="leaveReason" className="font-semibold text-slate-700 text-xs">Reason / Note</Label>
-                    <Input
-                      id="leaveReason"
-                      placeholder="e.g. Medical appointment, family event..."
-                      value={leaveReason}
-                      onChange={(e) => setLeaveReason(e.target.value)}
-                    />
-                  </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="leaveReason" className="font-semibold text-slate-700 text-xs">Reason / Note</Label>
+                      <Input
+                        id="leaveReason"
+                        placeholder="e.g. Medical appointment, family event..."
+                        value={leaveReason}
+                        onChange={(e) => setLeaveReason(e.target.value)}
+                      />
+                    </div>
 
-                  <Button
-                    type="submit"
-                    disabled={submittingLeave || selectedLeaveDates.length === 0}
-                    className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 mt-2 shadow-md disabled:opacity-50"
-                  >
-                    {submittingLeave
-                      ? "Submitting Request..."
-                      : `Confirm & Submit ${selectedLeaveDates.length > 0 ? selectedLeaveDates.length + " Day(s)" : "Leave"}`}
-                  </Button>
-                </form>
-              </DialogContent>
-            </Dialog>
+                    <Button
+                      type="submit"
+                      disabled={submittingLeave || selectedLeaveDates.length === 0}
+                      className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 mt-2 shadow-md disabled:opacity-50 cursor-pointer"
+                    >
+                      {submittingLeave
+                        ? "Submitting Request..."
+                        : `Confirm & Submit ${selectedLeaveDates.length > 0 ? selectedLeaveDates.length + " Day(s)" : "Leave"}`}
+                    </Button>
+                  </form>
+                </DialogContent>
+              </Dialog>
+            </div>
           </div>
         </div>
       )}
@@ -606,7 +761,7 @@ export default function AttendancePage() {
                                     size="sm"
                                     disabled={processingLeaveAction === rec.id}
                                     onClick={() => handleLeaveAction(rec.id, "approve")}
-                                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-1 h-8 px-2.5 shadow-xs"
+                                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-1 h-8 px-2.5 shadow-xs cursor-pointer"
                                     title="Approve Leave Application"
                                   >
                                     <Check className="h-3.5 w-3.5" /> Approve
@@ -616,18 +771,28 @@ export default function AttendancePage() {
                                     variant="outline"
                                     disabled={processingLeaveAction === rec.id}
                                     onClick={() => handleLeaveAction(rec.id, "reject")}
-                                    className="border-red-300 text-red-700 hover:bg-red-50 hover:text-red-800 font-bold text-xs gap-1 h-8 px-2.5 shadow-xs"
+                                    className="border-red-300 text-red-700 hover:bg-red-50 hover:text-red-800 font-bold text-xs gap-1 h-8 px-2.5 shadow-xs cursor-pointer"
                                     title="Reject Leave Application"
                                   >
                                     <X className="h-3.5 w-3.5" /> Reject
                                   </Button>
                                 </>
                               )}
+                              {isManagement && rec.status === "Half Day" && (
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleOverrideToFullDay(rec.id, rec.employee_name)}
+                                  className="bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs gap-1 h-8 px-2.5 shadow-xs cursor-pointer"
+                                  title="1-Click Override Half Day to Full Day (9.0 hrs)"
+                                >
+                                  <Zap className="h-3.5 w-3.5" /> Full Day Override
+                                </Button>
+                              )}
                               {isManagement && rec.status === "Absent" && !rec.login_time && (
                                 <Button
                                   size="sm"
                                   onClick={() => openEditModal(rec)}
-                                  className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs gap-1 h-8 px-2.5 shadow-xs"
+                                  className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs gap-1 h-8 px-2.5 shadow-xs cursor-pointer"
                                   title="Avoid or Change Absent Status for Employee"
                                 >
                                   <UserCheck className="h-3.5 w-3.5" /> Avoid / Change Absent
@@ -776,12 +941,142 @@ export default function AttendancePage() {
               <Button
                 type="submit"
                 disabled={savingEdit}
-                className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 shadow-md"
+                className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 shadow-md cursor-pointer"
               >
                 {savingEdit ? "Updating..." : "Save Status Change"}
               </Button>
             </form>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Opening Balances & Mid-Year Setup Dialog for Management */}
+      <Dialog open={openingModalOpen} onOpenChange={setOpeningModalOpen}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto bg-white">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
+              <Settings className="h-5 w-5 text-indigo-600" />
+              Opening Paid Leave Balances &amp; Carry-Over Setup
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="bg-indigo-50/80 border border-indigo-200 rounded-xl p-3.5 text-xs text-indigo-950 flex items-start gap-2.5">
+              <Sparkles className="h-4 w-4 text-indigo-600 shrink-0 mt-0.5" />
+              <div>
+                <strong>Mid-Year Rollout Configuration:</strong> Set the initial opening leave quota and carried-forward leave balances for staff members (PMs, Developers, QAs). Executive roles (Admin &amp; CEO) are automatically exempt.
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
+              <Table>
+                <TableHeader className="bg-slate-50">
+                  <TableRow>
+                    <TableHead className="text-xs font-bold text-slate-700">Employee</TableHead>
+                    <TableHead className="text-xs font-bold text-slate-700">Role</TableHead>
+                    <TableHead className="text-xs font-bold text-slate-700 text-center">Monthly Quota (Days)</TableHead>
+                    <TableHead className="text-xs font-bold text-slate-700 text-center">Carried Over (Opening)</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {leaveBalances.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center py-6 text-slate-400 text-xs">
+                        No staff employee records found.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    leaveBalances.map((item: any) => {
+                      const userBal = editingBalances[item.user_id] || {
+                        monthly_quota: item.monthly_quota,
+                        carried_forward: item.carried_forward,
+                      };
+
+                      return (
+                        <TableRow key={item.user_id} className="hover:bg-slate-50/50">
+                          <TableCell className="py-2.5">
+                            <div className="font-bold text-slate-900 text-xs">{item.name}</div>
+                            <div className="text-[10px] text-slate-400 font-mono">{item.email}</div>
+                          </TableCell>
+                          <TableCell className="py-2.5">
+                            <Badge variant="outline" className="text-[10px] font-semibold">
+                              {item.role}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="py-2.5 text-center">
+                            <Input
+                              type="number"
+                              min={0}
+                              max={10}
+                              step={0.5}
+                              value={userBal.monthly_quota}
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value) || 0;
+                                setEditingBalances((prev) => ({
+                                  ...prev,
+                                  [item.user_id]: {
+                                    ...prev[item.user_id],
+                                    monthly_quota: val,
+                                  },
+                                }));
+                              }}
+                              className="w-24 mx-auto text-center text-xs font-bold h-8"
+                            />
+                          </TableCell>
+                          <TableCell className="py-2.5 text-center">
+                            <Input
+                              type="number"
+                              min={0}
+                              max={50}
+                              step={0.5}
+                              value={userBal.carried_forward}
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value) || 0;
+                                setEditingBalances((prev) => ({
+                                  ...prev,
+                                  [item.user_id]: {
+                                    ...prev[item.user_id],
+                                    carried_forward: val,
+                                  },
+                                }));
+                              }}
+                              className="w-24 mx-auto text-center text-xs font-bold h-8"
+                            />
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setOpeningModalOpen(false)}
+                className="cursor-pointer"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleSaveOpeningBalances}
+                disabled={savingBalances}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold cursor-pointer"
+              >
+                {savingBalances ? (
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin mr-1" />
+                ) : (
+                  <Save className="h-3.5 w-3.5 mr-1" />
+                )}
+                Save All Opening Balances
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
