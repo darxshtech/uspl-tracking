@@ -172,6 +172,20 @@ export async function PUT(req: Request) {
       }
     }
 
+    // Fetch existing attendance record to preserve punch times if not supplied
+    const [existingAttRows]: any = await pool.query(
+      "SELECT id, user_id, date, login_time, logout_time, total_hours, notes FROM attendance WHERE id = ?",
+      [id]
+    );
+
+    if (existingAttRows.length === 0) {
+      return NextResponse.json({ error: "Attendance record not found" }, { status: 404 });
+    }
+
+    const currentRecord = existingAttRows[0];
+    const finalLoginTime = login_time !== undefined ? login_time : currentRecord.login_time;
+    const finalLogoutTime = logout_time !== undefined ? logout_time : currentRecord.logout_time;
+
     const overrideNote = override_full_day ? ` [Overridden to Full Day by ${managerName}]` : "";
     
     await pool.query(
@@ -179,8 +193,8 @@ export async function PUT(req: Request) {
        SET login_time = ?, logout_time = ?, status = ?, total_hours = ?, notes = CONCAT(IFNULL(notes, ''), ?)
        WHERE id = ?`,
       [
-        login_time || null, 
-        logout_time || null, 
+        finalLoginTime || null, 
+        finalLogoutTime || null, 
         computedStatus, 
         finalHours !== null ? finalHours.toFixed(2) : null,
         overrideNote,
