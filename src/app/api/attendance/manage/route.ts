@@ -19,49 +19,74 @@ export async function GET(req: Request) {
 
     // Auto-mark missing check-ins as Absent for working days since system start (17 Aug 2026)
     const SYSTEM_START_DATE = "2026-08-17";
-    await pool.query("DELETE FROM attendance WHERE date < ?", [SYSTEM_START_DATE]);
-
-    // Clean up auto-marked absent records for exempt executive management roles (CEO, Admin)
-    await pool.query(
-      "DELETE FROM attendance WHERE user_id IN (SELECT id FROM users WHERE role IN ('CEO', 'Admin')) AND (status = 'Absent' OR notes LIKE 'Auto-marked%')"
-    );
-
     const todayIST = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Kolkata' });
-    const [employees]: any = await pool.query("SELECT id FROM users WHERE role NOT IN ('CEO', 'Admin') AND is_active = 1");
-    if (employees && employees.length > 0) {
-      const [holidayRows]: any = await pool.query(
-        "SELECT DATE_FORMAT(date, '%Y-%m-%d') as hol_date FROM holidays WHERE date <= ?",
-        [todayIST]
-      );
-      const holidayDates = new Set<string>(holidayRows.map((h: any) => h.hol_date));
-      const dates: string[] = [];
-      const cur = new Date(todayIST + "T00:00:00Z");
-      for (let i = 0; i < 30; i++) {
-        const dStr = cur.toISOString().split("T")[0];
-        if (dStr < SYSTEM_START_DATE) break; // Stop at system start date 2026-08-17
-        const [y, m, d] = dStr.split("-");
-        const dt = new Date(Date.UTC(parseInt(y), parseInt(m) - 1, parseInt(d)));
-        if (dt.getUTCDay() !== 0 && !holidayDates.has(dStr)) dates.push(dStr);
-        cur.setUTCDate(cur.getUTCDate() - 1);
-      }
-      for (const emp of employees) {
-        for (const dStr of dates) {
-          const [existing]: any = await pool.query("SELECT id, login_time, status FROM attendance WHERE user_id = ? AND date = ?", [emp.id, dStr]);
-          if (existing.length === 0) {
-            await pool.query(
-              "INSERT INTO attendance (user_id, date, status, total_hours, notes) VALUES (?, ?, 'Absent', 0, 'Auto-marked Absent (No Check-In or Leave Application)')",
-              [emp.id, dStr]
-            );
-          } else if (dStr <= todayIST && !existing[0].login_time && existing[0].status !== "Holiday" && !existing[0].status?.includes("Leave") && existing[0].status !== "Absent") {
-            await pool.query("UPDATE attendance SET status = 'Absent', total_hours = 0, notes = 'Auto-marked Absent (No Check-In or Leave Application)' WHERE id = ?", [existing[0].id]);
-          }
-        }
-      }
 
-      // Auto-correct any records where login_time exists but status was left as Absent
-      await pool.query(
-        "UPDATE attendance SET status = 'Present' WHERE login_time IS NOT NULL AND status = 'Absent'"
-      );
+    // Fast path: Only run cleanup/sync if not recently synchronized
+    const g = globalThis as any;
+    if (g._lastManageSync === undefined || Date.now() - g._lastManageSync > 30 * 60 * 1000) {
+      g._lastManageSync = Date.now();
+      try {
+        await pool.query(
+          "DELETE FROM attendance WHERE user_id IN (SELECT id FROM users WHERE role IN ('CEO', 'Admin')) AND (status = 'Absent' OR notes LIKE 'Auto-marked%')"
+        );
+
+        const [employees]: any = await pool.query("SELECT id FROM users WHERE role NOT IN ('CEO', 'Admin') AND is_active = 1");
+        if (employees && employees.length > 0) {
+          const [holidayRows]: any = await pool.query(
+            "SELECT DATE_FORMAT(date, '%Y-%m-%d') as hol_date FROM holidays WHERE date <= ?",
+            [todayIST]
+          );
+          const holidayDates = new Set<string>(holidayRows.map((h: any) => h.hol_date));
+          const dates: string[] = [];
+          const cur = new Date(todayIST + "T00:00:00Z");
+          for (let i = 0; i < 30; i++) {
+            const dStr = cur.toISOString().split("T")[0];
+            if (dStr < SYSTEM_START_DATE) break;
+            const [y, m, d] = dStr.split("-");
+            const dt = new Date(Date.UTC(parseInt(y), parseInt(m) - 1, parseInt(d)));
+            if (dt.getUTCDay() !== 0 && !holidayDates.has(dStr)) dates.push(dStr);
+            cur.setUTCDate(cur.getUTCDate() - 1);
+          }
+
+          if (dates.length > 0) {
+            const minDate = dates[dates.length - 1];
+            const [existingRows]: any = await pool.query(
+              "SELECT user_id, DATE_FORMAT(date, '%Y-%m-%d') as date_str FROM attendance WHERE date >= ? AND date <= ?",
+              [minDate, todayIST]
+            );
+            const existingSet = new Set<string>();
+            existingRows.forEach((r: any) => existingSet.add(`${r.user_id}:${r.date_str}`));
+
+            const insertValues: any[] = [];
+            for (const emp of employees) {
+              for (const dStr of dates) {
+                if (!existingSet.has(`${emp.id}:${dStr}`)) {
+                  insertValues.push([
+                    emp.id,
+                    dStr,
+                    "Absent",
+                    0,
+                    "Auto-marked Absent (No Check-In or Leave Application)"
+                  ]);
+                }
+              }
+            }
+
+            if (insertValues.length > 0) {
+              await pool.query(
+                "INSERT IGNORE INTO attendance (user_id, date, status, total_hours, notes) VALUES ?",
+                [insertValues]
+              );
+            }
+          }
+
+          await pool.query(
+            "UPDATE attendance SET status = 'Present' WHERE login_time IS NOT NULL AND status = 'Absent'"
+          );
+        }
+      } catch (syncErr) {
+        console.warn("Manage sync notice:", syncErr);
+      }
     }
 
     let query = `

@@ -33,18 +33,27 @@ export async function GET() {
       "SELECT id, name, role, email, avatar_url FROM users WHERE role NOT IN ('CEO', 'Admin')"
     );
 
+    // 3. Fetch latest closed shift for all employees in a single query
+    const [recentShifts]: any = await pool.query(
+      `SELECT a.*
+       FROM attendance a
+       JOIN (
+         SELECT user_id, MAX(date) as max_date
+         FROM attendance
+         WHERE logout_time IS NOT NULL AND date < ?
+         GROUP BY user_id
+       ) latest ON a.user_id = latest.user_id AND a.date = latest.max_date`,
+      [today]
+    );
+
+    const shiftMap = new Map<number, any>();
+    recentShifts.forEach((s: any) => shiftMap.set(s.user_id, s));
+
     const incompleteEmployees: any[] = [];
 
     for (const emp of employees) {
-      const [shifts]: any = await pool.query(
-        `SELECT * FROM attendance 
-         WHERE user_id = ? AND logout_time IS NOT NULL AND date < ? 
-         ORDER BY date DESC, id DESC LIMIT 1`,
-        [emp.id, today]
-      );
-
-      if (shifts.length > 0) {
-        const lastShift = shifts[0];
+      const lastShift = shiftMap.get(emp.id);
+      if (lastShift) {
         const hours = parseFloat(lastShift.total_hours || 0);
 
         if (lastShift.status === "Half Day" || (lastShift.total_hours !== null && hours < fullDayHours)) {

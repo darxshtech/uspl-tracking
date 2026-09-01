@@ -50,7 +50,7 @@ export default function NotificationBell() {
     const interval = setInterval(() => {
       if (typeof document !== "undefined" && document.hidden) return;
       fetchNotifications();
-    }, 8000);
+    }, 30000);
     return () => clearInterval(interval);
   }, []);
 
