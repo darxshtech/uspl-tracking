@@ -497,40 +497,26 @@ export default function EmployeesPage() {
                 </div>
               </div>
 
-              {/* Leave Quota & Base Salary (For Staff: PM, Dev, QA) */}
+              {/* Leave Quota (For Staff: PM, Dev, QA) */}
               {role !== "Admin" && role !== "CEO" && (
-                <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="totalLeavesAllowed" className="font-semibold text-xs text-slate-700">
-                      Paid Leaves / Mo
-                    </Label>
-                    <Input
-                      id="totalLeavesAllowed"
-                      type="number"
-                      min={0}
-                      max={10}
-                      step={0.5}
-                      value={totalLeavesAllowed}
-                      onChange={(e) => setTotalLeavesAllowed(parseFloat(e.target.value) || 0)}
-                      placeholder="e.g. 2"
-                      className="bg-white text-xs font-bold"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="monthlySalary" className="font-semibold text-xs text-slate-700">
-                      Monthly Salary (₹)
-                    </Label>
-                    <Input
-                      id="monthlySalary"
-                      type="number"
-                      min={0}
-                      step={1000}
-                      value={monthlySalary}
-                      onChange={(e) => setMonthlySalary(parseFloat(e.target.value) || 0)}
-                      placeholder="e.g. 45000"
-                      className="bg-white text-xs font-bold"
-                    />
-                  </div>
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                  <Label htmlFor="totalLeavesAllowed" className="font-semibold text-xs text-slate-700 block">
+                    Monthly Paid Leave Quota (Days / Month)
+                  </Label>
+                  <Input
+                    id="totalLeavesAllowed"
+                    type="number"
+                    min={0}
+                    max={10}
+                    step={0.5}
+                    value={totalLeavesAllowed}
+                    onChange={(e) => setTotalLeavesAllowed(parseFloat(e.target.value) || 0)}
+                    placeholder="e.g. 2"
+                    className="bg-white text-xs font-bold"
+                  />
+                  <p className="text-[10px] text-slate-400">
+                    Typically 1 or 2 paid leaves allowed per month. Unused leaves roll over.
+                  </p>
                 </div>
               )}
 
@@ -538,7 +524,7 @@ export default function EmployeesPage() {
                 <Label htmlFor="password" className="font-semibold text-slate-700">Initial Password *</Label>
                 <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required />
               </div>
-              <Button type="submit" disabled={submitting} className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 mt-2">
+              <Button type="submit" disabled={submitting} className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 mt-2 cursor-pointer">
                 {submitting ? "Creating..." : "Create Employee Account"}
               </Button>
             </form>
@@ -590,16 +576,16 @@ export default function EmployeesPage() {
               </div>
             </div>
 
-            {/* Leave Quota & Payroll (For Staff) */}
+            {/* Leave Quota & Opening Balance (For Staff) */}
             {editRole !== "Admin" && editRole !== "CEO" && (
               <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-xl">
                 <div className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
-                  🌴 Leave Quota &amp; Base Salary
+                  🌴 Leave Quota &amp; Carry-Over Balance
                 </div>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <Label htmlFor="editQuota" className="text-[10px] font-semibold text-slate-600">
-                      Paid Quota / Mo
+                      Monthly Quota (Days)
                     </Label>
                     <Input
                       id="editQuota"
@@ -612,7 +598,7 @@ export default function EmployeesPage() {
                   </div>
                   <div className="space-y-1">
                     <Label htmlFor="editCarry" className="text-[10px] font-semibold text-slate-600">
-                      Carried Forward
+                      Carried Forward (Days)
                     </Label>
                     <Input
                       id="editCarry"
@@ -620,19 +606,6 @@ export default function EmployeesPage() {
                       step={0.5}
                       value={editLeavesCarriedForward}
                       onChange={(e) => setEditLeavesCarriedForward(parseFloat(e.target.value) || 0)}
-                      className="bg-white text-xs font-bold"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="editSalary" className="text-[10px] font-semibold text-slate-600">
-                      Monthly Salary (₹)
-                    </Label>
-                    <Input
-                      id="editSalary"
-                      type="number"
-                      step={1000}
-                      value={editMonthlySalary}
-                      onChange={(e) => setEditMonthlySalary(parseFloat(e.target.value) || 0)}
                       className="bg-white text-xs font-bold"
                     />
                   </div>

@@ -6,23 +6,20 @@ import {
   Banknote, 
   Calendar, 
   Download, 
-  Printer, 
   RefreshCw, 
   CheckCircle2, 
   AlertCircle, 
   Users, 
   TrendingDown, 
-  DollarSign, 
   Edit3, 
   Save, 
-  X, 
   ShieldAlert, 
   Info, 
-  HelpCircle, 
   Sparkles,
-  ArrowRight,
   Check,
-  Percent
+  X,
+  AlertTriangle,
+  FileSpreadsheet
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -39,16 +36,10 @@ export default function PayrollPage() {
   const [selectedYear, setSelectedYear] = useState<string>(String(today.getFullYear()));
 
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [payrollData, setPayrollData] = useState<any>(null);
 
-  // Inline salary editing state: { [userId]: salaryString }
-  const [editingSalaries, setEditingSalaries] = useState<Record<number, string>>({});
-  const [savingSalaryId, setSavingSalaryId] = useState<number | null>(null);
-
-  // Waiver / adjustment modal state
+  // Waiver / note modal state
   const [selectedRecord, setSelectedRecord] = useState<any | null>(null);
-  const [customBonusInput, setCustomBonusInput] = useState<string>("0");
   const [customNotesInput, setCustomNotesInput] = useState<string>("");
   const [savingAdjustment, setSavingAdjustment] = useState(false);
 
@@ -68,14 +59,13 @@ export default function PayrollPage() {
       if (res.ok && data.success) {
         setPayrollData(data);
       } else {
-        showError("Failed to Load Payroll", data.error || "Could not calculate payroll.");
+        showError("Failed to Load Payout Status", data.error || "Could not calculate payout advisor.");
       }
     } catch (err: any) {
-      console.error("Error fetching payroll:", err);
-      showError("Fetch Error", err.message || "Network error while loading payroll.");
+      console.error("Error fetching payout advisor:", err);
+      showError("Fetch Error", err.message || "Network error while loading data.");
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   };
 
@@ -89,7 +79,6 @@ export default function PayrollPage() {
           user_id: item.user_id,
           month_year: payrollData.month_year,
           waive_deduction: newWaiveState,
-          custom_bonus: item.custom_bonus,
           notes: item.notes,
         }),
       });
@@ -97,8 +86,8 @@ export default function PayrollPage() {
       if (res.ok && data.success) {
         showToast(
           newWaiveState 
-            ? `Salary deduction waived off for ${item.name}` 
-            : `Salary deduction re-enabled for ${item.name}`,
+            ? `Deduction waived off: Pay full salary to ${item.name}` 
+            : `Deduction re-enabled for ${item.name}`,
           "success"
         );
         fetchPayroll();
@@ -110,50 +99,10 @@ export default function PayrollPage() {
     }
   };
 
-  const handleSaveSalary = async (userId: number) => {
-    const rawVal = editingSalaries[userId];
-    if (rawVal === undefined) return;
-
-    const parsed = parseFloat(rawVal);
-    if (isNaN(parsed) || parsed < 0) {
-      showWarning("Invalid Salary", "Please enter a valid monthly salary amount.");
-      return;
-    }
-
-    setSavingSalaryId(userId);
-    try {
-      const res = await fetch("/api/employees", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: userId,
-          monthly_salary: parsed,
-        }),
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        showToast("Monthly salary updated successfully", "success");
-        setEditingSalaries((prev) => {
-          const next = { ...prev };
-          delete next[userId];
-          return next;
-        });
-        fetchPayroll();
-      } else {
-        showError("Failed to update salary", data.error || "Error saving salary.");
-      }
-    } catch (err: any) {
-      showError("Error", err.message || "Network error.");
-    } finally {
-      setSavingSalaryId(null);
-    }
-  };
-
-  const handleSaveAdjustmentModal = async () => {
+  const handleSaveNotesModal = async () => {
     if (!selectedRecord) return;
     setSavingAdjustment(true);
     try {
-      const bonusNum = parseFloat(customBonusInput) || 0;
       const res = await fetch("/api/payroll/calculate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -161,17 +110,16 @@ export default function PayrollPage() {
           user_id: selectedRecord.user_id,
           month_year: payrollData.month_year,
           waive_deduction: selectedRecord.is_waived,
-          custom_bonus: bonusNum,
           notes: customNotesInput,
         }),
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        showSuccess("Adjustments Saved", "Bonus & notes recorded for this payroll cycle.");
+        showSuccess("Notes Saved", "Payroll remarks saved successfully.");
         setSelectedRecord(null);
         fetchPayroll();
       } else {
-        showError("Save Failed", data.error || "Failed to update adjustment.");
+        showError("Save Failed", data.error || "Failed to update notes.");
       }
     } catch (err: any) {
       showError("Error", err.message || "Network error.");
@@ -188,18 +136,15 @@ export default function PayrollPage() {
       "Role",
       "Email",
       "Month",
-      "Days in Month",
-      "Presents",
-      "Half Days",
+      "Total Month Days",
+      "Presents Logged",
+      "Half Days Logged",
       "Paid Leaves Taken",
+      "Remaining Paid Quota",
       "Unpaid (LWP) Days",
-      "Base Salary (INR)",
-      "Daily Rate (INR)",
-      "LWP Deduction (INR)",
-      "Deduction Status",
-      "Custom Bonus (INR)",
-      "Net Payable Salary (INR)",
-      "Notes"
+      "Salary Payout Decision",
+      "Deduction Days",
+      "Management Notes"
     ];
 
     const rows = payrollData.payroll.map((p: any) => [
@@ -211,13 +156,10 @@ export default function PayrollPage() {
       p.presents_count,
       p.half_days_taken,
       p.paid_leaves_taken,
+      p.remaining_paid_balance,
       p.total_lwp_days,
-      p.monthly_salary,
-      p.daily_rate,
-      p.final_deduction,
-      p.is_waived ? "Waived Off (Forgiven)" : "Deducted",
-      p.custom_bonus,
-      p.net_payable,
+      `"${p.payout_label}"`,
+      p.deduction_days,
       `"${p.notes || ""}"`
     ]);
 
@@ -225,7 +167,7 @@ export default function PayrollPage() {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `payroll_summary_${payrollData.month_year}.csv`);
+    link.setAttribute("download", `salary_payout_advisor_${payrollData.month_year}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -237,19 +179,11 @@ export default function PayrollPage() {
         <ShieldAlert className="h-12 w-12 text-rose-500 mx-auto mb-3" />
         <h2 className="text-xl font-bold text-slate-900">Access Restricted</h2>
         <p className="text-slate-500 text-sm mt-1">
-          The Payroll &amp; Salary Deduction Calculator is restricted to Project Managers, Administrators, and Executives.
+          The Salary Payout Advisor is restricted to Project Managers, Administrators, and Executives.
         </p>
       </div>
     );
   }
-
-  const formatINR = (val: number) => {
-    return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: "INR",
-      maximumFractionDigits: 0,
-    }).format(val);
-  };
 
   const monthNames = [
     "January", "February", "March", "April", "May", "June",
@@ -262,14 +196,14 @@ export default function PayrollPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 p-6 md:p-8 rounded-3xl text-white shadow-md relative overflow-hidden border border-indigo-900/40">
         <div className="relative z-10">
           <div className="flex items-center gap-2 text-indigo-400 text-xs font-bold uppercase tracking-wider mb-2">
-            <Banknote className="h-4 w-4" />
-            Financial &amp; Payroll Intelligence
+            <CheckCircle2 className="h-4 w-4" />
+            Monthly Payout &amp; Salary Deduction Decision Advisor
           </div>
           <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight">
-            Payroll &amp; Salary Deductions
+            Salary Payout Status
           </h1>
           <p className="text-slate-300 text-sm mt-1 max-w-xl">
-            Automated monthly salary calculation based on employee attendance, paid leave quotas, and unpaid leave (LWP) deductions.
+            Audit which employees should receive 100% full salary and which have unpaid leaves (LWP) requiring deduction for the month.
           </p>
         </div>
 
@@ -338,35 +272,7 @@ export default function PayrollPage() {
                 {payrollData.summary.total_employees}
               </div>
               <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                Staff Employees
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center gap-4 transition-all hover:shadow-sm">
-            <div className="p-3.5 bg-sky-50 text-sky-600 rounded-xl">
-              <DollarSign className="h-6 w-6" />
-            </div>
-            <div>
-              <div className="text-2xl font-black text-sky-600">
-                {formatINR(payrollData.summary.total_gross_payroll)}
-              </div>
-              <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                Total Gross Payroll
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center gap-4 transition-all hover:shadow-sm">
-            <div className="p-3.5 bg-rose-50 text-rose-600 rounded-xl">
-              <TrendingDown className="h-6 w-6" />
-            </div>
-            <div>
-              <div className="text-2xl font-black text-rose-600">
-                -{formatINR(payrollData.summary.total_lwp_deductions)}
-              </div>
-              <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                LWP Salary Deductions ({payrollData.summary.total_lwp_days} days)
+                Staff Members Audited
               </div>
             </div>
           </div>
@@ -377,10 +283,38 @@ export default function PayrollPage() {
             </div>
             <div>
               <div className="text-2xl font-black text-emerald-600">
-                {formatINR(payrollData.summary.total_net_disbursable)}
+                {payrollData.summary.full_salary_count} Employees
               </div>
               <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                Net Payable Disbursable
+                Pay Full Salary (100%)
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center gap-4 transition-all hover:shadow-sm">
+            <div className="p-3.5 bg-rose-50 text-rose-600 rounded-xl">
+              <AlertTriangle className="h-6 w-6" />
+            </div>
+            <div>
+              <div className="text-2xl font-black text-rose-600">
+                {payrollData.summary.deduction_pending_count} Employees
+              </div>
+              <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                Salary Deduction Pending
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center gap-4 transition-all hover:shadow-sm">
+            <div className="p-3.5 bg-amber-50 text-amber-600 rounded-xl">
+              <Sparkles className="h-6 w-6" />
+            </div>
+            <div>
+              <div className="text-2xl font-black text-amber-700">
+                {payrollData.summary.waived_count} Waived Off
+              </div>
+              <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                Total LWP: {payrollData.summary.total_lwp_days} Days
               </div>
             </div>
           </div>
@@ -392,10 +326,9 @@ export default function PayrollPage() {
         <div className="flex items-center gap-2">
           <Info className="h-4 w-4 text-indigo-600 shrink-0" />
           <span>
-            <strong>Calculation Rules:</strong> Daily Rate = <code className="bg-white px-1.5 py-0.5 rounded border border-slate-200 text-slate-800 font-mono">Base Salary ÷ {payrollData?.total_days_in_month || 30} Days</code>. 
-            Paid leaves = <strong>₹0 deduction</strong>. 
-            Every 3 Half-Days = <strong>1 Leave deducted</strong>. 
-            Unpaid Leaves (LWP) = <strong>1 Daily Rate deducted</strong> per day.
+            <strong>Decision Logic:</strong> Paid leaves &amp; Sundays/Holidays = <strong>Full Salary</strong>. 
+            Every 3 Half-Days = <strong>1 Paid Leave deducted</strong>. 
+            When paid leave quota is exhausted, excess days are logged as <strong>Unpaid (LWP)</strong> requiring salary deduction unless waived.
           </span>
         </div>
         <span className="text-[11px] font-semibold text-slate-400 shrink-0">
@@ -403,16 +336,16 @@ export default function PayrollPage() {
         </span>
       </div>
 
-      {/* Interactive Payroll Table */}
+      {/* Decision Table */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
         <div className="p-5 border-b border-slate-100 flex items-center justify-between">
           <div>
             <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
-              <Banknote className="h-4 w-4 text-indigo-600" />
-              Employee Payroll Breakdown ({monthNames[parseInt(selectedMonth, 10) - 1]} {selectedYear})
+              <FileSpreadsheet className="h-4 w-4 text-indigo-600" />
+              Employee Payout Recommendations ({monthNames[parseInt(selectedMonth, 10) - 1]} {selectedYear})
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Review and adjust individual employee salary deductions and bonuses for this month.
+              Clear recommendation on whether to pay full salary or deduct salary for unpaid days.
             </p>
           </div>
         </div>
@@ -420,7 +353,7 @@ export default function PayrollPage() {
         {loading ? (
           <div className="p-16 text-center text-slate-400">
             <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-2 text-indigo-500" />
-            <p className="text-xs font-semibold">Computing payroll and attendance statistics...</p>
+            <p className="text-xs font-semibold">Analyzing employee attendance and leave quotas...</p>
           </div>
         ) : !payrollData?.payroll || payrollData.payroll.length === 0 ? (
           <div className="p-16 text-center text-slate-400">
@@ -432,22 +365,20 @@ export default function PayrollPage() {
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-slate-50/90 border-b border-slate-200 text-slate-600 uppercase font-bold text-[11px] tracking-wider">
-                  <th className="py-3 px-4">Employee</th>
-                  <th className="py-3 px-4">Role</th>
-                  <th className="py-3 px-4">Monthly Salary</th>
-                  <th className="py-3 px-4">Daily Rate</th>
-                  <th className="py-3 px-4">Presents / Half-Days</th>
-                  <th className="py-3 px-4">Paid Leaves</th>
-                  <th className="py-3 px-4">Unpaid (LWP)</th>
-                  <th className="py-3 px-4">Deduction (LWP)</th>
-                  <th className="py-3 px-4">Deduct Salary?</th>
-                  <th className="py-3 px-4 text-right">Net Payable</th>
-                  <th className="py-3 px-4 text-center">Adjustments</th>
+                  <th className="py-3.5 px-4">Employee</th>
+                  <th className="py-3.5 px-4">Role</th>
+                  <th className="py-3.5 px-4">Presents Logged</th>
+                  <th className="py-3.5 px-4">Half-Days Logged</th>
+                  <th className="py-3.5 px-4">Paid Leaves</th>
+                  <th className="py-3.5 px-4">Unpaid (LWP) Days</th>
+                  <th className="py-3.5 px-4">Should We Pay Full Salary?</th>
+                  <th className="py-3.5 px-4">Action / Waiver</th>
+                  <th className="py-3.5 px-4 text-center">Notes</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
                 {payrollData.payroll.map((item: any) => {
-                  const isEditingSalary = editingSalaries[item.user_id] !== undefined;
+                  const isFull = item.payout_decision === "PAY_FULL";
 
                   return (
                     <tr key={item.user_id} className="hover:bg-slate-50/60 transition-colors">
@@ -464,81 +395,22 @@ export default function PayrollPage() {
                         </Badge>
                       </td>
 
-                      {/* Base Monthly Salary */}
+                      {/* Presents */}
                       <td className="py-3.5 px-4">
-                        {isEditingSalary ? (
-                          <div className="flex items-center gap-1.5">
-                            <Input
-                              type="number"
-                              value={editingSalaries[item.user_id]}
-                              onChange={(e) =>
-                                setEditingSalaries((prev) => ({
-                                  ...prev,
-                                  [item.user_id]: e.target.value,
-                                }))
-                              }
-                              className="w-24 h-7 text-xs font-bold"
-                            />
-                            <Button
-                              size="sm"
-                              onClick={() => handleSaveSalary(item.user_id)}
-                              disabled={savingSalaryId === item.user_id}
-                              className="h-7 w-7 p-0 bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
-                              title="Save salary"
-                            >
-                              <Check className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() =>
-                                setEditingSalaries((prev) => {
-                                  const next = { ...prev };
-                                  delete next[item.user_id];
-                                  return next;
-                                })
-                              }
-                              className="h-7 w-7 p-0 text-slate-400 hover:text-slate-600 cursor-pointer"
-                              title="Cancel"
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-bold text-slate-900">
-                              {formatINR(item.monthly_salary)}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setEditingSalaries((prev) => ({
-                                  ...prev,
-                                  [item.user_id]: item.monthly_salary.toString(),
-                                }))
-                              }
-                              className="text-slate-300 hover:text-indigo-600 transition-colors p-1 cursor-pointer"
-                              title="Edit monthly salary"
-                            >
-                              <Edit3 className="h-3 w-3" />
-                            </button>
-                          </div>
-                        )}
+                        <span className="text-emerald-700 font-bold">{item.presents_count} days</span>
                       </td>
 
-                      {/* Daily Rate */}
-                      <td className="py-3.5 px-4 text-slate-500 font-mono text-[11px]">
-                        {formatINR(item.daily_rate)}/day
-                      </td>
-
-                      {/* Presents / Half-Days */}
+                      {/* Half-Days */}
                       <td className="py-3.5 px-4">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-emerald-700 font-semibold">{item.presents_count}p</span>
-                          <span className="text-slate-300">•</span>
-                          <span className={`${item.half_days_taken > 0 ? "text-amber-700 font-bold" : "text-slate-400"}`}>
+                        <div className="flex flex-col">
+                          <span className={`${item.half_days_taken > 0 ? "text-amber-800 font-bold" : "text-slate-400"}`}>
                             {item.half_days_taken} half-days
                           </span>
+                          {item.half_days_deducted > 0 && (
+                            <span className="text-[10px] text-amber-700">
+                              (-{item.half_days_deducted} leave by 3:1)
+                            </span>
+                          )}
                         </div>
                       </td>
 
@@ -546,7 +418,7 @@ export default function PayrollPage() {
                       <td className="py-3.5 px-4">
                         <div className="flex flex-col">
                           <span className="font-semibold text-purple-700">
-                            {item.paid_leaves_taken} days taken
+                            {item.paid_leaves_taken} taken
                           </span>
                           <span className="text-[10px] text-slate-400">
                             (Bal: {item.remaining_paid_balance} left)
@@ -554,74 +426,65 @@ export default function PayrollPage() {
                         </div>
                       </td>
 
-                      {/* Unpaid Leaves (LWP) */}
+                      {/* Unpaid (LWP) Days */}
                       <td className="py-3.5 px-4">
                         {item.total_lwp_days > 0 ? (
-                          <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-200">
-                            {item.total_lwp_days} days LWP
+                          <span className="px-2.5 py-1 rounded-full text-xs font-black bg-rose-100 text-rose-800 border border-rose-200 inline-block">
+                            {item.total_lwp_days} Days LWP
                           </span>
                         ) : (
                           <span className="text-slate-400 text-xs font-semibold">0 days</span>
                         )}
                       </td>
 
-                      {/* Deduction Amount */}
+                      {/* Should we pay full salary? */}
                       <td className="py-3.5 px-4">
-                        {item.final_deduction > 0 ? (
-                          <span className="font-bold text-rose-600">
-                            -{formatINR(item.final_deduction)}
-                          </span>
+                        {isFull ? (
+                          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-100/90 text-emerald-900 border border-emerald-300 font-bold text-xs shadow-2xs">
+                            <Check className="h-4 w-4 text-emerald-700 shrink-0" />
+                            <span>YES — Pay Full Salary</span>
+                          </div>
                         ) : (
-                          <span className="text-slate-400 font-semibold">₹0</span>
+                          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-100 text-rose-900 border border-rose-300 font-bold text-xs shadow-2xs">
+                            <X className="h-4 w-4 text-rose-700 shrink-0" />
+                            <span>NO — Deduct {item.deduction_days} Day{item.deduction_days === 1 ? "" : "s"} Salary</span>
+                          </div>
                         )}
                       </td>
 
-                      {/* Deduct Salary Toggle */}
+                      {/* Waiver Toggle Action */}
                       <td className="py-3.5 px-4">
                         {item.total_lwp_days > 0 ? (
                           <button
                             type="button"
                             onClick={() => handleToggleWaiver(item)}
-                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer border ${
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border shadow-2xs ${
                               item.is_waived
-                                ? "bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100"
-                                : "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100"
+                                ? "bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100"
+                                : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50 hover:text-indigo-600"
                             }`}
-                            title="Click to toggle salary deduction on/off"
+                            title="Click to toggle: Forgive deduction & pay full salary vs Apply deduction"
                           >
-                            {item.is_waived ? "✨ Waived Off" : "⚡ Deducting"}
+                            {item.is_waived ? "✨ Waived (Pay Full)" : "⚡ Waive Off & Pay Full"}
                           </button>
                         ) : (
-                          <span className="text-slate-400 text-[11px]">No LWP</span>
+                          <span className="text-slate-400 text-xs">—</span>
                         )}
                       </td>
 
-                      {/* Net Payable Salary */}
-                      <td className="py-3.5 px-4 text-right">
-                        <div className="text-sm font-black text-emerald-600">
-                          {formatINR(item.net_payable)}
-                        </div>
-                        {item.custom_bonus > 0 && (
-                          <div className="text-[10px] font-bold text-sky-600">
-                            +{formatINR(item.custom_bonus)} Bonus
-                          </div>
-                        )}
-                      </td>
-
-                      {/* Adjustments Modal Trigger */}
+                      {/* Notes / Remarks */}
                       <td className="py-3.5 px-4 text-center">
                         <Button
                           size="sm"
                           variant="ghost"
                           onClick={() => {
                             setSelectedRecord(item);
-                            setCustomBonusInput(item.custom_bonus ? item.custom_bonus.toString() : "0");
                             setCustomNotesInput(item.notes || "");
                           }}
                           className="h-7 text-xs text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 cursor-pointer"
                         >
                           <Edit3 className="h-3 w-3 mr-1" />
-                          Adjust
+                          {item.notes ? "View Note" : "Add Note"}
                         </Button>
                       </td>
                     </tr>
@@ -633,52 +496,35 @@ export default function PayrollPage() {
         )}
       </div>
 
-      {/* Adjustment Dialog Modal */}
+      {/* Remarks Dialog Modal */}
       {selectedRecord && (
         <Dialog open={!!selectedRecord} onOpenChange={() => setSelectedRecord(null)}>
           <DialogContent className="sm:max-w-md bg-white">
             <DialogHeader>
               <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                <Banknote className="h-5 w-5 text-indigo-600" />
-                Payroll Adjustments: {selectedRecord.name}
+                <Edit3 className="h-5 w-5 text-indigo-600" />
+                Payroll Remarks: {selectedRecord.name}
               </DialogTitle>
             </DialogHeader>
 
             <div className="space-y-4 py-3">
-              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Base Salary:</span>
-                  <span className="font-bold text-slate-900">{formatINR(selectedRecord.monthly_salary)}</span>
-                </div>
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs space-y-1.5">
                 <div className="flex justify-between">
                   <span className="text-slate-500">Unpaid Days (LWP):</span>
                   <span className="font-bold text-rose-600">{selectedRecord.total_lwp_days} days</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-500">Calculated Deduction:</span>
-                  <span className="font-bold text-rose-600">-{formatINR(selectedRecord.final_deduction)}</span>
+                  <span className="text-slate-500">Current Payout Status:</span>
+                  <span className="font-bold text-slate-900">{selectedRecord.payout_label}</span>
                 </div>
               </div>
 
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">
-                  Custom Bonus / Allowance Addition (₹)
+                  Manager Notes / Reason for Waiver or Deduction
                 </label>
                 <Input
-                  type="number"
-                  placeholder="0"
-                  value={customBonusInput}
-                  onChange={(e) => setCustomBonusInput(e.target.value)}
-                  className="text-xs"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">
-                  Payroll Notes / Remarks
-                </label>
-                <Input
-                  placeholder="e.g. Approved incentive for milestone delivery..."
+                  placeholder="e.g. Approved leave waiver due to emergency, or deduct 2 days for unsanctioned absences..."
                   value={customNotesInput}
                   onChange={(e) => setCustomNotesInput(e.target.value)}
                   className="text-xs"
@@ -698,12 +544,12 @@ export default function PayrollPage() {
                 <Button
                   type="button"
                   size="sm"
-                  onClick={handleSaveAdjustmentModal}
+                  onClick={handleSaveNotesModal}
                   disabled={savingAdjustment}
                   className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold cursor-pointer"
                 >
                   {savingAdjustment ? <RefreshCw className="h-3.5 w-3.5 animate-spin mr-1" /> : <Save className="h-3.5 w-3.5 mr-1" />}
-                  Save Adjustments
+                  Save Note
                 </Button>
               </div>
             </div>

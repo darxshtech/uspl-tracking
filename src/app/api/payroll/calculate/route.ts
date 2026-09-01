@@ -10,6 +10,7 @@ function getDaysInMonth(year: number, month: number): number {
 }
 
 // GET /api/payroll/calculate?month=08&year=2026
+// Computes monthly salary payout recommendation (Full Salary vs Deduct X Days) without storing/displaying currency amounts
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session || !["Admin", "CEO", "PM"].includes((session.user as any)?.role)) {
@@ -36,7 +37,7 @@ export async function GET(req: Request) {
 
     // Fetch staff users (Exclude Admin and CEO)
     const [users]: any = await pool.query(`
-      SELECT id, name, email, role, total_leaves_allowed, leaves_carried_forward, monthly_salary, is_active
+      SELECT id, name, email, role, total_leaves_allowed, leaves_carried_forward, is_active
       FROM users 
       WHERE role NOT IN ('Admin', 'CEO') AND is_active = 1
       ORDER BY role ASC, name ASC
@@ -52,7 +53,7 @@ export async function GET(req: Request) {
 
     // Fetch payroll waivers / overrides for this month
     const [waiverRows]: any = await pool.query(
-      `SELECT user_id, waive_deduction, custom_deduction, custom_bonus, notes, updated_by 
+      `SELECT user_id, waive_deduction, notes, updated_by 
        FROM payroll_waivers 
        WHERE month_year = ?`,
       [monthYearKey]
@@ -62,14 +63,13 @@ export async function GET(req: Request) {
       waiverMap.set(w.user_id, w);
     });
 
-    let totalCompanyGrossSalary = 0;
-    let totalCompanyDeductions = 0;
-    let totalCompanyNetDisbursable = 0;
+    let fullSalaryCount = 0;
+    let deductionPendingCount = 0;
+    let waivedCount = 0;
     let totalCompanyLWPDays = 0;
 
     const payrollList = users.map((user: any) => {
       const userRecords = attendanceRows.filter((r: any) => r.user_id === user.id);
-      const monthlySalary = parseFloat(user.monthly_salary || "0");
       const monthlyQuota = user.total_leaves_allowed !== null ? Number(user.total_leaves_allowed) : policies.total_leaves_allowed;
       const carriedForward = parseFloat(user.leaves_carried_forward || "0");
       const availableQuota = Number((monthlyQuota + carriedForward).toFixed(2));
@@ -95,8 +95,9 @@ export async function GET(req: Request) {
         }
       });
 
-      // Half days deduction
+      // Half days deduction (e.g. 3:1)
       const halfDaysDeducted = Math.floor(halfDaysCount / halfDaysRatio);
+      const leftoverHalfDays = halfDaysCount % halfDaysRatio;
       const totalPaidLeavesDeducted = paidLeavesCount + halfDaysDeducted;
       const remainingPaidBalance = Math.max(0, Number((availableQuota - totalPaidLeavesDeducted).toFixed(2)));
 
@@ -104,31 +105,35 @@ export async function GET(req: Request) {
       const excessLWPFromQuota = Math.max(0, totalPaidLeavesDeducted - availableQuota);
       const totalLWPDays = Number((unpaidLeavesCount + excessLWPFromQuota).toFixed(1));
 
-      // Calculate Daily Rate: Base Monthly Salary / Total Days In Month
-      const dailyRate = totalDaysInMonth > 0 && monthlySalary > 0 
-        ? Math.round((monthlySalary / totalDaysInMonth) * 100) / 100 
-        : 0;
-
-      // Check for waiver / custom adjustment
+      // Check for waiver
       const waiver = waiverMap.get(user.id);
       const isWaived = waiver?.waive_deduction === 1 || waiver?.waive_deduction === true;
-      const customDeduction = waiver?.custom_deduction !== null && waiver?.custom_deduction !== undefined ? parseFloat(waiver.custom_deduction) : null;
-      const customBonus = waiver?.custom_bonus !== null && waiver?.custom_bonus !== undefined ? parseFloat(waiver.custom_bonus) : 0;
 
-      let finalDeduction = 0;
-      if (isWaived) {
-        finalDeduction = 0;
-      } else if (customDeduction !== null) {
-        finalDeduction = customDeduction;
+      // Payout Decision
+      let payoutDecision: "PAY_FULL" | "DEDUCT_SALARY" = "PAY_FULL";
+      let deductionDays = 0;
+      let payoutLabel = "Pay Full Salary (100%)";
+
+      if (totalLWPDays > 0) {
+        if (isWaived) {
+          payoutDecision = "PAY_FULL";
+          deductionDays = 0;
+          payoutLabel = `Pay Full Salary (Waived off ${totalLWPDays}d LWP)`;
+          waivedCount += 1;
+          fullSalaryCount += 1;
+        } else {
+          payoutDecision = "DEDUCT_SALARY";
+          deductionDays = totalLWPDays;
+          payoutLabel = `Deduct ${totalLWPDays} Day${totalLWPDays === 1 ? "" : "s"} Salary`;
+          deductionPendingCount += 1;
+        }
       } else {
-        finalDeduction = Math.round(totalLWPDays * dailyRate);
+        payoutDecision = "PAY_FULL";
+        deductionDays = 0;
+        payoutLabel = "Pay Full Salary (100%)";
+        fullSalaryCount += 1;
       }
 
-      const netPayable = Math.max(0, Math.round(monthlySalary - finalDeduction + customBonus));
-
-      totalCompanyGrossSalary += monthlySalary;
-      totalCompanyDeductions += finalDeduction;
-      totalCompanyNetDisbursable += netPayable;
       totalCompanyLWPDays += totalLWPDays;
 
       return {
@@ -136,21 +141,21 @@ export async function GET(req: Request) {
         name: user.name,
         email: user.email,
         role: user.role,
-        monthly_salary: monthlySalary,
-        daily_rate: dailyRate,
         total_days_in_month: totalDaysInMonth,
         presents_count: presentsCount,
         holidays_count: holidaysCount,
         paid_leaves_taken: paidLeavesCount,
         half_days_taken: halfDaysCount,
         half_days_deducted: halfDaysDeducted,
+        leftover_half_days: leftoverHalfDays,
+        monthly_quota: monthlyQuota,
+        carried_forward: carriedForward,
         remaining_paid_balance: remainingPaidBalance,
         total_lwp_days: totalLWPDays,
-        gross_deduction_calculated: Math.round(totalLWPDays * dailyRate),
-        final_deduction: finalDeduction,
+        deduction_days: deductionDays,
+        payout_decision: payoutDecision,
+        payout_label: payoutLabel,
         is_waived: isWaived,
-        custom_bonus: customBonus,
-        net_payable: netPayable,
         notes: waiver?.notes || "",
         updated_by: waiver?.updated_by || null,
       };
@@ -164,21 +169,21 @@ export async function GET(req: Request) {
       total_days_in_month: totalDaysInMonth,
       summary: {
         total_employees: users.length,
-        total_gross_payroll: totalCompanyGrossSalary,
-        total_lwp_deductions: totalCompanyDeductions,
-        total_net_disbursable: totalCompanyNetDisbursable,
+        full_salary_count: fullSalaryCount,
+        deduction_pending_count: deductionPendingCount,
+        waived_count: waivedCount,
         total_lwp_days: totalCompanyLWPDays,
       },
       payroll: payrollList,
     });
   } catch (error: any) {
-    console.error("Error computing payroll:", error);
+    console.error("Error computing payroll payout status:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
 
 // POST /api/payroll/calculate
-// Save salary deduction waiver / override
+// Save salary deduction waiver toggle
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session || !["Admin", "CEO", "PM"].includes((session.user as any)?.role)) {
@@ -189,27 +194,23 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json();
-    const { user_id, month_year, waive_deduction, custom_deduction, custom_bonus, notes } = body;
+    const { user_id, month_year, waive_deduction, notes } = body;
 
     if (!user_id || !month_year) {
       return NextResponse.json({ error: "user_id and month_year are required" }, { status: 400 });
     }
 
     await pool.query(
-      `INSERT INTO payroll_waivers (user_id, month_year, waive_deduction, custom_deduction, custom_bonus, notes, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO payroll_waivers (user_id, month_year, waive_deduction, notes, updated_by)
+       VALUES (?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE 
          waive_deduction = VALUES(waive_deduction),
-         custom_deduction = VALUES(custom_deduction),
-         custom_bonus = VALUES(custom_bonus),
          notes = VALUES(notes),
          updated_by = VALUES(updated_by)`,
       [
         user_id,
         month_year,
         waive_deduction ? 1 : 0,
-        custom_deduction !== undefined && custom_deduction !== null ? custom_deduction : null,
-        custom_bonus !== undefined && custom_bonus !== null ? custom_bonus : 0,
         notes || null,
         managerName,
       ]
@@ -217,10 +218,10 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       success: true,
-      message: "Payroll adjustment updated successfully.",
+      message: "Salary deduction status updated successfully.",
     });
   } catch (error: any) {
-    console.error("Error saving payroll adjustment:", error);
+    console.error("Error saving salary waiver:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
