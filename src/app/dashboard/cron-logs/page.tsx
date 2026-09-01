@@ -21,7 +21,8 @@ import {
   Info,
   CalendarDays,
   Sparkles,
-  ArrowRight
+  ArrowRight,
+  Users
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +35,55 @@ export default function CronLogsPage() {
   const userRole = (session?.user as any)?.role || "Developer";
   const userEmail = (session?.user as any)?.email || "";
 
+  // Helper to format Date to YYYY-MM-DD
+  const formatDateToISO = (d: Date) => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
+  const getPresetDates = (preset: "last7days" | "last14days" | "thisMonth" | "prevMonth" | "last30days") => {
+    const today = new Date();
+    if (preset === "last7days") {
+      const end = new Date(today);
+      end.setDate(today.getDate() - 1);
+      const start = new Date(end);
+      start.setDate(end.getDate() - 6);
+      return { start: formatDateToISO(start), end: formatDateToISO(end) };
+    }
+    if (preset === "last14days") {
+      const end = new Date(today);
+      end.setDate(today.getDate() - 1);
+      const start = new Date(end);
+      start.setDate(end.getDate() - 13);
+      return { start: formatDateToISO(start), end: formatDateToISO(end) };
+    }
+    if (preset === "thisMonth") {
+      const start = new Date(today.getFullYear(), today.getMonth(), 1);
+      const end = new Date(today);
+      return { start: formatDateToISO(start), end: formatDateToISO(end) };
+    }
+    if (preset === "prevMonth") {
+      const start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      const end = new Date(today.getFullYear(), today.getMonth(), 0);
+      return { start: formatDateToISO(start), end: formatDateToISO(end) };
+    }
+    if (preset === "last30days") {
+      const end = new Date(today);
+      end.setDate(today.getDate() - 1);
+      const start = new Date(end);
+      start.setDate(end.getDate() - 29);
+      return { start: formatDateToISO(start), end: formatDateToISO(end) };
+    }
+    return { start: "", end: "" };
+  };
+
+  const initialRange = getPresetDates("last7days");
+  const [customStartDate, setCustomStartDate] = useState(initialRange.start);
+  const [customEndDate, setCustomEndDate] = useState(initialRange.end);
+  const [activePreset, setActivePreset] = useState<string>("last7days");
+
   const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -41,6 +91,13 @@ export default function CronLogsPage() {
   const [testEmailInput, setTestEmailInput] = useState(userEmail);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedLog, setSelectedLog] = useState<any | null>(null);
+
+  const applyPreset = (preset: "last7days" | "last14days" | "thisMonth" | "prevMonth" | "last30days") => {
+    const dates = getPresetDates(preset);
+    setCustomStartDate(dates.start);
+    setCustomEndDate(dates.end);
+    setActivePreset(preset);
+  };
 
   useEffect(() => {
     if (userEmail && !testEmailInput) {
@@ -68,19 +125,35 @@ export default function CronLogsPage() {
     }
   };
 
-  const handleManualTrigger = async (type: "weekly" | "monthly" | "auto" | "test" | "dry_run") => {
+  const handleManualTrigger = async (type: "custom" | "weekly" | "monthly" | "auto" | "test" | "dry_run") => {
+    if (type === "custom" || type === "test" || type === "dry_run") {
+      if (!customStartDate || !customEndDate) {
+        showWarning("Date Range Required", "Please select both a Start Date and End Date.");
+        return;
+      }
+      if (customStartDate > customEndDate) {
+        showWarning("Invalid Range", "Start Date cannot be after End Date.");
+        return;
+      }
+    }
+
     setTriggering(type);
     try {
-      let endpoint = `/api/cron/attendance-emails?type=${type}`;
+      let endpoint = `/api/cron/attendance-emails?type=${type}&start_date=${customStartDate}&end_date=${customEndDate}`;
+      
       if (type === "test") {
         if (!testEmailInput) {
           showWarning("Email Required", "Please enter a destination email address for the test.");
           setTriggering(null);
           return;
         }
-        endpoint = `/api/cron/attendance-emails?type=weekly&test_email=${encodeURIComponent(testEmailInput)}`;
+        endpoint = `/api/cron/attendance-emails?type=custom&test_email=${encodeURIComponent(testEmailInput)}&start_date=${customStartDate}&end_date=${customEndDate}`;
       } else if (type === "dry_run") {
-        endpoint = `/api/cron/attendance-emails?type=weekly&dry_run=true`;
+        endpoint = `/api/cron/attendance-emails?type=custom&dry_run=true&start_date=${customStartDate}&end_date=${customEndDate}`;
+      } else if (type === "weekly") {
+        endpoint = `/api/cron/attendance-emails?type=weekly`;
+      } else if (type === "monthly") {
+        endpoint = `/api/cron/attendance-emails?type=monthly`;
       }
 
       const res = await fetch(endpoint);
@@ -216,12 +289,125 @@ export default function CronLogsPage() {
             </div>
             <h2 className="text-lg font-bold text-slate-900 mt-1">Manual Job Dispatch &amp; Testing</h2>
             <p className="text-slate-500 text-xs mt-0.5">
-              Trigger background email broadcasts or test an individual inbox delivery without waiting for the automated 7:30 AM IST schedule.
+              Select custom dates or use standard presets to dispatch attendance reports, test delivery, or run dry-run simulations.
             </p>
           </div>
           <div className="bg-indigo-50/80 text-indigo-700 px-3 py-1.5 rounded-xl text-xs font-semibold border border-indigo-100 flex items-center gap-1.5">
             <Calendar className="h-3.5 w-3.5" />
             Schedule: Daily @ 07:30 AM IST (02:00 UTC)
+          </div>
+        </div>
+
+        {/* Custom Date Range Selector Bar */}
+        <div className="mt-5 p-4 rounded-2xl bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white border border-indigo-900/40 shadow-sm">
+          <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-indigo-500/25 text-indigo-300 border border-indigo-400/30">
+                  Target Date Range
+                </span>
+                <span className="text-xs font-semibold text-slate-200">
+                  Custom Period for Email Generation &amp; Metrics
+                </span>
+              </div>
+              <div className="text-[11px] text-slate-400">
+                Selected period: <strong className="text-emerald-400">{customStartDate}</strong> to <strong className="text-emerald-400">{customEndDate}</strong>
+              </div>
+            </div>
+
+            {/* Date Inputs */}
+            <div className="flex flex-wrap items-center gap-2.5 bg-white/10 p-1.5 rounded-xl border border-white/15 backdrop-blur-md">
+              <div className="flex items-center gap-1.5 px-2">
+                <CalendarDays className="h-4 w-4 text-indigo-400 shrink-0" />
+                <span className="text-[11px] font-bold text-slate-300 uppercase">From</span>
+                <input
+                  type="date"
+                  value={customStartDate}
+                  onChange={(e) => {
+                    setCustomStartDate(e.target.value);
+                    setActivePreset("custom");
+                  }}
+                  className="bg-slate-900/90 text-white text-xs font-semibold rounded-lg px-2.5 py-1.5 border border-white/20 focus:outline-none focus:ring-2 focus:ring-indigo-400 cursor-pointer"
+                />
+              </div>
+
+              <span className="text-slate-400 font-bold text-xs">→</span>
+
+              <div className="flex items-center gap-1.5 px-2">
+                <span className="text-[11px] font-bold text-slate-300 uppercase">To</span>
+                <input
+                  type="date"
+                  value={customEndDate}
+                  onChange={(e) => {
+                    setCustomEndDate(e.target.value);
+                    setActivePreset("custom");
+                  }}
+                  className="bg-slate-900/90 text-white text-xs font-semibold rounded-lg px-2.5 py-1.5 border border-white/20 focus:outline-none focus:ring-2 focus:ring-indigo-400 cursor-pointer"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Presets Pills */}
+          <div className="flex items-center gap-1.5 mt-3.5 pt-3 border-t border-white/10 overflow-x-auto">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider shrink-0 mr-1">
+              Presets:
+            </span>
+            <button
+              type="button"
+              onClick={() => applyPreset("last7days")}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all whitespace-nowrap cursor-pointer ${
+                activePreset === "last7days"
+                  ? "bg-indigo-500 text-white shadow-xs font-bold ring-2 ring-white/20"
+                  : "bg-white/5 hover:bg-white/15 text-slate-300 border border-white/10"
+              }`}
+            >
+              ⚡ Last 7 Days (Weekly)
+            </button>
+            <button
+              type="button"
+              onClick={() => applyPreset("last14days")}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all whitespace-nowrap cursor-pointer ${
+                activePreset === "last14days"
+                  ? "bg-indigo-500 text-white shadow-xs font-bold ring-2 ring-white/20"
+                  : "bg-white/5 hover:bg-white/15 text-slate-300 border border-white/10"
+              }`}
+            >
+              📅 Last 14 Days (Bi-Weekly)
+            </button>
+            <button
+              type="button"
+              onClick={() => applyPreset("prevMonth")}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all whitespace-nowrap cursor-pointer ${
+                activePreset === "prevMonth"
+                  ? "bg-indigo-500 text-white shadow-xs font-bold ring-2 ring-white/20"
+                  : "bg-white/5 hover:bg-white/15 text-slate-300 border border-white/10"
+              }`}
+            >
+              🗓️ Previous Month
+            </button>
+            <button
+              type="button"
+              onClick={() => applyPreset("thisMonth")}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all whitespace-nowrap cursor-pointer ${
+                activePreset === "thisMonth"
+                  ? "bg-indigo-500 text-white shadow-xs font-bold ring-2 ring-white/20"
+                  : "bg-white/5 hover:bg-white/15 text-slate-300 border border-white/10"
+              }`}
+            >
+              📆 This Month (MTD)
+            </button>
+            <button
+              type="button"
+              onClick={() => applyPreset("last30days")}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all whitespace-nowrap cursor-pointer ${
+                activePreset === "last30days"
+                  ? "bg-indigo-500 text-white shadow-xs font-bold ring-2 ring-white/20"
+                  : "bg-white/5 hover:bg-white/15 text-slate-300 border border-white/10"
+              }`}
+            >
+              🎯 Last 30 Days
+            </button>
           </div>
         </div>
 
@@ -231,33 +417,49 @@ export default function CronLogsPage() {
           <div className="bg-slate-50/80 border border-slate-200/90 p-4 rounded-xl flex flex-col justify-between space-y-4">
             <div>
               <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                <UsersIcon className="h-3.5 w-3.5 text-indigo-600" />
+                <Users className="h-3.5 w-3.5 text-indigo-600" />
                 1. Company Broadcasts
               </span>
               <p className="text-[11px] text-slate-500 mt-1">
-                Dispatch personalized attendance reports to all active employees.
+                Dispatch personalized attendance reports for the selected dates to all active employees.
               </p>
             </div>
             <div className="space-y-2">
               <Button
                 size="sm"
-                onClick={() => handleManualTrigger("weekly")}
+                onClick={() => handleManualTrigger("custom")}
                 disabled={triggering !== null}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs gap-1.5 shadow-xs h-9 justify-center"
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs gap-1.5 shadow-xs h-9 justify-center cursor-pointer"
               >
-                {triggering === "weekly" ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-                Send Weekly Reports
+                {triggering === "custom" ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+                Send Selected Period Reports
               </Button>
 
-              <Button
-                size="sm"
-                onClick={() => handleManualTrigger("monthly")}
-                disabled={triggering !== null}
-                className="w-full bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs gap-1.5 shadow-xs h-9 justify-center"
-              >
-                {triggering === "monthly" ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-                Send Monthly Reports
-              </Button>
+              <div className="grid grid-cols-2 gap-1.5">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleManualTrigger("weekly")}
+                  disabled={triggering !== null}
+                  className="bg-white hover:bg-slate-100 text-slate-700 font-semibold text-[11px] h-8 justify-center border-slate-300 cursor-pointer"
+                  title="Send standard weekly report for preceding 7 days"
+                >
+                  {triggering === "weekly" ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3 text-indigo-600" />}
+                  Weekly
+                </Button>
+
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleManualTrigger("monthly")}
+                  disabled={triggering !== null}
+                  className="bg-white hover:bg-slate-100 text-slate-700 font-semibold text-[11px] h-8 justify-center border-slate-300 cursor-pointer"
+                  title="Send standard monthly report for previous month"
+                >
+                  {triggering === "monthly" ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3 text-sky-600" />}
+                  Monthly
+                </Button>
+              </div>
             </div>
           </div>
 
@@ -269,7 +471,7 @@ export default function CronLogsPage() {
                 2. Test Inbox Delivery
               </span>
               <p className="text-[11px] text-slate-500 mt-1">
-                Send a sample attendance report to any email address for preview.
+                Send a sample attendance report for selected dates to preview layout.
               </p>
             </div>
             <div className="space-y-2">
@@ -283,10 +485,10 @@ export default function CronLogsPage() {
                 size="sm"
                 onClick={() => handleManualTrigger("test")}
                 disabled={triggering !== null || !testEmailInput}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-1.5 shadow-xs h-9 justify-center"
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-1.5 shadow-xs h-9 justify-center cursor-pointer"
               >
                 {triggering === "test" ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                Send Test Email
+                Send Test Email ({customStartDate} → {customEndDate})
               </Button>
             </div>
           </div>
@@ -299,7 +501,7 @@ export default function CronLogsPage() {
                 3. Dry-Run Simulation
               </span>
               <p className="text-[11px] text-slate-500 mt-1">
-                Calculate shift statistics and verify database queries without emailing.
+                Calculate shift statistics and verify database records for selected dates without emailing.
               </p>
             </div>
             <div className="space-y-2">
@@ -308,10 +510,10 @@ export default function CronLogsPage() {
                 variant="outline"
                 onClick={() => handleManualTrigger("dry_run")}
                 disabled={triggering !== null}
-                className="w-full bg-white hover:bg-slate-100 text-slate-700 border-slate-300 font-bold text-xs gap-1.5 shadow-xs h-9 justify-center"
+                className="w-full bg-white hover:bg-slate-100 text-slate-700 border-slate-300 font-bold text-xs gap-1.5 shadow-xs h-9 justify-center cursor-pointer"
               >
                 {triggering === "dry_run" ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5 text-amber-600" />}
-                Run Calculation Dry-Run
+                Run Dry-Run ({customStartDate} → {customEndDate})
               </Button>
               <div className="text-[10px] text-center text-slate-400 font-medium">
                 Safe preview mode • 0 emails dispatched

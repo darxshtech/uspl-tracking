@@ -1,7 +1,7 @@
 import pool from "@/lib/db";
 
 export interface CronLogEntry {
-  job_type: "weekly_emails" | "monthly_emails" | "monthly_maintenance" | "auto" | "combined";
+  job_type: "weekly_emails" | "monthly_emails" | "custom_emails" | "monthly_maintenance" | "auto" | "combined";
   status: "success" | "failed" | "partial" | "skipped";
   trigger_source?: string;
   target_period?: string;

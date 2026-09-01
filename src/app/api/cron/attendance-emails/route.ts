@@ -41,7 +41,7 @@ function chunkArray<T>(array: T[], size: number): T[][] {
 // Generate the responsive HTML email template
 function buildAttendanceEmailHtml(
   user: UserRecord,
-  type: "weekly" | "monthly",
+  type: "weekly" | "monthly" | "custom",
   startDate: Date,
   endDate: Date,
   records: AttendanceRecord[]
@@ -60,7 +60,11 @@ function buildAttendanceEmailHtml(
   };
   const startStr = startDate.toLocaleDateString("en-US", dateOptions);
   const endStr = endDate.toLocaleDateString("en-US", dateOptions);
-  const periodTitle = type === "monthly" ? "Monthly Attendance Report" : "Weekly Attendance Report";
+  const periodTitle = type === "monthly" 
+    ? "Monthly Attendance Report" 
+    : type === "weekly" 
+    ? "Weekly Attendance Report" 
+    : "Attendance Performance Report";
   const periodBadge = `${startStr} — ${endStr}`;
 
   let tableRows = "";
@@ -277,9 +281,11 @@ async function runMonthlyLeaveMaintenance() {
 
 // Attendance email batch processor
 async function processAttendanceEmails(
-  type: "weekly" | "monthly",
+  type: "weekly" | "monthly" | "custom",
   testEmail?: string | null,
-  dryRun?: boolean
+  dryRun?: boolean,
+  customStart?: string | null,
+  customEnd?: string | null
 ) {
   // Query active employees (excluding CEO and Admin)
   const [users]: any = await pool.query(
@@ -289,21 +295,29 @@ async function processAttendanceEmails(
   const now = new Date();
   let startDate: Date;
   let endDate: Date;
+  let startStr: string;
+  let endStr: string;
 
-  if (type === "monthly") {
+  if (customStart && customEnd) {
+    startStr = customStart;
+    endStr = customEnd;
+    startDate = new Date(customStart + "T00:00:00");
+    endDate = new Date(customEnd + "T23:59:59");
+  } else if (type === "monthly") {
     // Entire preceding month
     startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     endDate = new Date(now.getFullYear(), now.getMonth(), 0); // Last day of previous month
+    startStr = startDate.toISOString().split("T")[0];
+    endStr = endDate.toISOString().split("T")[0];
   } else {
     // Preceding 7 days (Monday through Sunday)
     endDate = new Date(now);
     endDate.setDate(now.getDate() - 1); // Yesterday (Sunday)
     startDate = new Date(endDate);
     startDate.setDate(endDate.getDate() - 6); // 7 days prior (Monday)
+    startStr = startDate.toISOString().split("T")[0];
+    endStr = endDate.toISOString().split("T")[0];
   }
-
-  const startStr = startDate.toISOString().split("T")[0];
-  const endStr = endDate.toISOString().split("T")[0];
 
   const [attendance]: any = await pool.query(
     "SELECT * FROM attendance WHERE date >= ? AND date <= ? ORDER BY date ASC",
@@ -337,7 +351,8 @@ async function processAttendanceEmails(
         return;
       }
 
-      const emailSubject = `[Unitglo] Your ${type === "monthly" ? "Monthly" : "Weekly"} Attendance Report (${startStr} to ${endStr})`;
+      const reportName = type === "monthly" ? "Monthly" : type === "weekly" ? "Weekly" : "Custom";
+      const emailSubject = `[Unitglo] Your ${reportName} Attendance Report (${startStr} to ${endStr})`;
 
       const res = await sendEmail({
         to: user.email,
@@ -371,6 +386,8 @@ export async function GET(req: Request) {
   const typeParam = (url.searchParams.get("type") || "auto") as any;
   const testEmail = url.searchParams.get("test_email");
   const dryRun = url.searchParams.get("dry_run") === "true";
+  const customStart = url.searchParams.get("start_date") || url.searchParams.get("custom_start");
+  const customEnd = url.searchParams.get("end_date") || url.searchParams.get("custom_end");
 
   // Authorization check for production: Allow either CRON_SECRET header or authenticated manager session (Admin, CEO, PM)
   const session = await getServerSession(authOptions);
@@ -412,8 +429,11 @@ export async function GET(req: Request) {
     let executeMonthlyMaintenance = false;
     let executeMonthlyEmails = false;
     let executeWeeklyEmails = false;
+    let executeCustomEmails = false;
 
-    if (typeParam === "auto") {
+    if (typeParam === "custom" || (customStart && customEnd && typeParam !== "monthly" && typeParam !== "weekly")) {
+      executeCustomEmails = true;
+    } else if (typeParam === "auto") {
       // AUTO MODE (Called daily by Vercel Cron at 02:00 UTC / 07:30 IST)
       if (isFirstOfMonth) {
         executeMonthlyMaintenance = true;
@@ -450,10 +470,16 @@ export async function GET(req: Request) {
     // 4. Execute weekly attendance emails if applicable
     if (executeWeeklyEmails) {
       console.log("[Cron Runner] Dispatching weekly attendance emails...");
-      executions.weeklyEmails = await processAttendanceEmails("weekly", testEmail, dryRun);
+      executions.weeklyEmails = await processAttendanceEmails("weekly", testEmail, dryRun, customStart, customEnd);
     }
 
-    const executedAny = executeMonthlyMaintenance || executeMonthlyEmails || executeWeeklyEmails;
+    // 5. Execute custom range attendance emails if applicable
+    if (executeCustomEmails) {
+      console.log(`[Cron Runner] Dispatching custom date attendance emails (${customStart} to ${customEnd})...`);
+      executions.customEmails = await processAttendanceEmails("custom", testEmail, dryRun, customStart, customEnd);
+    }
+
+    const executedAny = executeMonthlyMaintenance || executeMonthlyEmails || executeWeeklyEmails || executeCustomEmails;
     const executionDuration = Date.now() - startTime;
 
     // Log the execution to MySQL cron_logs table
@@ -462,6 +488,11 @@ export async function GET(req: Request) {
     let totalFailed = 0;
     let totalRecipients = 0;
 
+    if (executions.customEmails) {
+      totalRecipients += executions.customEmails.results.total;
+      totalSent += executions.customEmails.results.sent;
+      totalFailed += executions.customEmails.results.failed;
+    }
     if (executions.monthlyEmails) {
       totalRecipients += executions.monthlyEmails.results.total;
       totalSent += executions.monthlyEmails.results.sent;
@@ -481,11 +512,29 @@ export async function GET(req: Request) {
       logStatus = "failed";
     }
 
+    const targetPeriodStr = executions.customEmails?.period 
+      ? `${executions.customEmails.period.start} to ${executions.customEmails.period.end}`
+      : executions.monthlyEmails?.period 
+      ? `${executions.monthlyEmails.period.start} to ${executions.monthlyEmails.period.end}` 
+      : executions.weeklyEmails?.period 
+      ? `${executions.weeklyEmails.period.start} to ${executions.weeklyEmails.period.end}` 
+      : istNow.toDateString();
+
+    const jobTypeStr = typeParam === "auto" 
+      ? "auto" 
+      : typeParam === "custom" || executeCustomEmails 
+      ? "custom_emails" 
+      : typeParam === "weekly" 
+      ? "weekly_emails" 
+      : typeParam === "monthly" 
+      ? "monthly_emails" 
+      : "combined";
+
     await logCronExecution({
-      job_type: typeParam === "auto" ? "auto" : typeParam === "weekly" ? "weekly_emails" : typeParam === "monthly" ? "monthly_emails" : "combined",
+      job_type: jobTypeStr,
       status: logStatus,
       trigger_source: triggerSource,
-      target_period: executions.monthlyEmails?.period ? `${executions.monthlyEmails.period.start} to ${executions.monthlyEmails.period.end}` : executions.weeklyEmails?.period ? `${executions.weeklyEmails.period.start} to ${executions.weeklyEmails.period.end}` : istNow.toDateString(),
+      target_period: targetPeriodStr,
       recipients_count: totalRecipients,
       success_count: totalSent,
       failed_count: totalFailed,
@@ -494,6 +543,7 @@ export async function GET(req: Request) {
           maintenance: executeMonthlyMaintenance,
           monthlyEmails: executeMonthlyEmails,
           weeklyEmails: executeWeeklyEmails,
+          customEmails: executeCustomEmails,
         },
         executions,
       },
@@ -509,9 +559,10 @@ export async function GET(req: Request) {
         maintenance: executeMonthlyMaintenance,
         monthlyEmails: executeMonthlyEmails,
         weeklyEmails: executeWeeklyEmails,
+        customEmails: executeCustomEmails,
       },
       message: executedAny 
-        ? "Cron jobs executed and logged successfully." 
+        ? "Attendance email task executed and logged successfully." 
         : "Auto runner completed: No scheduled jobs needed for today.",
       executionDurationMs: executionDuration,
       details: executions,
