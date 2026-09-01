@@ -13,10 +13,10 @@ const pool = globalForDb._mysqlPool ?? mysql.createPool({
   database: process.env.DB_NAME || 'employee_tracking',
   waitForConnections: true,
   dateStrings: true,
-  connectionLimit: 4, // Keep pool conservative (4) so multiple workers/sessions never exceed 16 max connections
-  maxIdle: 2, // Close idle connections quickly
-  idleTimeout: 10000, // 10s idle timeout
-  queueLimit: 300, // Queue incoming queries gracefully instead of erroring
+  connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT || '12', 10),
+  maxIdle: 6, // Maintain warm idle connections
+  idleTimeout: 30000, // 30s idle timeout
+  queueLimit: 500, // Queue incoming queries gracefully
   connectTimeout: 10000,
   enableKeepAlive: true,
   keepAliveInitialDelay: 0,

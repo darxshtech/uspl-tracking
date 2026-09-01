@@ -21,7 +21,6 @@ export async function GET() {
 
     const [rows]: any = await pool.query(query);
 
-    // Fetch task metrics across all users
     const [tasks]: any = await pool.query(
       "SELECT id, assigned_to, status FROM tasks"
     );
@@ -33,14 +32,45 @@ export async function GET() {
       return ["Completed", "Tested (PASS)", "Ready for Demo"].includes(status);
     };
 
+    // Pre-index task assignees by task_id -> Set of user_ids
+    const taskAssigneesMap = new Map<number, Set<number>>();
+    taskAssignees.forEach((ta: any) => {
+      if (!taskAssigneesMap.has(ta.task_id)) {
+        taskAssigneesMap.set(ta.task_id, new Set());
+      }
+      taskAssigneesMap.get(ta.task_id)!.add(ta.user_id);
+    });
+
+    // Pre-calculate user task metrics in a single pass
+    const userMetricsMap = new Map<number, { total: number; completed: number; inProgress: number }>();
+    rows.forEach((u: any) => {
+      userMetricsMap.set(u.id, { total: 0, completed: 0, inProgress: 0 });
+    });
+
+    tasks.forEach((t: any) => {
+      const assignedUsers = new Set<number>();
+      if (t.assigned_to) assignedUsers.add(t.assigned_to);
+      const extra = taskAssigneesMap.get(t.id);
+      if (extra) {
+        extra.forEach((uid) => assignedUsers.add(uid));
+      }
+
+      const completed = isTaskCompleted(t.status);
+      const inProgress = t.status === "In Progress" || t.status === "Planning";
+
+      assignedUsers.forEach((uid) => {
+        const m = userMetricsMap.get(uid);
+        if (m) {
+          m.total += 1;
+          if (completed) m.completed += 1;
+          if (inProgress) m.inProgress += 1;
+        }
+      });
+    });
+
     const formatted = rows.map((user: any) => {
-      const userTasks = tasks.filter((t: any) => 
-        t.assigned_to === user.id || taskAssignees.some((ta: any) => ta.task_id === t.id && ta.user_id === user.id)
-      );
-      const totalTasks = userTasks.length;
-      const completedTasks = userTasks.filter((t: any) => isTaskCompleted(t.status)).length;
-      const inProgressTasks = userTasks.filter((t: any) => t.status === "In Progress" || t.status === "Planning").length;
-      const completionRatio = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+      const m = userMetricsMap.get(user.id) || { total: 0, completed: 0, inProgress: 0 };
+      const completionRatio = m.total > 0 ? Math.round((m.completed / m.total) * 100) : 0;
 
       return {
         ...user,
@@ -48,9 +78,9 @@ export async function GET() {
         monthly_salary: parseFloat(user.monthly_salary || "0"),
         total_leaves_allowed: user.total_leaves_allowed !== null ? Number(user.total_leaves_allowed) : 2,
         leaves_carried_forward: parseFloat(user.leaves_carried_forward || "0"),
-        total_tasks: totalTasks,
-        completed_tasks: completedTasks,
-        in_progress_tasks: inProgressTasks,
+        total_tasks: m.total,
+        completed_tasks: m.completed,
+        in_progress_tasks: m.inProgress,
         completion_ratio: completionRatio,
       };
     });

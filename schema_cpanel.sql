@@ -104,6 +104,9 @@ CREATE TABLE IF NOT EXISTS `attendance` (
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY `uniq_user_date` (`user_id`, `date`),
+  KEY `idx_attendance_date` (`date`),
+  KEY `idx_attendance_status` (`status`),
+  KEY `idx_attendance_user_status` (`user_id`, `status`),
   FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

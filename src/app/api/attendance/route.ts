@@ -6,32 +6,41 @@ import { getCurrentISTDate, getCurrentISTTime12 } from "@/lib/timeUtils";
 
 const SYSTEM_START_DATE = "2026-08-17";
 
-async function syncAutoAbsentRecords(todayIST: string) {
-  try {
-    // Delete legacy attendance records created prior to system launch (17 Aug 2026)
-    await pool.query("DELETE FROM attendance WHERE date < ?", [SYSTEM_START_DATE]);
+let lastAutoAbsentSync = 0;
+const SYNC_INTERVAL_MS = 30 * 60 * 1000; // Throttle to run at most once every 30 minutes
 
-    // Clean up auto-marked absent records for exempt executive management roles (CEO, Admin)
+async function syncAutoAbsentRecords(todayIST: string) {
+  const now = Date.now();
+  if (now - lastAutoAbsentSync < SYNC_INTERVAL_MS) {
+    return; // Instant exit if recently synchronized
+  }
+  lastAutoAbsentSync = now;
+
+  try {
+    // 1. Clean up auto-marked absent records for exempt executive management roles (CEO, Admin)
     await pool.query(
       "DELETE FROM attendance WHERE user_id IN (SELECT id FROM users WHERE role IN ('CEO', 'Admin')) AND (status = 'Absent' OR notes LIKE 'Auto-marked%')"
     );
 
+    // 2. Fetch active staff users
     const [employees]: any = await pool.query(
       "SELECT id FROM users WHERE role NOT IN ('CEO', 'Admin') AND is_active = 1"
     );
     if (!employees || employees.length === 0) return;
 
+    // 3. Fetch scheduled holidays
     const [holidayRows]: any = await pool.query(
       "SELECT DATE_FORMAT(date, '%Y-%m-%d') as hol_date FROM holidays WHERE date <= ?",
       [todayIST]
     );
     const holidayDates = new Set<string>(holidayRows.map((h: any) => h.hol_date));
 
+    // 4. Calculate valid workdays up to past 30 days
     const dates: string[] = [];
     const cur = new Date(todayIST + "T00:00:00Z");
     for (let i = 0; i < 30; i++) {
       const dStr = cur.toISOString().split("T")[0];
-      if (dStr < SYSTEM_START_DATE) break; // Stop at system start date 2026-08-17
+      if (dStr < SYSTEM_START_DATE) break;
 
       const [y, m, d] = dStr.split("-");
       const dt = new Date(Date.UTC(parseInt(y), parseInt(m) - 1, parseInt(d)));
@@ -42,34 +51,46 @@ async function syncAutoAbsentRecords(todayIST: string) {
       cur.setUTCDate(cur.getUTCDate() - 1);
     }
 
+    if (dates.length === 0) return;
+    const minDate = dates[dates.length - 1];
+
+    // 5. Fetch all existing attendance records in one bulk query
+    const [existingRows]: any = await pool.query(
+      "SELECT id, user_id, DATE_FORMAT(date, '%Y-%m-%d') as date_str, login_time, status FROM attendance WHERE date >= ? AND date <= ?",
+      [minDate, todayIST]
+    );
+
+    const existingMap = new Set<string>();
+    existingRows.forEach((r: any) => {
+      existingMap.add(`${r.user_id}:${r.date_str}`);
+    });
+
+    // 6. Build batch insert values for missing dates
+    const insertValues: any[] = [];
     for (const emp of employees) {
       for (const dStr of dates) {
-        const [existing]: any = await pool.query(
-          "SELECT id, login_time, status FROM attendance WHERE user_id = ? AND date = ?",
-          [emp.id, dStr]
-        );
-
-        if (existing.length === 0) {
-          await pool.query(
-            `INSERT INTO attendance (user_id, date, status, total_hours, notes) 
-             VALUES (?, ?, 'Absent', 0, 'Auto-marked Absent (No Check-In or Leave Application)')`,
-            [emp.id, dStr]
-          );
-        } else {
-          const rec = existing[0];
-          if (
-            dStr <= todayIST &&
-            !rec.login_time &&
-            rec.status !== "Holiday" &&
-            !rec.status?.includes("Leave") &&
-            rec.status !== "Absent"
-          ) {
-            await pool.query(
-              "UPDATE attendance SET status = 'Absent', total_hours = 0, notes = 'Auto-marked Absent (No Check-In or Leave Application)' WHERE id = ?",
-              [rec.id]
-            );
-          }
+        const key = `${emp.id}:${dStr}`;
+        if (!existingMap.has(key)) {
+          insertValues.push([
+            emp.id,
+            dStr,
+            "Absent",
+            0,
+            "Auto-marked Absent (No Check-In or Leave Application)",
+          ]);
         }
+      }
+    }
+
+    if (insertValues.length > 0) {
+      // Chunk bulk inserts into batches of 100 for safety
+      const chunkSize = 100;
+      for (let i = 0; i < insertValues.length; i += chunkSize) {
+        const chunk = insertValues.slice(i, i + chunkSize);
+        await pool.query(
+          `INSERT IGNORE INTO attendance (user_id, date, status, total_hours, notes) VALUES ?`,
+          [chunk]
+        );
       }
     }
 
