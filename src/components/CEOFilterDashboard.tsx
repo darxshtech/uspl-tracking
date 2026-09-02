@@ -44,8 +44,8 @@ export default function CEOFilterDashboard() {
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
 
   // Shift Working Hours Policy State
-  const [fullDayPolicyHours, setFullDayPolicyHours] = useState<number>(9);
-  const [policyInputHours, setPolicyInputHours] = useState<string>("9");
+  const [fullDayPolicyHours, setFullDayPolicyHours] = useState<number>(8);
+  const [policyInputHours, setPolicyInputHours] = useState<string>("8");
   const [policyModalOpen, setPolicyModalOpen] = useState(false);
   const [savingPolicy, setSavingPolicy] = useState(false);
 

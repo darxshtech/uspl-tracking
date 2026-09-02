@@ -29,7 +29,7 @@ export default function AttendanceWidget() {
   const [record, setRecord] = useState<any>(null);
   const [todayHoliday, setTodayHoliday] = useState<any>(null);
   const [yesterdayHalfDay, setYesterdayHalfDay] = useState<any>(null);
-  const [fullDayHours, setFullDayHours] = useState<number>(9);
+  const [fullDayHours, setFullDayHours] = useState<number>(8);
   const [loading, setLoading] = useState(false);
   const [warningModal, setWarningModal] = useState<string | null>(null);
   const [isOfflineMode, setIsOfflineMode] = useState(false);

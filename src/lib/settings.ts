@@ -17,10 +17,10 @@ export async function ensureSettingsTable() {
       )
     `);
 
-    // Insert default full_day_hours = 9 if not present
+    // Insert default full_day_hours = 8 if not present
     await pool.query(`
       INSERT IGNORE INTO system_settings (setting_key, setting_value) 
-      VALUES ('full_day_hours', '9'), ('total_leaves_allowed', '2')
+      VALUES ('full_day_hours', '8'), ('total_leaves_allowed', '2')
     `);
   } catch (err) {
     console.error("Failed to ensure system_settings table:", err);
@@ -28,8 +28,7 @@ export async function ensureSettingsTable() {
 }
 
 /**
- * Retrieves the configured full-day working hours requirement (e.g., 9 or 8).
- * Defaults to 9.0 hours.
+ * Retrieves the configured full-day working hours requirement (defaults to 8.0 hours).
  */
 export async function getFullDayHours(): Promise<number> {
   const now = Date.now();
@@ -55,9 +54,9 @@ export async function getFullDayHours(): Promise<number> {
     console.error("Error fetching full_day_hours setting:", err);
   }
 
-  cachedFullDayHours = 9.0;
+  cachedFullDayHours = 8.0;
   lastCacheTime = now;
-  return 9.0;
+  return 8.0;
 }
 
 /**

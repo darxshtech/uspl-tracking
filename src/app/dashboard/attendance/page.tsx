@@ -76,8 +76,8 @@ export default function AttendancePage() {
   const [pastEndDate, setPastEndDate] = useState("2026-08-16");
   const [pastStatus, setPastStatus] = useState("Present");
   const [pastLoginTime, setPastLoginTime] = useState("09:30:00 AM");
-  const [pastLogoutTime, setPastLogoutTime] = useState("06:30:00 PM");
-  const [pastHours, setPastHours] = useState("9.00");
+  const [pastLogoutTime, setPastLogoutTime] = useState("05:30:00 PM");
+  const [pastHours, setPastHours] = useState("8.00");
   const [pastRemarks, setPastRemarks] = useState("Historical August attendance");
   const [submittingPastAttendance, setSubmittingPastAttendance] = useState(false);
 
@@ -95,16 +95,16 @@ export default function AttendancePage() {
   const [editingRecord, setEditingRecord] = useState<any>(null);
   const [editStatus, setEditStatus] = useState("Present");
   const [editLoginTime, setEditLoginTime] = useState("09:30:00 AM");
-  const [editLogoutTime, setEditLogoutTime] = useState("06:30:00 PM");
-  const [editHours, setEditHours] = useState("9.00");
+  const [editLogoutTime, setEditLogoutTime] = useState("05:30:00 PM");
+  const [editHours, setEditHours] = useState("8.00");
   const [savingEdit, setSavingEdit] = useState(false);
 
   const openEditModal = (rec: any) => {
     setEditingRecord(rec);
     setEditLoginTime(rec.login_time || "09:30:00 AM");
-    setEditLogoutTime(rec.logout_time || "06:30:00 PM");
+    setEditLogoutTime(rec.logout_time || "05:30:00 PM");
     setEditStatus(rec.status === "Absent" ? "Present" : (rec.status || "Present"));
-    setEditHours(rec.total_hours !== null && rec.total_hours !== undefined ? rec.total_hours.toString() : "9.00");
+    setEditHours(rec.total_hours !== null && rec.total_hours !== undefined ? rec.total_hours.toString() : "8.00");
   };
 
   const handleSaveEdit = async (e: React.FormEvent) => {
@@ -151,7 +151,7 @@ export default function AttendancePage() {
       });
       const data = await res.json();
       if (res.ok) {
-        showToast(`Overridden to Full Day (9.0 hrs) for ${employeeName || "Employee"}!`, "success");
+        showToast(`Overridden to Full Day (8.0 hrs) for ${employeeName || "Employee"}!`, "success");
         fetchAttendance();
         fetchLeaveBalances();
       } else {
@@ -854,7 +854,7 @@ export default function AttendancePage() {
                                   size="sm"
                                   onClick={() => handleOverrideToFullDay(rec.id, rec.employee_name)}
                                   className="bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs gap-1 h-8 px-2.5 shadow-xs cursor-pointer"
-                                  title="1-Click Override Half Day to Full Day (9.0 hrs)"
+                                  title="1-Click Override Half Day to Full Day (8.0 hrs)"
                                 >
                                   <Zap className="h-3.5 w-3.5" /> Full Day Override
                                 </Button>
@@ -1002,7 +1002,7 @@ export default function AttendancePage() {
                       step="0.1"
                       value={editHours}
                       onChange={(e) => setEditHours(e.target.value)}
-                      placeholder="9.00"
+                      placeholder="8.00"
                       className="text-xs"
                     />
                   </div>
@@ -1221,8 +1221,8 @@ export default function AttendancePage() {
               <Select value={pastStatus} onValueChange={(val) => setPastStatus(val || "Present")}>
                 <SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Present">Present (Full Day - 9.0 hrs)</SelectItem>
-                  <SelectItem value="Half Day">Half Day (4.5 hrs)</SelectItem>
+                  <SelectItem value="Present">Present (Full Day - 8.0 hrs)</SelectItem>
+                  <SelectItem value="Half Day">Half Day (4.0 hrs)</SelectItem>
                   <SelectItem value="Leave">Casual / Planned Leave (Paid)</SelectItem>
                   <SelectItem value="Sick Leave">Sick Leave (Paid)</SelectItem>
                   <SelectItem value="Unpaid Leave">Unpaid Leave (LWP)</SelectItem>
@@ -1249,7 +1249,7 @@ export default function AttendancePage() {
                     id="pastOut"
                     value={pastLogoutTime}
                     onChange={(e) => setPastLogoutTime(e.target.value)}
-                    placeholder="06:30:00 PM"
+                    placeholder="05:30:00 PM"
                     className="text-xs bg-white"
                   />
                 </div>
@@ -1261,7 +1261,7 @@ export default function AttendancePage() {
                     step={0.5}
                     value={pastHours}
                     onChange={(e) => setPastHours(e.target.value)}
-                    placeholder="9.00"
+                    placeholder="8.00"
                     className="text-xs bg-white"
                   />
                 </div>

@@ -300,11 +300,11 @@ export async function POST(req: Request) {
 
     if (status === "Present") {
       if (!defaultIn) defaultIn = "09:30:00 AM";
-      if (!defaultOut) defaultOut = "06:30:00 PM";
+      if (!defaultOut) defaultOut = "05:30:00 PM";
       if (!defaultDuration) defaultDuration = fullDayHours;
     } else if (status === "Half Day") {
       if (!defaultIn) defaultIn = "09:30:00 AM";
-      if (!defaultOut) defaultOut = "02:00:00 PM";
+      if (!defaultOut) defaultOut = "01:30:00 PM";
       if (!defaultDuration) defaultDuration = fullDayHours / 2;
     }
 

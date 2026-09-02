@@ -201,10 +201,10 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
   const openEditModal = (rec: any) => {
     setEditingRecord(rec);
     setEditLoginTime(rec.login_time || "09:30:00 AM");
-    setEditLogoutTime(rec.logout_time || "06:30:00 PM");
+    setEditLogoutTime(rec.logout_time || "05:30:00 PM");
     const initialStatus = rec.login_time && rec.status === "Absent" ? "Present" : (rec.status || "Present");
     setEditStatus(initialStatus);
-    setEditHours(rec.total_hours !== null && rec.total_hours !== undefined ? rec.total_hours.toString() : "9.00");
+    setEditHours(rec.total_hours !== null && rec.total_hours !== undefined ? rec.total_hours.toString() : "8.00");
   };
 
   const handleSaveEdit = async (e: React.FormEvent) => {
@@ -839,7 +839,7 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
                       const val = parseFloat(e.target.value);
                       setEditHours(isNaN(val) ? "" : Math.max(0, val).toString());
                     }}
-                    placeholder="e.g. 9.0"
+                    placeholder="e.g. 8.0"
                   />
                 </div>
               </div>
