@@ -17,8 +17,8 @@ export async function GET(req: Request) {
     const month = searchParams.get("month"); // '01' to '12'
     const year = searchParams.get("year") || new Date().getFullYear().toString();
 
-    // Auto-mark missing check-ins as Absent for working days since system start (17 Aug 2026)
-    const SYSTEM_START_DATE = "2026-08-17";
+    // Auto-mark missing check-ins as Absent for working days since system start (1 Aug 2026)
+    const SYSTEM_START_DATE = "2026-08-01";
     const todayIST = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Kolkata' });
 
     // Fast path: Only run cleanup/sync if not recently synchronized
@@ -244,7 +244,19 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json();
-    const { user_id, start_date, end_date, selected_dates, date, status = "Leave", reason, remarks } = body;
+    const { 
+      user_id, 
+      start_date, 
+      end_date, 
+      selected_dates, 
+      date, 
+      status = "Present", 
+      login_time, 
+      logout_time, 
+      total_hours, 
+      reason, 
+      remarks 
+    } = body;
 
     if (!user_id) {
       return NextResponse.json({ error: "Employee selection is required" }, { status: 400 });
@@ -280,6 +292,22 @@ export async function POST(req: Request) {
     );
     const holidayDates = new Set<string>(holidayRows.map((h: any) => h.hol_date));
 
+    // Determine default in/out times and duration based on status
+    const fullDayHours = await getFullDayHours();
+    let defaultIn = login_time || null;
+    let defaultOut = logout_time || null;
+    let defaultDuration = total_hours !== undefined && total_hours !== null && total_hours !== "" ? parseFloat(total_hours) : 0;
+
+    if (status === "Present") {
+      if (!defaultIn) defaultIn = "09:30:00 AM";
+      if (!defaultOut) defaultOut = "06:30:00 PM";
+      if (!defaultDuration) defaultDuration = fullDayHours;
+    } else if (status === "Half Day") {
+      if (!defaultIn) defaultIn = "09:30:00 AM";
+      if (!defaultOut) defaultOut = "02:00:00 PM";
+      if (!defaultDuration) defaultDuration = fullDayHours / 2;
+    }
+
     let insertedCount = 0;
     let excludedCount = 0;
 
@@ -288,22 +316,35 @@ export async function POST(req: Request) {
       const dateObj = new Date(Date.UTC(parseInt(yearStr), parseInt(monthStr) - 1, parseInt(dayStr)));
       const dayOfWeek = dateObj.getUTCDay(); // 0 is Sunday
 
-      // Skip Sunday weekly offs and company holidays so they aren't counted as paid leaves
-      if ((status === "Leave" || status === "Leave (Pending)" || status === "Half Day") && (dayOfWeek === 0 || holidayDates.has(curDateStr))) {
+      // Skip Sunday weekly offs and company holidays for leaves
+      if ((status.includes("Leave") || status === "Half Day") && (dayOfWeek === 0 || holidayDates.has(curDateStr))) {
         excludedCount++;
         continue;
       }
 
       await pool.query(
         `INSERT INTO attendance (user_id, date, status, login_time, logout_time, total_hours, notes) 
-         VALUES (?, ?, ?, NULL, NULL, 0, ?)
-         ON DUPLICATE KEY UPDATE status = VALUES(status), login_time = NULL, logout_time = NULL, total_hours = 0, notes = VALUES(notes)`,
-        [user_id, curDateStr, status, reason ? `MANAGEMENT_RECORDED: ${reason}` : null]
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE 
+           status = VALUES(status), 
+           login_time = VALUES(login_time), 
+           logout_time = VALUES(logout_time), 
+           total_hours = VALUES(total_hours), 
+           notes = VALUES(notes)`,
+        [
+          user_id, 
+          curDateStr, 
+          status, 
+          defaultIn, 
+          defaultOut, 
+          defaultDuration, 
+          reason || remarks ? `Management: ${reason || remarks}` : "Recorded by Management"
+        ]
       );
       insertedCount++;
     }
 
-    // Notify employee about leave approval / registration
+    // Notify employee
     const [userRows]: any = await pool.query("SELECT name FROM users WHERE id = ?", [user_id]);
     const empName = userRows[0]?.name || "Employee";
 
@@ -311,14 +352,14 @@ export async function POST(req: Request) {
       "INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'info')",
       [
         user_id,
-        `🏖️ ${status} Logged by Management`,
-        `Your ${status} for ${insertedCount} day(s) has been officially recorded by Management.${reason ? " Notes: " + reason : ""}`
+        `🗓️ Attendance Updated for ${insertedCount} day(s)`,
+        `Management recorded ${status} for you from ${minDate} to ${maxDate}.${reason ? " Notes: " + reason : ""}`
       ]
     );
 
     return NextResponse.json({
       success: true,
-      message: `Successfully logged ${status} for ${empName} (${insertedCount} working day(s), ${excludedCount} Sunday/holiday(s) excluded).`,
+      message: `Successfully recorded ${status} for ${empName} (${insertedCount} day(s) updated).`,
       count: insertedCount,
       excluded_count: excludedCount,
     });

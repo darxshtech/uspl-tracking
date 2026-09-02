@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth";
 import pool from "@/lib/db";
 import { getCurrentISTDate, getCurrentISTTime12 } from "@/lib/timeUtils";
 
-const SYSTEM_START_DATE = "2026-08-17";
+const SYSTEM_START_DATE = "2026-08-01";
 
 let lastAutoAbsentSync = 0;
 const SYNC_INTERVAL_MS = 30 * 60 * 1000; // Throttle to run at most once every 30 minutes

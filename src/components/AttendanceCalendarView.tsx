@@ -377,7 +377,7 @@ export default function AttendanceCalendarView({
             }
 
             const { dayNumber, isSunday, holiday, attendance, isToday, dateStr } = cell;
-            const isBeforeStart = dateStr < "2026-08-17";
+            const isBeforeStart = dateStr < "2026-08-01";
 
             return (
               <div

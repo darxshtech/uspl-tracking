@@ -35,9 +35,10 @@ import {
   Zap,
   Settings,
   Sparkles,
-  RefreshCw,
   Save,
-  HelpCircle
+  HelpCircle,
+  PlusCircle,
+  RefreshCw
 } from "lucide-react";
 
 export default function AttendancePage() {
@@ -67,6 +68,18 @@ export default function AttendancePage() {
   const [openingModalOpen, setOpeningModalOpen] = useState(false);
   const [editingBalances, setEditingBalances] = useState<Record<number, { monthly_quota: number; carried_forward: number }>>({});
   const [savingBalances, setSavingBalances] = useState(false);
+
+  // Log Past Attendance Modal State (for Management: PM, CEO, Admin)
+  const [logPastModalOpen, setLogPastModalOpen] = useState(false);
+  const [pastEmployeeId, setPastEmployeeId] = useState<string>("ALL");
+  const [pastStartDate, setPastStartDate] = useState("2026-08-01");
+  const [pastEndDate, setPastEndDate] = useState("2026-08-16");
+  const [pastStatus, setPastStatus] = useState("Present");
+  const [pastLoginTime, setPastLoginTime] = useState("09:30:00 AM");
+  const [pastLogoutTime, setPastLogoutTime] = useState("06:30:00 PM");
+  const [pastHours, setPastHours] = useState("9.00");
+  const [pastRemarks, setPastRemarks] = useState("Historical August attendance");
+  const [submittingPastAttendance, setSubmittingPastAttendance] = useState(false);
 
   // Record Leave Modal State (for PM / CEO or self)
   const [leaveModalOpen, setLeaveModalOpen] = useState(false);
@@ -196,6 +209,52 @@ export default function AttendancePage() {
       showError("Error", err.message || "Network error.");
     } finally {
       setSavingBalances(false);
+    }
+  };
+
+  const handleLogPastAttendance = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pastStartDate || !pastEndDate) {
+      showError("Please select start and end dates.");
+      return;
+    }
+
+    setSubmittingPastAttendance(true);
+    try {
+      const targetEmployees = pastEmployeeId === "ALL"
+        ? employees.filter((emp: any) => !["Admin", "CEO"].includes(emp.role))
+        : [{ id: parseInt(pastEmployeeId, 10), name: "Employee" }];
+
+      let totalLogged = 0;
+      for (const emp of targetEmployees) {
+        const res = await fetch("/api/attendance/manage", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user_id: emp.id,
+            start_date: pastStartDate,
+            end_date: pastEndDate,
+            status: pastStatus,
+            login_time: (pastStatus === "Present" || pastStatus === "Half Day") ? pastLoginTime : null,
+            logout_time: (pastStatus === "Present" || pastStatus === "Half Day") ? pastLogoutTime : null,
+            total_hours: (pastStatus === "Present" || pastStatus === "Half Day") ? pastHours : 0,
+            reason: pastRemarks,
+          }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          totalLogged += data.count || 0;
+        }
+      }
+
+      showToast(`Successfully logged past attendance (${totalLogged} records updated)!`, "success");
+      setLogPastModalOpen(false);
+      fetchAttendance();
+      fetchLeaveBalances();
+    } catch (err: any) {
+      showError("Error", err.message || "Failed to log past attendance.");
+    } finally {
+      setSubmittingPastAttendance(false);
     }
   };
 
@@ -375,6 +434,18 @@ export default function AttendancePage() {
             >
               <Settings className="h-3.5 w-3.5" />
               Opening Balances Setup
+            </Button>
+          )}
+
+          {/* Management Log Past Attendance Button */}
+          {isManagement && (
+            <Button
+              size="sm"
+              onClick={() => setLogPastModalOpen(true)}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-1.5 shadow-sm h-9 cursor-pointer"
+            >
+              <PlusCircle className="h-3.5 w-3.5" />
+              Log Past Attendance
             </Button>
           )}
 
@@ -1077,6 +1148,163 @@ export default function AttendancePage() {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Log Past Attendance Dialog for Management */}
+      <Dialog open={logPastModalOpen} onOpenChange={setLogPastModalOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto bg-white">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
+              <PlusCircle className="h-5 w-5 text-emerald-600" />
+              Log Past Attendance (From 1st August)
+            </DialogTitle>
+          </DialogHeader>
+
+          <form onSubmit={handleLogPastAttendance} className="space-y-4 pt-2">
+            <div className="bg-emerald-50/80 border border-emerald-200 rounded-xl p-3 text-xs text-emerald-950 flex items-start gap-2">
+              <Sparkles className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
+              <div>
+                <strong>Historical Shift Registration:</strong> Add or update attendance shifts starting from <strong>1st August</strong> onwards. Sundays and official holidays are automatically excluded for leaves.
+              </div>
+            </div>
+
+            {/* Employee Selection */}
+            <div className="space-y-1.5">
+              <Label className="font-semibold text-slate-700 text-xs">Target Employee *</Label>
+              <Select value={pastEmployeeId} onValueChange={(val) => setPastEmployeeId(val || "ALL")}>
+                <SelectTrigger><SelectValue placeholder="Select Employee" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">👥 All Active Staff Employees</SelectItem>
+                  {employees
+                    .filter((emp: any) => !["Admin", "CEO"].includes(emp.role))
+                    .map((emp: any) => (
+                      <SelectItem key={emp.id} value={emp.id.toString()}>
+                        {emp.name} ({emp.role})
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Date Range Selection */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="pastStart" className="font-semibold text-slate-700 text-xs">Start Date *</Label>
+                <Input
+                  id="pastStart"
+                  type="date"
+                  min="2026-08-01"
+                  value={pastStartDate}
+                  onChange={(e) => setPastStartDate(e.target.value)}
+                  className="text-xs"
+                  required
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="pastEnd" className="font-semibold text-slate-700 text-xs">End Date *</Label>
+                <Input
+                  id="pastEnd"
+                  type="date"
+                  min="2026-08-01"
+                  value={pastEndDate}
+                  onChange={(e) => setPastEndDate(e.target.value)}
+                  className="text-xs"
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Attendance Status */}
+            <div className="space-y-1.5">
+              <Label className="font-semibold text-slate-700 text-xs">Attendance Status *</Label>
+              <Select value={pastStatus} onValueChange={(val) => setPastStatus(val || "Present")}>
+                <SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Present">Present (Full Day - 9.0 hrs)</SelectItem>
+                  <SelectItem value="Half Day">Half Day (4.5 hrs)</SelectItem>
+                  <SelectItem value="Leave">Casual / Planned Leave (Paid)</SelectItem>
+                  <SelectItem value="Sick Leave">Sick Leave (Paid)</SelectItem>
+                  <SelectItem value="Unpaid Leave">Unpaid Leave (LWP)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Shift In & Out Times for Present / Half Day */}
+            {(pastStatus === "Present" || pastStatus === "Half Day") && (
+              <div className="grid grid-cols-3 gap-2.5 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                <div className="space-y-1">
+                  <Label htmlFor="pastIn" className="text-[10px] font-semibold text-slate-600">In Time</Label>
+                  <Input
+                    id="pastIn"
+                    value={pastLoginTime}
+                    onChange={(e) => setPastLoginTime(e.target.value)}
+                    placeholder="09:30:00 AM"
+                    className="text-xs bg-white"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="pastOut" className="text-[10px] font-semibold text-slate-600">Out Time</Label>
+                  <Input
+                    id="pastOut"
+                    value={pastLogoutTime}
+                    onChange={(e) => setPastLogoutTime(e.target.value)}
+                    placeholder="06:30:00 PM"
+                    className="text-xs bg-white"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="pastHrs" className="text-[10px] font-semibold text-slate-600">Total Hours</Label>
+                  <Input
+                    id="pastHrs"
+                    type="number"
+                    step={0.5}
+                    value={pastHours}
+                    onChange={(e) => setPastHours(e.target.value)}
+                    placeholder="9.00"
+                    className="text-xs bg-white"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Notes / Reason */}
+            <div className="space-y-1.5">
+              <Label htmlFor="pastRemarks" className="font-semibold text-slate-700 text-xs">Remarks / Notes</Label>
+              <Input
+                id="pastRemarks"
+                placeholder="e.g. Historical attendance from Aug 1st"
+                value={pastRemarks}
+                onChange={(e) => setPastRemarks(e.target.value)}
+                className="text-xs"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setLogPastModalOpen(false)}
+                className="cursor-pointer"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={submittingPastAttendance}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold cursor-pointer"
+              >
+                {submittingPastAttendance ? (
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin mr-1" />
+                ) : (
+                  <Save className="h-3.5 w-3.5 mr-1" />
+                )}
+                Confirm &amp; Log Attendance
+              </Button>
+            </div>
+          </form>
         </DialogContent>
       </Dialog>
     </div>
