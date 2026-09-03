@@ -296,13 +296,6 @@ export async function POST(req: Request) {
       });
     }
 
-      return NextResponse.json({
-        message: msg,
-        days_counted: leaveDaysCount,
-        excluded_holidays: excludedHolidayCount,
-      });
-    }
-
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });
   } catch (error: any) {
     console.error("Attendance POST error:", error);
