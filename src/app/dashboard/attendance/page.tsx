@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { showError, showInfo, showToast } from "@/lib/swal";
+import CustomSwal, { showError, showInfo, showToast, showSuccess } from "@/lib/swal";
 import PMAttendanceManager from "@/components/PMAttendanceManager";
 import AttendanceCalendarView from "@/components/AttendanceCalendarView";
 import AttendanceWidget from "@/components/AttendanceWidget";
@@ -355,22 +355,71 @@ export default function AttendancePage() {
     }
   };
 
-  const handleLeaveAction = async (id: number, action: "approve" | "reject") => {
+  const handleLeaveAction = async (
+    id: number,
+    action: "approve" | "reject" | "approve_cancel" | "reject_cancel",
+    recordLeaveType?: string
+  ) => {
     setProcessingLeaveAction(id);
     try {
+      let rejectionReason: string | undefined = undefined;
+
+      if (action === "reject" || action === "reject_cancel") {
+        const result = await CustomSwal.fire({
+          title: action === "reject_cancel" ? "Reject Cancellation Request" : "Reject Leave Application",
+          input: "textarea",
+          inputLabel: "Reason for rejection (optional)",
+          inputPlaceholder: "Enter rejection reason...",
+          showCancelButton: true,
+          confirmButtonText: "Confirm Rejection",
+          cancelButtonText: "Cancel",
+          customClass: {
+            confirmButton: "rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold px-5 py-2.5 shadow-md text-sm transition-all cursor-pointer mx-1.5",
+            cancelButton: "rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-5 py-2.5 text-sm transition-all cursor-pointer mx-1.5",
+          },
+          buttonsStyling: false,
+        });
+
+        if (!result.isConfirmed) {
+          setProcessingLeaveAction(null);
+          return;
+        }
+        rejectionReason = result.value;
+      } else if (action === "approve_cancel") {
+        const result = await CustomSwal.fire({
+          title: "Approve Leave Cancellation?",
+          text: "This will cancel the approved leave, restore the employee's paid leave quota balance, and set this date as a normal workday.",
+          icon: "warning",
+          showCancelButton: true,
+          confirmButtonText: "Yes, Approve Cancellation",
+          cancelButtonText: "Keep Leave",
+          customClass: {
+            confirmButton: "rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-5 py-2.5 shadow-md text-sm transition-all cursor-pointer mx-1.5",
+            cancelButton: "rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-5 py-2.5 text-sm transition-all cursor-pointer mx-1.5",
+          },
+          buttonsStyling: false,
+        });
+
+        if (!result.isConfirmed) {
+          setProcessingLeaveAction(null);
+          return;
+        }
+      }
+
       const res = await fetch("/api/attendance/leave-action", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id,
           action,
-          leave_type: leaveType || "Leave",
+          leave_type: recordLeaveType || leaveType || "Leave",
+          reason: rejectionReason,
         }),
       });
 
       const data = await res.json();
       if (res.ok) {
-        showToast(`Leave request ${action === "approve" ? "approved" : "rejected"}!`);
+        showToast(data.message || "Action processed successfully!");
         fetchAttendance();
         fetchManagementPendingLeaves();
       } else {
@@ -381,6 +430,88 @@ export default function AttendancePage() {
       showError("Error updating leave request.");
     } finally {
       setProcessingLeaveAction(null);
+    }
+  };
+
+  const handleCancelPendingLeave = async (id: number, dateStr: string) => {
+    const result = await CustomSwal.fire({
+      title: "Cancel Leave Application?",
+      text: `Are you sure you want to cancel your pending leave application for ${dateStr}?`,
+      icon: "question",
+      showCancelButton: true,
+      confirmButtonText: "Yes, Cancel Application",
+      cancelButtonText: "Keep Application",
+      customClass: {
+        confirmButton: "rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold px-5 py-2.5 shadow-md text-sm transition-all cursor-pointer mx-1.5",
+        cancelButton: "rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-5 py-2.5 text-sm transition-all cursor-pointer mx-1.5",
+      },
+      buttonsStyling: false,
+    });
+
+    if (!result.isConfirmed) return;
+
+    try {
+      const res = await fetch("/api/attendance/leave-cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast("Leave application cancelled successfully!");
+        fetchAttendance();
+        if (isManagement) fetchManagementPendingLeaves();
+      } else {
+        showError("Failed to Cancel", data.error || "Could not cancel leave application.");
+      }
+    } catch (err) {
+      console.error(err);
+      showError("Network error cancelling leave.");
+    }
+  };
+
+  const handleRequestApprovedLeaveCancel = async (id: number, dateStr: string, currentStatus: string) => {
+    const result = await CustomSwal.fire({
+      title: `Cancel Approved ${currentStatus}?`,
+      html: `<p class="text-sm text-slate-600 mb-2">You are requesting to cancel your approved ${currentStatus} for <strong>${dateStr}</strong>. This request will be submitted to PM, Admin, and CEO for review.</p>`,
+      input: "textarea",
+      inputLabel: "Reason for cancellation *",
+      inputPlaceholder: "e.g., Plans changed, available to work normal shift...",
+      inputValidator: (val) => {
+        if (!val || !val.trim()) {
+          return "Please enter a reason for cancelling your approved leave.";
+        }
+        return null;
+      },
+      showCancelButton: true,
+      confirmButtonText: "Submit Cancellation Request",
+      cancelButtonText: "Keep Leave",
+      customClass: {
+        confirmButton: "rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold px-5 py-2.5 shadow-md text-sm transition-all cursor-pointer mx-1.5",
+        cancelButton: "rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-5 py-2.5 text-sm transition-all cursor-pointer mx-1.5",
+      },
+      buttonsStyling: false,
+    });
+
+    if (!result.isConfirmed || !result.value) return;
+
+    try {
+      const res = await fetch("/api/attendance/leave-cancel-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, reason: result.value }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showSuccess("Request Submitted", data.message || "Your cancellation request has been submitted to management.");
+        fetchAttendance();
+        if (isManagement) fetchManagementPendingLeaves();
+      } else {
+        showError("Submission Failed", data.error || "Could not submit cancellation request.");
+      }
+    } catch (err) {
+      console.error(err);
+      showError("Error submitting cancellation request.");
     }
   };
 
@@ -639,13 +770,13 @@ export default function AttendancePage() {
                   </div>
                   <div>
                     <h3 className="font-extrabold text-amber-950 text-base flex items-center gap-2">
-                      <span>Pending Employee Leave Applications ({managementPendingLeaves.length})</span>
+                      <span>Pending Employee Leave Applications & Cancellations ({managementPendingLeaves.length})</span>
                       <Badge className="bg-amber-600 text-white font-bold text-[10px] px-2 py-0.5 animate-pulse">
                         Action Required
                       </Badge>
                     </h3>
                     <p className="text-xs text-amber-800/90 mt-0.5 font-medium">
-                      Review, approve, or reject employee leave requests submitted for upcoming working days.
+                      Review, approve, or reject employee leave applications and cancellation requests for scheduled shifts.
                     </p>
                   </div>
                 </div>
@@ -658,48 +789,115 @@ export default function AttendancePage() {
                       <TableHead className="font-bold text-amber-950 text-xs">Employee</TableHead>
                       <TableHead className="font-bold text-amber-950 text-xs">Role</TableHead>
                       <TableHead className="font-bold text-amber-950 text-xs">Requested Date</TableHead>
+                      <TableHead className="font-bold text-amber-950 text-xs">Leave Type</TableHead>
                       <TableHead className="font-bold text-amber-950 text-xs">Reason / Note</TableHead>
                       <TableHead className="font-bold text-amber-950 text-xs">Status</TableHead>
                       <TableHead className="font-bold text-amber-950 text-xs text-right">Approval Action</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {managementPendingLeaves.map((rec) => (
-                      <TableRow key={rec.id} className="hover:bg-amber-50/50 transition-colors">
-                        <TableCell className="font-bold text-slate-900 text-xs">{rec.employee_name}</TableCell>
-                        <TableCell><Badge variant="outline" className="text-[10px] font-bold">{rec.employee_role}</Badge></TableCell>
-                        <TableCell className="font-mono text-xs font-bold text-slate-900">
-                          {new Date(rec.date).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
-                        </TableCell>
-                        <TableCell className="text-xs text-slate-700 font-medium">
-                          {rec.notes ? rec.notes.replace(/^PENDING_LEAVE:\s*/, "") || "No reason provided" : "No reason provided"}
-                        </TableCell>
-                        <TableCell>
-                          <Badge className="bg-amber-500 text-white font-bold text-[10px]">Leave (Pending)</Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <Button
-                              size="sm"
-                              disabled={processingLeaveAction === rec.id}
-                              onClick={() => handleLeaveAction(rec.id, "approve")}
-                              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-1.5 h-8 px-3 shadow-xs"
-                            >
-                              <Check className="h-3.5 w-3.5" /> Approve
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              disabled={processingLeaveAction === rec.id}
-                              onClick={() => handleLeaveAction(rec.id, "reject")}
-                              className="border-red-300 text-red-700 hover:bg-red-50 hover:text-red-800 font-bold text-xs gap-1.5 h-8 px-3 shadow-xs"
-                            >
-                              <X className="h-3.5 w-3.5" /> Reject
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {managementPendingLeaves.map((rec) => {
+                      const isCancelReq = rec.is_cancel_request || rec.status?.includes("Cancel Requested");
+                      const isHalfDay = rec.is_half_day || rec.status?.includes("Half Day") || rec.notes?.includes("PENDING_HALF_DAY");
+                      const dateFormatted = new Date(rec.date).toLocaleDateString(undefined, {
+                        weekday: "short",
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      });
+
+                      return (
+                        <TableRow key={rec.id} className="hover:bg-amber-50/50 transition-colors">
+                          <TableCell className="font-bold text-slate-900 text-xs">{rec.employee_name}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="text-[10px] font-bold">{rec.employee_role}</Badge>
+                          </TableCell>
+                          <TableCell className="font-mono text-xs font-bold text-slate-900">
+                            {dateFormatted}
+                          </TableCell>
+                          <TableCell>
+                            {isCancelReq ? (
+                              <Badge className="bg-rose-100 text-rose-800 border-rose-300 text-[10px] font-bold">
+                                ⚠️ Cancel Request
+                              </Badge>
+                            ) : isHalfDay ? (
+                              <Badge className="bg-amber-100 text-amber-800 border-amber-300 text-[10px] font-bold">
+                                🌓 Half Day
+                              </Badge>
+                            ) : (
+                              <Badge className="bg-sky-100 text-sky-800 border-sky-300 text-[10px] font-bold">
+                                🏖️ Full Day
+                              </Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-xs text-slate-700 font-medium max-w-xs truncate" title={rec.clean_reason || rec.notes}>
+                            {rec.clean_reason || (rec.notes ? rec.notes.replace(/^PENDING_(LEAVE|HALF_DAY):\s*/, "") : "No reason provided")}
+                          </TableCell>
+                          <TableCell>
+                            {isCancelReq ? (
+                              <Badge className="bg-rose-600 text-white font-bold text-[10px]">
+                                Cancel Requested
+                              </Badge>
+                            ) : isHalfDay ? (
+                              <Badge className="bg-amber-500 text-white font-bold text-[10px]">
+                                Half Day (Pending)
+                              </Badge>
+                            ) : (
+                              <Badge className="bg-sky-500 text-white font-bold text-[10px]">
+                                Leave (Pending)
+                              </Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {isCancelReq ? (
+                              <div className="flex items-center justify-end gap-1.5">
+                                <Button
+                                  size="sm"
+                                  disabled={processingLeaveAction === rec.id}
+                                  onClick={() => handleLeaveAction(rec.id, "approve_cancel")}
+                                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-1.5 h-8 px-3 shadow-xs cursor-pointer"
+                                  title="Approve cancellation and restore leave quota"
+                                >
+                                  <Check className="h-3.5 w-3.5" /> Approve Cancel
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={processingLeaveAction === rec.id}
+                                  onClick={() => handleLeaveAction(rec.id, "reject_cancel")}
+                                  className="border-red-300 text-red-700 hover:bg-red-50 hover:text-red-800 font-bold text-xs gap-1.5 h-8 px-3 shadow-xs cursor-pointer"
+                                  title="Reject cancellation and keep leave in effect"
+                                >
+                                  <X className="h-3.5 w-3.5" /> Reject Cancel
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-end gap-1.5">
+                                <Button
+                                  size="sm"
+                                  disabled={processingLeaveAction === rec.id}
+                                  onClick={() => handleLeaveAction(rec.id, "approve", isHalfDay ? "Half Day" : "Leave")}
+                                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-1.5 h-8 px-3 shadow-xs cursor-pointer"
+                                  title={isHalfDay ? "Approve application as Half Day" : "Approve application as Full Day Leave"}
+                                >
+                                  <Check className="h-3.5 w-3.5" /> {isHalfDay ? "Approve Half Day" : "Approve Leave"}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={processingLeaveAction === rec.id}
+                                  onClick={() => handleLeaveAction(rec.id, "reject")}
+                                  className="border-red-300 text-red-700 hover:bg-red-50 hover:text-red-800 font-bold text-xs gap-1.5 h-8 px-3 shadow-xs cursor-pointer"
+                                  title="Reject leave application"
+                                >
+                                  <X className="h-3.5 w-3.5" /> Reject
+                                </Button>
+                              </div>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
@@ -713,25 +911,95 @@ export default function AttendancePage() {
           <div className="space-y-3">
             {/* Upcoming Pending Leave Requests Notice (for Employee) */}
             {!isManagement && pendingLeaves && pendingLeaves.length > 0 && (
-              <div className="p-4 rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-50/90 to-purple-50/50 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-indigo-600 text-white rounded-xl shadow-2xs shrink-0">
-                    <Palmtree className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <div className="text-xs font-black text-indigo-950 flex items-center gap-2">
-                      <span>Pending Leave Application ({pendingLeaves.length} day{pendingLeaves.length > 1 ? "s" : ""})</span>
-                      <Badge className="bg-indigo-600 text-white text-[10px] font-bold px-2 py-0.2">Awaiting PM Approval</Badge>
+              <div className="p-4 rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-50/90 to-purple-50/50 shadow-xs space-y-3">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-indigo-200/70 pb-2.5">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 bg-indigo-600 text-white rounded-xl shadow-2xs shrink-0">
+                      <Palmtree className="h-4 w-4" />
                     </div>
-                    <p className="text-[11px] text-indigo-800/90 mt-0.5 font-medium">
-                      Applied for: <strong>{new Date(pendingLeaves[0].date).toLocaleDateString()}</strong>
-                      {pendingLeaves.length > 1 && <> to <strong>{new Date(pendingLeaves[pendingLeaves.length - 1].date).toLocaleDateString()}</strong></>}
-                      {pendingLeaves[0].notes ? ` — "${pendingLeaves[0].notes.replace(/^PENDING_LEAVE:\s*/, '')}"` : ''}
-                    </p>
+                    <div>
+                      <div className="text-xs font-black text-indigo-950 flex items-center gap-2">
+                        <span>Active Leave Applications ({pendingLeaves.length})</span>
+                        <Badge className="bg-indigo-600 text-white text-[10px] font-bold px-2 py-0.5">
+                          Awaiting Review
+                        </Badge>
+                      </div>
+                      <p className="text-[11px] text-indigo-800/90 font-medium mt-0.5">
+                        You can directly cancel unapproved requests below.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-[10px] font-bold text-indigo-600 bg-white/80 px-2.5 py-1 rounded-xl border border-indigo-200/80 shadow-2xs shrink-0">
+                    📅 Future Shift Status
                   </div>
                 </div>
-                <div className="text-[11px] font-bold text-indigo-600 bg-white/80 px-3 py-1.5 rounded-xl border border-indigo-200/80 shadow-2xs shrink-0">
-                  📅 Future Date Status
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                  {pendingLeaves.map((pl) => {
+                    const isCancelReq = pl.status?.includes("Cancel Requested");
+                    const isHalfDay = pl.status?.includes("Half Day") || pl.notes?.includes("PENDING_HALF_DAY");
+                    const dateFormatted = new Date(pl.date).toLocaleDateString(undefined, {
+                      weekday: "short",
+                      month: "short",
+                      day: "numeric",
+                    });
+
+                    let cleanNote = pl.notes || "";
+                    if (isCancelReq) {
+                      const match = cleanNote.match(/\[CANCEL_REQUEST:\s*([^\]]+)\]/);
+                      cleanNote = match ? match[1] : cleanNote;
+                    } else {
+                      cleanNote = cleanNote.replace(/^PENDING_(LEAVE|HALF_DAY):\s*/i, "").trim();
+                    }
+
+                    return (
+                      <div
+                        key={pl.id}
+                        className="p-3 bg-white/95 border border-indigo-100 rounded-xl shadow-2xs flex flex-col justify-between gap-2 hover:border-indigo-200 transition-colors"
+                      >
+                        <div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-mono text-xs font-bold text-slate-900">{dateFormatted}</span>
+                            {isCancelReq ? (
+                              <Badge className="bg-rose-500 text-white text-[9px] font-bold px-1.5 py-0">
+                                Cancel Requested
+                              </Badge>
+                            ) : isHalfDay ? (
+                              <Badge className="bg-amber-500 text-white text-[9px] font-bold px-1.5 py-0">
+                                🌓 Half Day
+                              </Badge>
+                            ) : (
+                              <Badge className="bg-sky-500 text-white text-[9px] font-bold px-1.5 py-0">
+                                🏖️ Leave (Pending)
+                              </Badge>
+                            )}
+                          </div>
+                          {cleanNote && (
+                            <p className="text-[11px] text-slate-600 mt-1.5 line-clamp-2 italic">
+                              "{cleanNote}"
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="pt-2 border-t border-slate-100 flex items-center justify-end">
+                          {!isCancelReq ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleCancelPendingLeave(pl.id, dateFormatted)}
+                              className="h-7 text-[11px] font-bold text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 gap-1 px-2.5 cursor-pointer"
+                            >
+                              <X className="h-3 w-3" /> Cancel Application
+                            </Button>
+                          ) : (
+                            <span className="text-[10px] text-amber-700 font-semibold flex items-center gap-1">
+                              <Clock className="h-3 w-3 text-amber-600" /> Cancellation Under Review
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -792,6 +1060,34 @@ export default function AttendancePage() {
                           <TableCell>
                             {(() => {
                               const s = (rec.status || "").trim();
+                              if (s.includes("Cancel Requested")) {
+                                return (
+                                  <Badge className="bg-rose-600 hover:bg-rose-600 text-white font-bold text-xs inline-flex items-center gap-1 shadow-xs">
+                                    <span>⚠️ Cancel Requested</span>
+                                  </Badge>
+                                );
+                              }
+                              if (s === "Half Day (Pending)") {
+                                return (
+                                  <Badge className="bg-amber-500 hover:bg-amber-500 text-white font-bold text-xs inline-flex items-center gap-1 shadow-xs">
+                                    <span>🌓 Half Day (Pending)</span>
+                                  </Badge>
+                                );
+                              }
+                              if (s === "Leave (Pending)") {
+                                return (
+                                  <Badge className="bg-sky-500 hover:bg-sky-500 text-white font-bold text-xs inline-flex items-center gap-1 shadow-xs">
+                                    <span>🏖️ Leave (Pending)</span>
+                                  </Badge>
+                                );
+                              }
+                              if (s === "Leave (Rejected)") {
+                                return (
+                                  <Badge className="bg-red-500 hover:bg-red-500 text-white font-bold text-xs inline-flex items-center gap-1 shadow-xs">
+                                    <span>❌ Leave Rejected</span>
+                                  </Badge>
+                                );
+                              }
                               if (s === "Present (Overtime)") {
                                 return (
                                   <Badge className="bg-emerald-600 hover:bg-emerald-600 text-white font-bold text-xs inline-flex items-center gap-1 shadow-xs">
@@ -826,16 +1122,42 @@ export default function AttendancePage() {
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex flex-wrap items-center justify-end gap-1.5">
-                              {isManagement && (rec.status === "Leave (Pending)" || rec.status?.includes("Pending")) && (
+                              {/* Management Action 1: Pending Leave Cancellation Requests */}
+                              {isManagement && rec.status?.includes("Cancel Requested") && (
                                 <>
                                   <Button
                                     size="sm"
                                     disabled={processingLeaveAction === rec.id}
-                                    onClick={() => handleLeaveAction(rec.id, "approve")}
+                                    onClick={() => handleLeaveAction(rec.id, "approve_cancel")}
+                                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-1 h-8 px-2.5 shadow-xs cursor-pointer"
+                                    title="Approve cancellation request and restore leave balance"
+                                  >
+                                    <Check className="h-3.5 w-3.5" /> Approve Cancel
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={processingLeaveAction === rec.id}
+                                    onClick={() => handleLeaveAction(rec.id, "reject_cancel")}
+                                    className="border-red-300 text-red-700 hover:bg-red-50 hover:text-red-800 font-bold text-xs gap-1 h-8 px-2.5 shadow-xs cursor-pointer"
+                                    title="Reject cancellation request"
+                                  >
+                                    <X className="h-3.5 w-3.5" /> Reject Cancel
+                                  </Button>
+                                </>
+                              )}
+
+                              {/* Management Action 2: Regular Pending Leave Applications */}
+                              {isManagement && (rec.status === "Leave (Pending)" || rec.status?.includes("Pending")) && !rec.status?.includes("Cancel Requested") && (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    disabled={processingLeaveAction === rec.id}
+                                    onClick={() => handleLeaveAction(rec.id, "approve", rec.status?.includes("Half Day") ? "Half Day" : "Leave")}
                                     className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-1 h-8 px-2.5 shadow-xs cursor-pointer"
                                     title="Approve Leave Application"
                                   >
-                                    <Check className="h-3.5 w-3.5" /> Approve
+                                    <Check className="h-3.5 w-3.5" /> {rec.status?.includes("Half Day") ? "Approve Half Day" : "Approve"}
                                   </Button>
                                   <Button
                                     size="sm"
@@ -849,6 +1171,45 @@ export default function AttendancePage() {
                                   </Button>
                                 </>
                               )}
+
+                              {/* Employee Action 1: Cancel Unapproved Pending Leave */}
+                              {rec.user_id === (session?.user as any)?.id && rec.status?.includes("Pending") && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleCancelPendingLeave(rec.id, new Date(rec.date).toLocaleDateString())}
+                                  className="border-red-300 text-red-700 hover:bg-red-50 hover:text-red-800 font-bold text-xs gap-1 h-8 px-2.5 shadow-xs cursor-pointer"
+                                  title="Cancel your unapproved leave application"
+                                >
+                                  <X className="h-3.5 w-3.5" /> Cancel Application
+                                </Button>
+                              )}
+
+                              {/* Employee Action 2: Raise Cancel Request for Approved Upcoming Leave */}
+                              {rec.user_id === (session?.user as any)?.id &&
+                                !rec.status?.includes("Pending") &&
+                                !rec.status?.includes("Cancel Requested") &&
+                                (rec.status === "Leave" || rec.status === "Half Day" || rec.status === "Paid Leave" || rec.status === "Sick Leave") &&
+                                !rec.login_time &&
+                                new Date(rec.date + "T00:00:00").getTime() >= new Date(new Date().setHours(0, 0, 0, 0)).getTime() && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleRequestApprovedLeaveCancel(rec.id, new Date(rec.date).toLocaleDateString(), rec.status)}
+                                    className="border-amber-300 text-amber-700 hover:bg-amber-50 hover:text-amber-800 font-bold text-xs gap-1 h-8 px-2.5 shadow-xs cursor-pointer"
+                                    title="Submit request to management to cancel this approved leave"
+                                  >
+                                    <RefreshCw className="h-3.5 w-3.5" /> Cancel Leave
+                                  </Button>
+                                )}
+
+                              {/* Employee Status Notice: Cancellation Request under management review */}
+                              {rec.user_id === (session?.user as any)?.id && rec.status?.includes("Cancel Requested") && !isManagement && (
+                                <Badge variant="outline" className="text-[10px] text-amber-700 border-amber-300 font-semibold px-2 py-1">
+                                  <Clock className="h-3 w-3 mr-1 text-amber-600" /> Cancel Pending PM Review
+                                </Badge>
+                              )}
+
                               {isManagement && rec.status === "Half Day" && (
                                 <Button
                                   size="sm"
