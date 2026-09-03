@@ -133,13 +133,13 @@ export async function GET(req: Request) {
 
     const [rows] = await pool.query(query, params);
 
-    // 2. Fetch upcoming pending leave applications for this user (date > todayIST)
+    // 2. Fetch upcoming pending leave applications for this user (date >= todayIST)
     let pendingLeaves: any[] = [];
     if (role === "Developer" || role === "Tester" || role === "PM") {
       const [pendingRows]: any = await pool.query(
         `SELECT id, date, status, notes, created_at 
          FROM attendance 
-         WHERE user_id = ? AND date > ? AND status = 'Leave (Pending)'
+         WHERE user_id = ? AND date >= ? AND (status LIKE '%Pending%' OR status LIKE '%Cancel Requested%')
          ORDER BY date ASC`,
         [userId, todayIST]
       );
@@ -164,6 +164,7 @@ export async function POST(req: Request) {
   try {
     const userId = (session.user as any).id;
     const userRole = (session.user as any).role;
+    const userName = (session.user as any).name || userRole || "Employee";
     const isManagement = ["Admin", "CEO", "PM"].includes(userRole);
     const body = await req.json();
     const { action, start_date, end_date, selected_dates, status = "Leave", reason } = body;
@@ -206,8 +207,11 @@ export async function POST(req: Request) {
       let leaveDaysCount = 0;
       let excludedHolidayCount = 0;
 
-      // Status for non-management is 'Leave (Pending)'; for PM/CEO/Admin creating directly it's the requested status
-      const targetStatus = isManagement ? (status || "Leave") : "Leave (Pending)";
+      // Status for non-management: Half Day (Pending) vs Leave (Pending)
+      const isHalfDay = status === "Half Day";
+      const targetStatus = isManagement 
+        ? (status || "Leave") 
+        : (isHalfDay ? "Half Day (Pending)" : "Leave (Pending)");
 
       for (const dateStr of datesToProcess) {
         // Date parsing using UTC to avoid timezone drift
@@ -228,7 +232,7 @@ export async function POST(req: Request) {
 
         const notesText = isManagement
           ? `LEAVE: ${reason || "Logged by Management"}`
-          : `PENDING_LEAVE: ${reason || ""}`;
+          : (isHalfDay ? `PENDING_HALF_DAY: ${reason || ""}` : `PENDING_LEAVE: ${reason || ""}`);
 
         if (existing.length > 0) {
           await pool.query(
@@ -252,9 +256,45 @@ export async function POST(req: Request) {
         }, { status: 400 });
       }
 
+      // Dispatch notifications to PM, Admin, CEO
+      if (!isManagement && leaveDaysCount > 0) {
+        try {
+          const datesSummary = datesToProcess.length === 1 
+            ? datesToProcess[0] 
+            : `${datesToProcess[0]} to ${datesToProcess[datesToProcess.length - 1]} (${leaveDaysCount} day${leaveDaysCount > 1 ? 's' : ''})`;
+          const notifTitle = isHalfDay ? "🌓 New Half Day Leave Application" : "🏖️ New Leave Application";
+          const notifMsg = `${userName} (${userRole}) applied for a ${isHalfDay ? "Half Day" : "Leave"} on ${datesSummary}.${reason ? " Reason: " + reason : ""}`;
+
+          const [mgmtUsers]: any = await pool.query(
+            "SELECT id FROM users WHERE role IN ('Admin', 'CEO', 'PM') AND is_active = 1"
+          );
+          if (mgmtUsers && mgmtUsers.length > 0) {
+            const notifValues = mgmtUsers.map((m: any) => [
+              m.id,
+              notifTitle,
+              notifMsg,
+              "info"
+            ]);
+            await pool.query(
+              "INSERT INTO notifications (user_id, title, message, type) VALUES ?",
+              [notifValues]
+            );
+          }
+        } catch (notifErr) {
+          console.error("Failed to insert management leave notifications:", notifErr);
+        }
+      }
+
       const msg = isManagement
         ? `Leave officially logged for ${leaveDaysCount} day(s). (${excludedHolidayCount} Sunday/holiday(s) excluded).`
-        : `Leave application submitted for ${leaveDaysCount} working day(s) awaiting PM approval. (${excludedHolidayCount} Sunday/holiday(s) excluded).`;
+        : `${isHalfDay ? "Half day leave" : "Leave"} application submitted for ${leaveDaysCount} working day(s) awaiting PM approval. (${excludedHolidayCount} Sunday/holiday(s) excluded).`;
+
+      return NextResponse.json({
+        message: msg,
+        days_counted: leaveDaysCount,
+        excluded_holidays: excludedHolidayCount,
+      });
+    }
 
       return NextResponse.json({
         message: msg,
