@@ -126,7 +126,7 @@ export async function POST(req: Request) {
 
   try {
     const role = (session.user as any).role;
-    const currentUserId = (session.user as any).id;
+    const currentUserId = parseInt(String((session.user as any).id), 10);
     const currentUserName = session.user?.name || "User";
     const body = await req.json();
 
@@ -243,15 +243,17 @@ export async function POST(req: Request) {
           }
         }
 
-        // Notify employee
-        await pool.query(
-          `INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'task_assigned')`,
-          [
-            emp.id,
-            `${is_mock_task ? "⚡ Mock Task Broadcast" : "Task Assigned"} by ${currentUserName} (${role})`,
-            `Task "${title}" has been assigned to you. Scheduled for: ${taskTargetDate}.`
-          ]
-        );
+        // Notify employee (only if assigned by someone else, never self-notify)
+        if (Number(emp.id) !== currentUserId) {
+          await pool.query(
+            `INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'task_assigned')`,
+            [
+              emp.id,
+              `${is_mock_task ? "⚡ Mock Task Broadcast" : "Task Assigned"} by ${currentUserName} (${role})`,
+              `Task "${title}" has been assigned to you. Scheduled for: ${taskTargetDate}.`
+            ]
+          );
+        }
 
         createdCount++;
       }
@@ -266,9 +268,9 @@ export async function POST(req: Request) {
     // SINGLE OR MULTI-ASSIGNEE TASK CREATION
     let assignedUserIds: number[] = [];
     if (Array.isArray(assigned_to)) {
-      assignedUserIds = assigned_to.map((id: any) => parseInt(id)).filter(Boolean);
+      assignedUserIds = assigned_to.map((id: any) => parseInt(String(id), 10)).filter(Boolean);
     } else if (assigned_to) {
-      assignedUserIds = [parseInt(assigned_to)];
+      assignedUserIds = [parseInt(String(assigned_to), 10)].filter(Boolean);
     }
 
     if ((role === "Developer" || role === "Tester") && assignedUserIds.length === 0) {
@@ -327,13 +329,14 @@ export async function POST(req: Request) {
       }
     }
 
-    // Notify assigned team members if created by someone else
+    // Notify assigned team members ONLY if task was assigned by someone else (never when employee adds their own task)
     for (const uid of assignedUserIds) {
-      if (uid !== currentUserId) {
+      const parsedUid = Number(uid);
+      if (parsedUid && parsedUid !== currentUserId) {
         await pool.query(
           `INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'task_assigned')`,
           [
-            uid,
+            parsedUid,
             `New Task Assigned by ${currentUserName} (${role})`,
             `Task "${title}" has been assigned to you. Scheduled for: ${taskTargetDate}.`
           ]
@@ -422,7 +425,7 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "Task ID is required" }, { status: 400 });
     }
 
-    const currentUserId = (session.user as any).id;
+    const currentUserId = parseInt(String((session.user as any).id), 10);
     const currentRole = (session.user as any).role;
     const isExecutiveOrAdmin = ["Admin", "CEO", "PM"].includes(currentRole);
 
