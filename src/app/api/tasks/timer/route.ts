@@ -1,0 +1,325 @@
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import pool from "@/lib/db";
+
+export async function GET(req: Request) {
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const currentUserId = parseInt(String((session.user as any).id), 10);
+  const currentRole = (session.user as any).role;
+  const isManagement = ["PM", "Admin", "CEO"].includes(currentRole);
+
+  const { searchParams } = new URL(req.url);
+  const mode = searchParams.get("mode") || "active";
+  const taskId = searchParams.get("task_id");
+
+  try {
+    // 1. History of sessions for a specific task
+    if (mode === "history") {
+      if (!taskId) {
+        return NextResponse.json({ error: "task_id is required for history mode" }, { status: 400 });
+      }
+
+      const [rows]: any = await pool.query(
+        `SELECT ttl.*, u.name as user_name, u.role as user_role, u.email as user_email
+         FROM task_time_logs ttl
+         JOIN users u ON ttl.user_id = u.id
+         WHERE ttl.task_id = ?
+         ORDER BY ttl.started_at DESC`,
+        [taskId]
+      );
+      return NextResponse.json({ success: true, history: rows });
+    }
+
+    // 2. Team live activity monitor (PM, Admin, CEO only)
+    if (mode === "team") {
+      if (!isManagement) {
+        return NextResponse.json({ error: "Unauthorized: Management access required" }, { status: 403 });
+      }
+
+      const [rows]: any = await pool.query(
+        `SELECT ttl.*, 
+                u.id as user_id, u.name as user_name, u.email as user_email, u.role as user_role,
+                t.id as task_id, t.title as task_title, t.priority, t.status as task_status,
+                p.id as project_id, p.name as project_name
+         FROM task_time_logs ttl
+         JOIN users u ON ttl.user_id = u.id
+         JOIN tasks t ON ttl.task_id = t.id
+         LEFT JOIN projects p ON t.project_id = p.id
+         WHERE ttl.is_active = 1
+         ORDER BY ttl.started_at DESC`
+      );
+
+      // Also get total active count & total hours today
+      const todayStr = new Date().toISOString().split("T")[0];
+      const [todayStats]: any = await pool.query(
+        `SELECT COUNT(DISTINCT user_id) as active_users_count, 
+                IFNULL(SUM(duration_minutes), 0) as total_minutes_today
+         FROM task_time_logs 
+         WHERE DATE(started_at) = ?`,
+        [todayStr]
+      );
+
+      return NextResponse.json({ 
+        success: true, 
+        active_timers: rows,
+        stats: {
+          active_now: rows.length,
+          active_users_today: todayStats[0]?.active_users_count || 0,
+          total_hours_today: (parseFloat(todayStats[0]?.total_minutes_today || 0) / 60).toFixed(1)
+        }
+      });
+    }
+
+    // 3. Default: User's currently active running timer
+    const [activeRows]: any = await pool.query(
+      `SELECT ttl.*, 
+              t.id as task_id, t.title as task_title, t.priority, t.status as task_status,
+              p.name as project_name
+       FROM task_time_logs ttl
+       JOIN tasks t ON ttl.task_id = t.id
+       LEFT JOIN projects p ON t.project_id = p.id
+       WHERE ttl.user_id = ? AND ttl.is_active = 1
+       ORDER BY ttl.started_at DESC LIMIT 1`,
+      [currentUserId]
+    );
+
+    return NextResponse.json({
+      success: true,
+      active_timer: activeRows.length > 0 ? activeRows[0] : null
+    });
+  } catch (error: any) {
+    console.error("GET /api/tasks/timer error:", error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
+export async function POST(req: Request) {
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const currentUserId = parseInt(String((session.user as any).id), 10);
+  const currentUserName = session.user?.name || "User";
+  const currentRole = (session.user as any).role;
+  const isManagement = ["PM", "Admin"].includes(currentRole);
+
+  try {
+    const body = await req.json();
+    const { action } = body;
+
+    // -------------------------------------------------------------
+    // ACTION: START TIMER (With Auto-pause for existing active timer)
+    // -------------------------------------------------------------
+    if (action === "start") {
+      const { task_id, start_time } = body;
+      if (!task_id) {
+        return NextResponse.json({ error: "task_id is required" }, { status: 400 });
+      }
+
+      // 1. Verify task exists
+      const [tasks]: any = await pool.query("SELECT id, title, status, project_id FROM tasks WHERE id = ?", [task_id]);
+      if (tasks.length === 0) {
+        return NextResponse.json({ error: "Task not found" }, { status: 404 });
+      }
+      const task = tasks[0];
+
+      // Determine starting timestamp
+      const effectiveStartTime = start_time ? new Date(start_time) : new Date();
+      if (isNaN(effectiveStartTime.getTime())) {
+        return NextResponse.json({ error: "Invalid start_time format" }, { status: 400 });
+      }
+      const startTimeFormatted = effectiveStartTime.toISOString().slice(0, 19).replace('T', ' ');
+
+      // 2. Timer Exclusivity: Automatically pause/close any previous active timer for this user
+      const [existingActive]: any = await pool.query(
+        "SELECT id, task_id, started_at FROM task_time_logs WHERE user_id = ? AND is_active = 1",
+        [currentUserId]
+      );
+
+      for (const prevTimer of existingActive) {
+        const prevStart = new Date(prevTimer.started_at);
+        const prevEnd = effectiveStartTime > prevStart ? effectiveStartTime : new Date();
+        const durationMins = Math.max(1, Math.round((prevEnd.getTime() - prevStart.getTime()) / (1000 * 60)));
+        const prevEndFormatted = prevEnd.toISOString().slice(0, 19).replace('T', ' ');
+
+        await pool.query(
+          `UPDATE task_time_logs 
+           SET ended_at = ?, duration_minutes = ?, is_active = 0 
+           WHERE id = ?`,
+          [prevEndFormatted, durationMins, prevTimer.id]
+        );
+
+        // Recalculate previous task's hours_spent
+        await syncTaskHours(prevTimer.task_id);
+      }
+
+      // 3. Insert new active timer
+      const [insertResult]: any = await pool.query(
+        `INSERT INTO task_time_logs (task_id, user_id, started_at, is_active) 
+         VALUES (?, ?, ?, 1)`,
+        [task_id, currentUserId, startTimeFormatted]
+      );
+
+      // 4. Update task status to "In Progress" if currently "Assigned"
+      if (task.status === "Assigned") {
+        await pool.query("UPDATE tasks SET status = 'In Progress' WHERE id = ?", [task_id]);
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: "Timer started successfully",
+        timer_id: insertResult.insertId,
+        task_id,
+        started_at: startTimeFormatted,
+        paused_previous_count: existingActive.length
+      }, { status: 201 });
+    }
+
+    // -------------------------------------------------------------
+    // ACTION: PAUSE / STOP TIMER
+    // -------------------------------------------------------------
+    if (action === "pause" || action === "stop") {
+      const { task_id, end_time, session_summary, blockers, progress_percentage } = body;
+
+      // Find active timer for this user
+      let query = "SELECT * FROM task_time_logs WHERE user_id = ? AND is_active = 1";
+      const params: any[] = [currentUserId];
+      if (task_id) {
+        query += " AND task_id = ?";
+        params.push(task_id);
+      }
+      query += " ORDER BY started_at DESC LIMIT 1";
+
+      const [activeLogs]: any = await pool.query(query, params);
+      if (activeLogs.length === 0) {
+        return NextResponse.json({ error: "No active running timer found to pause/stop." }, { status: 404 });
+      }
+
+      const activeTimer = activeLogs[0];
+      const effectiveEndTime = end_time ? new Date(end_time) : new Date();
+      const startTime = new Date(activeTimer.started_at);
+      const durationMins = Math.max(1, Math.round((effectiveEndTime.getTime() - startTime.getTime()) / (1000 * 60)));
+      const endTimeFormatted = effectiveEndTime.toISOString().slice(0, 19).replace('T', ' ');
+
+      // Update timer log
+      await pool.query(
+        `UPDATE task_time_logs 
+         SET ended_at = ?, duration_minutes = ?, session_summary = IFNULL(?, session_summary), is_active = 0 
+         WHERE id = ?`,
+        [endTimeFormatted, durationMins, session_summary || null, activeTimer.id]
+      );
+
+      // Sync cumulative hours_spent to task
+      const totalHours = await syncTaskHours(activeTimer.task_id);
+
+      // Optionally update progress % or remarks on task
+      if (progress_percentage !== undefined) {
+        await pool.query("UPDATE tasks SET progress_percentage = ? WHERE id = ?", [progress_percentage, activeTimer.task_id]);
+      }
+      if (blockers) {
+        await pool.query("UPDATE tasks SET blockers = ? WHERE id = ?", [blockers, activeTimer.task_id]);
+      }
+
+      // Auto-sync session into daily_work audit table
+      try {
+        const [taskInfo]: any = await pool.query("SELECT title, project_id, status FROM tasks WHERE id = ?", [activeTimer.task_id]);
+        const project_id = taskInfo[0]?.project_id || null;
+        const taskTitle = taskInfo[0]?.title || "Task";
+        const taskStatus = taskInfo[0]?.status || "In Progress";
+        const sessionHours = parseFloat((durationMins / 60).toFixed(2));
+        const todayStr = effectiveEndTime.toISOString().split("T")[0];
+
+        await pool.query(
+          `INSERT INTO daily_work (user_id, project_id, task_id, date, hours_worked, work_description, status, remarks)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            currentUserId,
+            project_id,
+            activeTimer.task_id,
+            todayStr,
+            sessionHours,
+            session_summary || `Worked on: ${taskTitle} (${durationMins} mins via timer)`,
+            taskStatus,
+            blockers || null
+          ]
+        );
+      } catch (workLogErr) {
+        console.error("Failed to auto-sync timer session to daily_work:", workLogErr);
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: "Timer stopped successfully",
+        duration_minutes: durationMins,
+        hours_spent: totalHours,
+        ended_at: endTimeFormatted
+      });
+    }
+
+    // -------------------------------------------------------------
+    // ACTION: EDIT PAST LOG (PM & Admin Only)
+    // -------------------------------------------------------------
+    if (action === "edit_log") {
+      if (!isManagement) {
+        return NextResponse.json({ error: "Unauthorized: Only PM and Admin can manually adjust past timer logs." }, { status: 403 });
+      }
+
+      const { log_id, started_at, ended_at, session_summary } = body;
+      if (!log_id || !started_at || !ended_at) {
+        return NextResponse.json({ error: "log_id, started_at, and ended_at are required" }, { status: 400 });
+      }
+
+      const start = new Date(started_at);
+      const end = new Date(ended_at);
+      if (isNaN(start.getTime()) || isNaN(end.getTime()) || end <= start) {
+        return NextResponse.json({ error: "Invalid date range: ended_at must be strictly after started_at" }, { status: 400 });
+      }
+
+      const durationMins = Math.max(1, Math.round((end.getTime() - start.getTime()) / (1000 * 60)));
+      const startFormatted = start.toISOString().slice(0, 19).replace('T', ' ');
+      const endFormatted = end.toISOString().slice(0, 19).replace('T', ' ');
+
+      // Find log to identify task_id
+      const [targetLog]: any = await pool.query("SELECT task_id FROM task_time_logs WHERE id = ?", [log_id]);
+      if (targetLog.length === 0) {
+        return NextResponse.json({ error: "Time log entry not found" }, { status: 404 });
+      }
+
+      await pool.query(
+        `UPDATE task_time_logs 
+         SET started_at = ?, ended_at = ?, duration_minutes = ?, session_summary = IFNULL(?, session_summary)
+         WHERE id = ?`,
+        [startFormatted, endFormatted, durationMins, session_summary !== undefined ? session_summary : null, log_id]
+      );
+
+      const totalHours = await syncTaskHours(targetLog[0].task_id);
+
+      return NextResponse.json({
+        success: true,
+        message: "Time log updated successfully by manager",
+        duration_minutes: durationMins,
+        total_hours: totalHours
+      });
+    }
+
+    return NextResponse.json({ error: "Invalid action" }, { status: 400 });
+  } catch (error: any) {
+    console.error("POST /api/tasks/timer error:", error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
+// Helper: Calculate total duration of all finished sessions on a task and update tasks.hours_spent
+async function syncTaskHours(taskId: number): Promise<number> {
+  const [sumResult]: any = await pool.query(
+    "SELECT IFNULL(SUM(duration_minutes), 0) as total_mins FROM task_time_logs WHERE task_id = ? AND is_active = 0",
+    [taskId]
+  );
+  const totalMins = parseFloat(sumResult[0]?.total_mins || 0);
+  const totalHours = parseFloat((totalMins / 60).toFixed(2));
+
+  await pool.query("UPDATE tasks SET hours_spent = ? WHERE id = ?", [totalHours, taskId]);
+  return totalHours;
+}

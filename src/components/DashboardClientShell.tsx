@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import UnitgloLogo from "@/components/UnitgloLogo";
 import NotificationBell from "@/components/NotificationBell";
 import AttendanceWidget from "@/components/AttendanceWidget";
+import ActiveTimerBanner from "@/components/ActiveTimerBanner";
 import { 
   LayoutDashboard, 
   Users, 
@@ -408,6 +409,7 @@ export default function DashboardClientShell({ children, user }: DashboardClient
             </div>
           </footer>
         </main>
+        <ActiveTimerBanner />
       </div>
     </div>
   );

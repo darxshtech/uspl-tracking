@@ -338,6 +338,37 @@ export async function POST(req: Request) {
         [nowTime12, totalHours.toFixed(2), status, activeShift.id]
       );
 
+      // Automatically pause any running task timers upon shift punch-out
+      try {
+        const checkoutTime = new Date();
+        const checkoutTimeFormatted = checkoutTime.toISOString().slice(0, 19).replace('T', ' ');
+
+        const [activeTimers]: any = await pool.query(
+          "SELECT id, task_id, started_at FROM task_time_logs WHERE user_id = ? AND is_active = 1",
+          [userId]
+        );
+
+        for (const timer of activeTimers) {
+          const startTime = new Date(timer.started_at);
+          const durationMins = Math.max(1, Math.round((checkoutTime.getTime() - startTime.getTime()) / (1000 * 60)));
+          await pool.query(
+            `UPDATE task_time_logs 
+             SET ended_at = ?, duration_minutes = ?, session_summary = 'Auto-paused on Shift Punch-Out', is_active = 0 
+             WHERE id = ?`,
+            [checkoutTimeFormatted, durationMins, timer.id]
+          );
+
+          const [sumRes]: any = await pool.query(
+            "SELECT IFNULL(SUM(duration_minutes), 0) as total_mins FROM task_time_logs WHERE task_id = ? AND is_active = 0",
+            [timer.task_id]
+          );
+          const totalHoursCalc = (parseFloat(sumRes[0]?.total_mins || 0) / 60).toFixed(2);
+          await pool.query("UPDATE tasks SET hours_spent = ? WHERE id = ?", [totalHoursCalc, timer.task_id]);
+        }
+      } catch (timerErr) {
+        console.error("Failed to auto-pause task timer on attendance check-out:", timerErr);
+      }
+
       const shiftDateStr = activeShift.date instanceof Date 
         ? activeShift.date.toISOString().split("T")[0] 
         : String(activeShift.date).split("T")[0];

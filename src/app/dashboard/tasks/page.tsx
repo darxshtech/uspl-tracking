@@ -43,9 +43,11 @@ import {
   Hash,
   Paperclip,
   Link2,
-  Users
+  Users,
+  Pause
 } from "lucide-react";
 import { formatHoursAndMinutes } from "@/lib/timeUtils";
+import LiveTeamActivityMonitor from "@/components/LiveTeamActivityMonitor";
 
 export default function DailyTasksPage() {
   const { data: session } = useSession();
@@ -148,17 +150,213 @@ export default function DailyTasksPage() {
   const [deleteConfirmTask, setDeleteConfirmTask] = useState<any>(null);
   const [deletingTask, setDeletingTask] = useState(false);
 
+  // Active Timer state
+  const [activeUserTimer, setActiveUserTimer] = useState<any>(null);
+  const [startTimerModalOpen, setStartTimerModalOpen] = useState(false);
+  const [selectedTaskForTimer, setSelectedTaskForTimer] = useState<any>(null);
+  const [customStartTime, setCustomStartTime] = useState("");
+  const [isCustomStart, setIsCustomStart] = useState(false);
+  const [startingTimer, setStartingTimer] = useState(false);
+
+  // Time Logs History Modal state
+  const [timeLogsModalOpen, setTimeLogsModalOpen] = useState(false);
+  const [selectedTaskForTimeLogs, setSelectedTaskForTimeLogs] = useState<any>(null);
+  const [taskTimeLogs, setTaskTimeLogs] = useState<any[]>([]);
+  const [loadingTimeLogs, setLoadingTimeLogs] = useState(false);
+
+  // PM / Admin Edit Time Log state
+  const [editingLogId, setEditingLogId] = useState<number | null>(null);
+  const [editLogStart, setEditLogStart] = useState("");
+  const [editLogEnd, setEditLogEnd] = useState("");
+  const [editLogSummary, setEditLogSummary] = useState("");
+  const [savingEditLog, setSavingEditLog] = useState(false);
+
+  const fetchActiveUserTimer = async () => {
+    try {
+      const res = await fetch("/api/tasks/timer?mode=active");
+      if (res.ok) {
+        const data = await res.json();
+        setActiveUserTimer(data.active_timer || null);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   useEffect(() => {
     fetchTasks();
     fetchProjects();
     fetchEmployees();
+    fetchActiveUserTimer();
+
+    const handleTimerUpdate = () => {
+      fetchActiveUserTimer();
+      fetchTasks();
+    };
+    window.addEventListener("task-timer-updated", handleTimerUpdate);
 
     const interval = setInterval(() => {
       if (typeof document !== "undefined" && document.hidden) return;
       fetchTasks();
+      fetchActiveUserTimer();
     }, 20000);
-    return () => clearInterval(interval);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("task-timer-updated", handleTimerUpdate);
+    };
   }, []);
+
+  const handleOpenStartTimerModal = (task: any) => {
+    setSelectedTaskForTimer(task);
+    setIsCustomStart(false);
+    // Default custom start time to current local datetime format for input
+    const now = new Date();
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    setCustomStartTime(now.toISOString().slice(0, 16));
+    setStartTimerModalOpen(true);
+  };
+
+  const handleStartTimerSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedTaskForTimer) return;
+    setStartingTimer(true);
+    try {
+      let formattedStart = undefined;
+      if (isCustomStart && customStartTime) {
+        formattedStart = new Date(customStartTime).toISOString();
+      }
+
+      const res = await fetch("/api/tasks/timer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "start",
+          task_id: selectedTaskForTimer.id,
+          start_time: formattedStart,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setStartTimerModalOpen(false);
+        setIsCustomStart(false);
+        setCustomStartTime("");
+        showToast("Task timer started! Active timer is running.");
+        window.dispatchEvent(new Event("task-timer-updated"));
+        fetchActiveUserTimer();
+        fetchTasks();
+      } else {
+        showError("Failed to Start Timer", data.error || "Unknown error");
+      }
+    } catch (err) {
+      console.error(err);
+      showError("Error", "Failed to start task timer.");
+    } finally {
+      setStartingTimer(false);
+    }
+  };
+
+  const handleQuickStopActiveTimer = async (taskId: number) => {
+    try {
+      const res = await fetch("/api/tasks/timer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "stop",
+          task_id: taskId,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        showToast(`Timer paused! (${data.duration_minutes || 1} mins logged)`);
+        window.dispatchEvent(new Event("task-timer-updated"));
+        fetchActiveUserTimer();
+        fetchTasks();
+      } else {
+        showError("Failed to Stop Timer", data.error || "Unknown error");
+      }
+    } catch (err) {
+      console.error(err);
+      showError("Error", "Failed to stop task timer.");
+    }
+  };
+
+  const handleOpenTimeLogs = async (task: any) => {
+    setSelectedTaskForTimeLogs(task);
+    setTimeLogsModalOpen(true);
+    setLoadingTimeLogs(true);
+    setEditingLogId(null);
+    try {
+      const res = await fetch(`/api/tasks/timer?mode=history&task_id=${task.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setTaskTimeLogs(data.history || []);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingTimeLogs(false);
+    }
+  };
+
+  const handleStartEditLog = (log: any) => {
+    setEditingLogId(log.id);
+    const startObj = new Date(log.started_at);
+    startObj.setMinutes(startObj.getMinutes() - startObj.getTimezoneOffset());
+    setEditLogStart(startObj.toISOString().slice(0, 16));
+
+    if (log.ended_at) {
+      const endObj = new Date(log.ended_at);
+      endObj.setMinutes(endObj.getMinutes() - endObj.getTimezoneOffset());
+      setEditLogEnd(endObj.toISOString().slice(0, 16));
+    } else {
+      const now = new Date();
+      now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+      setEditLogEnd(now.toISOString().slice(0, 16));
+    }
+
+    setEditLogSummary(log.session_summary || "");
+  };
+
+  const handleSaveEditTimeLog = async (logId: number) => {
+    if (!editLogStart || !editLogEnd) {
+      showWarning("Required Fields", "Start and end times are required.");
+      return;
+    }
+    setSavingEditLog(true);
+    try {
+      const res = await fetch("/api/tasks/timer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "edit_log",
+          log_id: logId,
+          started_at: new Date(editLogStart).toISOString(),
+          ended_at: new Date(editLogEnd).toISOString(),
+          session_summary: editLogSummary,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        showToast("Time log successfully adjusted!");
+        setEditingLogId(null);
+        if (selectedTaskForTimeLogs) {
+          handleOpenTimeLogs(selectedTaskForTimeLogs);
+        }
+        fetchTasks();
+      } else {
+        showError("Failed to Adjust", data.error || "Unknown error");
+      }
+    } catch (err) {
+      console.error(err);
+      showError("Error", "Failed to edit time log.");
+    } finally {
+      setSavingEditLog(false);
+    }
+  };
 
   const fetchTasks = async (isManual = false) => {
     if (isManual) setRefreshing(true);
@@ -1293,6 +1491,11 @@ export default function DailyTasksPage() {
           </Dialog>
         </div>
       </div>
+
+      {/* Live Team Activity Monitor (PM, Admin, CEO) */}
+      {canManageAllTasks && (
+        <LiveTeamActivityMonitor />
+      )}
 
       {/* ADVANCED MULTI-FILTER BAR (Project, Date, Developer Name, Search) */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-3">
@@ -2478,6 +2681,37 @@ export default function DailyTasksPage() {
 
                     {/* Action Buttons */}
                     <TableCell className="align-top text-right space-y-1.5">
+                      {/* Task Start / Pause Timer Button */}
+                      {activeUserTimer?.task_id === task.id ? (
+                        <Button
+                          size="sm"
+                          onClick={() => handleQuickStopActiveTimer(task.id)}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-1.5 shadow-sm w-full justify-center animate-pulse cursor-pointer"
+                        >
+                          <Pause className="h-3.5 w-3.5" /> Pause Timer
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleOpenStartTimerModal(task)}
+                          className="border-emerald-300 bg-emerald-50/80 hover:bg-emerald-100 text-emerald-800 font-bold text-xs gap-1.5 shadow-2xs w-full justify-center cursor-pointer"
+                        >
+                          <Play className="h-3.5 w-3.5 text-emerald-600" /> Start Timer
+                        </Button>
+                      )}
+
+                      {/* Time Logs History Button */}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleOpenTimeLogs(task)}
+                        className="text-slate-600 hover:text-slate-900 hover:bg-slate-100 text-[11px] font-semibold gap-1 h-7 w-full justify-center cursor-pointer"
+                        title="View time tracking sessions"
+                      >
+                        <Clock className="h-3 w-3 text-slate-500" /> Time Logs ({task.hours_spent ? `${task.hours_spent}h` : "0h"})
+                      </Button>
+
                       {/* Update Progress Button */}
                       <div>
                         <Button
@@ -2584,6 +2818,252 @@ export default function DailyTasksPage() {
           </TableBody>
         </Table>
       </div>
+
+      {/* START TIMER MODAL (Start Now vs Custom Start Time) */}
+      <Dialog open={startTimerModalOpen} onOpenChange={setStartTimerModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg font-bold text-slate-900">
+              <Play className="h-5 w-5 text-emerald-600" /> Start Task Timer
+            </DialogTitle>
+          </DialogHeader>
+
+          {selectedTaskForTimer && (
+            <form onSubmit={handleStartTimerSubmit} className="space-y-4 pt-2">
+              <div className="rounded-xl bg-emerald-50 p-3 text-xs border border-emerald-200 space-y-1">
+                <div className="font-bold text-emerald-950">{selectedTaskForTimer.title}</div>
+                <div className="text-emerald-700">{selectedTaskForTimer.project_name || "Project Task"}</div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs font-bold text-slate-800">When did you start?</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsCustomStart(false)}
+                    className={`p-3 rounded-xl border text-xs font-bold flex flex-col items-center gap-1 transition ${
+                      !isCustomStart 
+                        ? "bg-emerald-50 border-emerald-400 text-emerald-900 shadow-xs" 
+                        : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    <Flame className="h-4 w-4 text-emerald-600" />
+                    <span>Start Right Now</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsCustomStart(true)}
+                    className={`p-3 rounded-xl border text-xs font-bold flex flex-col items-center gap-1 transition ${
+                      isCustomStart 
+                        ? "bg-indigo-50 border-indigo-400 text-indigo-900 shadow-xs" 
+                        : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    <Calendar className="h-4 w-4 text-indigo-600" />
+                    <span>Custom Start Time</span>
+                  </button>
+                </div>
+              </div>
+
+              {isCustomStart && (
+                <div className="space-y-1.5 animate-fade-in">
+                  <Label htmlFor="customStartTime" className="text-xs font-bold text-slate-700">
+                    Select Start Date & Time
+                  </Label>
+                  <Input
+                    id="customStartTime"
+                    type="datetime-local"
+                    value={customStartTime}
+                    onChange={(e) => setCustomStartTime(e.target.value)}
+                    className="text-xs"
+                    required={isCustomStart}
+                  />
+                  <p className="text-[11px] text-slate-400">Specify when work actually began on this task.</p>
+                </div>
+              )}
+
+              <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-[11px] text-slate-500">
+                ℹ️ <strong>Timer Rule:</strong> Starting this task will automatically pause any other active task timer running for your account.
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setStartTimerModalOpen(false)}
+                  disabled={startingTimer}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={startingTimer}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-1.5"
+                >
+                  <Play className="h-3.5 w-3.5" />
+                  {startingTimer ? "Starting..." : "Begin Timer"}
+                </Button>
+              </div>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* TIME LOGS HISTORY MODAL (With PM / Admin Edit Controls) */}
+      <Dialog open={timeLogsModalOpen} onOpenChange={setTimeLogsModalOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg font-bold text-slate-900">
+              <Clock className="h-5 w-5 text-sky-500" /> Task Time Tracking Sessions
+            </DialogTitle>
+          </DialogHeader>
+
+          {selectedTaskForTimeLogs && (
+            <div className="space-y-4 pt-2">
+              <div className="rounded-xl bg-slate-50 p-3.5 border border-slate-200 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-900 text-sm">{selectedTaskForTimeLogs.title}</span>
+                  <Badge className="bg-sky-50 text-sky-800 border-sky-200 font-bold">
+                    Total: {selectedTaskForTimeLogs.hours_spent ? `${selectedTaskForTimeLogs.hours_spent} hrs` : "0 hrs"}
+                  </Badge>
+                </div>
+                <p className="text-xs text-slate-500">Project: {selectedTaskForTimeLogs.project_name || "N/A"}</p>
+                {(role === "PM" || role === "Admin") && (
+                  <p className="text-[11px] text-emerald-700 font-semibold pt-1">
+                    🛡️ Management Privileges: As {role}, you can adjust recorded session times if corrections are needed.
+                  </p>
+                )}
+              </div>
+
+              {loadingTimeLogs ? (
+                <div className="text-center py-8 text-xs text-slate-500">Loading session history...</div>
+              ) : taskTimeLogs.length === 0 ? (
+                <div className="text-center py-8 text-xs text-slate-500 border border-dashed rounded-xl">
+                  No timer sessions recorded for this task yet.
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {taskTimeLogs.map((log) => {
+                    const isEditingThis = editingLogId === log.id;
+                    const durationHours = (log.duration_minutes / 60).toFixed(2);
+
+                    return (
+                      <div
+                        key={log.id}
+                        className={`p-3 rounded-xl border text-xs transition-all ${
+                          log.is_active
+                            ? "bg-emerald-50/60 border-emerald-300"
+                            : "bg-white border-slate-200 hover:border-slate-300"
+                        }`}
+                      >
+                        {isEditingThis ? (
+                          /* PM / ADMIN INLINE EDIT FORM */
+                          <div className="space-y-2.5 p-1">
+                            <div className="font-bold text-slate-900 text-xs text-sky-800">
+                              Adjust Session Times (PM/Admin)
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="text-[10px] font-bold text-slate-600 block mb-1">Started At</label>
+                                <Input
+                                  type="datetime-local"
+                                  value={editLogStart}
+                                  onChange={(e) => setEditLogStart(e.target.value)}
+                                  className="h-8 text-xs"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-bold text-slate-600 block mb-1">Ended At</label>
+                                <Input
+                                  type="datetime-local"
+                                  value={editLogEnd}
+                                  onChange={(e) => setEditLogEnd(e.target.value)}
+                                  className="h-8 text-xs"
+                                />
+                              </div>
+                            </div>
+                            <div>
+                              <label className="text-[10px] font-bold text-slate-600 block mb-1">Session Notes</label>
+                              <Input
+                                value={editLogSummary}
+                                onChange={(e) => setEditLogSummary(e.target.value)}
+                                placeholder="Summary notes..."
+                                className="h-8 text-xs"
+                              />
+                            </div>
+                            <div className="flex justify-end gap-2 pt-1">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setEditingLogId(null)}
+                                className="h-7 text-xs"
+                              >
+                                Cancel
+                              </Button>
+                              <Button
+                                size="sm"
+                                onClick={() => handleSaveEditTimeLog(log.id)}
+                                disabled={savingEditLog}
+                                className="h-7 text-xs bg-sky-600 hover:bg-sky-700 text-white font-bold"
+                              >
+                                {savingEditLog ? "Saving..." : "Save Correction"}
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          /* NORMAL VIEW */
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="space-y-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-slate-900">{log.user_name}</span>
+                                <Badge variant="outline" className="text-[10px] font-medium text-slate-500">
+                                  {log.user_role}
+                                </Badge>
+                                {log.is_active ? (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 animate-pulse">
+                                    Currently Running
+                                  </span>
+                                ) : (
+                                  <span className="font-mono font-bold text-slate-700">
+                                    {log.duration_minutes} mins ({durationHours}h)
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-slate-500 flex items-center gap-2">
+                                <span>▶ {new Date(log.started_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</span>
+                                <span>→</span>
+                                <span>{log.ended_at ? new Date(log.ended_at).toLocaleTimeString([], { timeStyle: 'short' }) : "Ongoing"}</span>
+                              </div>
+                              {log.session_summary && (
+                                <p className="text-[11px] text-slate-600 italic bg-slate-50 p-1.5 rounded mt-1">
+                                  "{log.session_summary}"
+                                </p>
+                              )}
+                            </div>
+
+                            {/* PM / Admin Edit Button */}
+                            {(role === "PM" || role === "Admin") && !log.is_active && (
+                              <button
+                                type="button"
+                                onClick={() => handleStartEditLog(log)}
+                                className="p-1.5 text-slate-400 hover:text-sky-600 hover:bg-slate-100 rounded-lg transition cursor-pointer shrink-0"
+                                title="Adjust session time"
+                              >
+                                <Edit3 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
