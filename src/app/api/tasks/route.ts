@@ -329,7 +329,8 @@ export async function POST(req: Request) {
       }
     }
 
-    // Notify assigned team members ONLY if task was assigned by someone else (never when employee adds their own task)
+    // Notify assigned team members ONLY if task was assigned to them by someone else
+    // Suppress notification and sound alerts when employee creates a daily task for themselves
     for (const uid of assignedUserIds) {
       const parsedUid = Number(uid);
       if (parsedUid && parsedUid !== currentUserId) {
