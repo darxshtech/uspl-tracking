@@ -16,7 +16,8 @@ interface ActiveTimerData {
 export default function ActiveTimerBanner() {
   const [activeTimer, setActiveTimer] = useState<ActiveTimerData | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
-  const [stopModalOpen, setStopModalOpen] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<"pause" | "finish">("pause");
   const [sessionSummary, setSessionSummary] = useState("");
   const [blockers, setBlockers] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -88,36 +89,44 @@ export default function ActiveTimerBanner() {
     return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const handleStopTimer = async (e: React.FormEvent) => {
+  const handleOpenModal = (mode: "pause" | "finish") => {
+    setModalMode(mode);
+    setSessionSummary("");
+    setBlockers("");
+    setModalOpen(true);
+  };
+
+  const handleModalSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeTimer) return;
 
     setSubmitting(true);
     try {
+      const action = modalMode === "pause" ? "pause" : "stop";
       const res = await fetch("/api/tasks/timer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: "stop",
+          action,
           task_id: activeTimer.task_id,
           session_summary: sessionSummary.trim(),
-          blockers: blockers.trim()
-        })
+          blockers: blockers.trim(),
+        }),
       });
 
+      const data = await res.json();
       if (res.ok) {
-        setStopModalOpen(false);
+        setModalOpen(false);
         setActiveTimer(null);
         setSessionSummary("");
         setBlockers("");
         window.dispatchEvent(new Event("task-timer-updated"));
       } else {
-        const data = await res.json();
-        alert(data.error || "Failed to stop timer");
+        alert(data.error || `Failed to ${modalMode} timer`);
       }
     } catch (err) {
       console.error(err);
-      alert("Error stopping timer");
+      alert(`Error while executing ${modalMode} action.`);
     } finally {
       setSubmitting(false);
     }
@@ -192,50 +201,85 @@ export default function ActiveTimerBanner() {
                 </span>
               </div>
 
-              <button
-                onClick={() => setStopModalOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold transition shadow-sm cursor-pointer"
-              >
-                <Pause className="h-3.5 w-3.5" /> Pause / Stop
-              </button>
+              <div className="flex items-center gap-1.5">
+                {/* 1. Pause (Break) button */}
+                <button
+                  onClick={() => handleOpenModal("pause")}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-bold transition shadow-sm cursor-pointer"
+                  title="Pause timer to take a break. You can resume work later."
+                >
+                  <Pause className="h-3.5 w-3.5 fill-current" /> Pause (Break)
+                </button>
+
+                {/* 2. Finish Task button */}
+                <button
+                  onClick={() => handleOpenModal("finish")}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-sm cursor-pointer"
+                  title="Complete task and lock recorded hours."
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" /> Finish Task
+                </button>
+              </div>
             </div>
           </div>
         )}
       </div>
 
-      {/* Stop / Pause Modal Dialog */}
-      {stopModalOpen && (
+      {/* Modal Dialog for Pause vs Finish */}
+      {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in">
           <div className="w-full max-w-md bg-white rounded-2xl p-6 shadow-2xl border border-slate-200 space-y-4">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
-                <Pause className="h-4 w-4 text-red-600" /> Pause & Log Task Session
+                {modalMode === "pause" ? (
+                  <>
+                    <Pause className="h-4 w-4 text-amber-500 fill-amber-500" />
+                    Pause Timer (Go on Break)
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                    Finish & Complete Task
+                  </>
+                )}
               </h3>
               <button 
-                onClick={() => setStopModalOpen(false)}
+                onClick={() => setModalOpen(false)}
                 className="text-slate-400 hover:text-slate-600 text-lg font-bold"
               >
                 ✕
               </button>
             </div>
 
-            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs space-y-1">
+            <div className={`p-3 rounded-xl border text-xs space-y-1 ${
+              modalMode === "pause" ? "bg-amber-50/70 border-amber-200" : "bg-emerald-50/70 border-emerald-200"
+            }`}>
               <div className="font-semibold text-slate-800">{activeTimer.task_title}</div>
-              <div className="text-slate-500 flex items-center justify-between">
-                <span>Session Duration:</span>
-                <span className="font-mono font-bold text-emerald-600">{formatStopwatch(elapsedSeconds)}</span>
+              <div className="text-slate-600 flex items-center justify-between">
+                <span>Current Session Time:</span>
+                <span className="font-mono font-bold text-slate-900">{formatStopwatch(elapsedSeconds)}</span>
+              </div>
+              <div className="text-[11px] pt-1 text-slate-500">
+                {modalMode === "pause"
+                  ? "⏸ This session will be paused. The task remains In Progress and you can Resume anytime."
+                  : "🔒 This will mark the task Completed (100%) and record your total hours into 'Hours Spent Today' as locked and unchangeable."}
               </div>
             </div>
 
-            <form onSubmit={handleStopTimer} className="space-y-3">
+            <form onSubmit={handleModalSubmit} className="space-y-3">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Session Accomplishment (Optional)
+                  {modalMode === "pause" ? "Work Done Before Break (Optional)" : "Task Accomplishment Summary *"}
                 </label>
                 <textarea
                   value={sessionSummary}
                   onChange={(e) => setSessionSummary(e.target.value)}
-                  placeholder="What did you complete or work on during this session?"
+                  placeholder={
+                    modalMode === "pause"
+                      ? "Brief summary of work completed before pausing..."
+                      : "Detailed summary of deliverables and completed work..."
+                  }
+                  required={modalMode === "finish"}
                   rows={2}
                   className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-sky-500 resize-none text-slate-800"
                 />
@@ -243,13 +287,15 @@ export default function ActiveTimerBanner() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Blockers or Notes (Optional)
+                  {modalMode === "pause" ? "Blockers / Break Notes (Optional)" : "Remaining Items / Notes (Optional)"}
                 </label>
                 <input
                   type="text"
                   value={blockers}
                   onChange={(e) => setBlockers(e.target.value)}
-                  placeholder="Any roadblocks or next steps?"
+                  placeholder={
+                    modalMode === "pause" ? "e.g., Lunch break / Tea break / Meeting" : "e.g., Tested and ready for QA"
+                  }
                   className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-sky-500 text-slate-800"
                 />
               </div>
@@ -257,7 +303,7 @@ export default function ActiveTimerBanner() {
               <div className="flex items-center justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setStopModalOpen(false)}
+                  onClick={() => setModalOpen(false)}
                   className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition cursor-pointer"
                 >
                   Cancel
@@ -265,9 +311,17 @@ export default function ActiveTimerBanner() {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="px-4 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition shadow-sm cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition shadow-sm cursor-pointer disabled:opacity-50 flex items-center gap-1.5 ${
+                    modalMode === "pause"
+                      ? "bg-amber-500 hover:bg-amber-600 text-slate-950"
+                      : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                  }`}
                 >
-                  {submitting ? "Saving Log..." : "Confirm Stop Timer"}
+                  {submitting
+                    ? "Saving..."
+                    : modalMode === "pause"
+                    ? "Confirm Pause (Break)"
+                    : "Finish Task & Lock Hours"}
                 </button>
               </div>
             </form>

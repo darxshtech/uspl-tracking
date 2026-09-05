@@ -704,6 +704,18 @@ export async function PATCH(req: Request) {
       linksJson = JSON.stringify(task_links.filter(l => l && l.trim()));
     }
 
+    // Backend-first enforcement: If task has recorded timer logs and caller is not executive/admin, lock hours_spent to the timer sum
+    let effectiveHoursSpent = hours_spent !== undefined ? hours_spent : null;
+    if (!isExecutiveOrAdmin) {
+      const [timerCheck]: any = await pool.query(
+        "SELECT COUNT(*) as count, IFNULL(SUM(duration_minutes), 0) as total_mins FROM task_time_logs WHERE task_id = ? AND is_active = 0",
+        [id]
+      );
+      if (timerCheck[0]?.count > 0) {
+        effectiveHoursSpent = parseFloat((parseFloat(timerCheck[0].total_mins) / 60).toFixed(2));
+      }
+    }
+
     await pool.query(
       `UPDATE tasks 
        SET status = ?, 
@@ -721,7 +733,7 @@ export async function PATCH(req: Request) {
         task_link !== undefined ? task_link : null,
         linksJson !== undefined ? linksJson : null,
         progress_percentage !== undefined ? progress_percentage : null,
-        hours_spent !== undefined ? hours_spent : null,
+        effectiveHoursSpent,
         blockers !== undefined ? blockers : null,
         daily_summary !== undefined ? daily_summary : null,
         id
@@ -729,7 +741,7 @@ export async function PATCH(req: Request) {
     );
 
     // Auto-record into daily_work table if hours or work summary logged
-    if ((hours_spent && parseFloat(hours_spent) > 0) || daily_summary) {
+    if ((effectiveHoursSpent && parseFloat(effectiveHoursSpent) > 0) || daily_summary) {
       try {
         const todayStr = new Date().toISOString().split("T")[0];
         await pool.query(
@@ -740,7 +752,7 @@ export async function PATCH(req: Request) {
             currentTask.project_id || null,
             id,
             todayStr,
-            parseFloat(hours_spent) || 1.0,
+            parseFloat(effectiveHoursSpent) || 1.0,
             daily_summary || `Worked on ${currentTask.title} (${progress_percentage || 0}% done)`,
             newStatus,
             blockers || remarks || null

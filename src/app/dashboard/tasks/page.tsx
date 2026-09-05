@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { showError, showSuccess, showWarning, showToast } from "@/lib/swal";
+import { showError, showSuccess, showWarning, showToast, showConfirm } from "@/lib/swal";
 import { 
   CheckCircle, 
   Send, 
@@ -257,29 +257,64 @@ export default function DailyTasksPage() {
     }
   };
 
-  const handleQuickStopActiveTimer = async (taskId: number) => {
+  const handleQuickPauseTimer = async (taskId: number) => {
     try {
       const res = await fetch("/api/tasks/timer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: "stop",
+          action: "pause",
           task_id: taskId,
         }),
       });
 
       const data = await res.json();
       if (res.ok) {
-        showToast(`Timer paused! (${data.duration_minutes || 1} mins logged)`);
+        showToast(`Timer paused for break! (${data.duration_minutes || 1}m logged)`);
         window.dispatchEvent(new Event("task-timer-updated"));
         fetchActiveUserTimer();
         fetchTasks();
       } else {
-        showError("Failed to Stop Timer", data.error || "Unknown error");
+        showError("Failed to Pause Timer", data.error || "Unknown error");
       }
     } catch (err) {
       console.error(err);
-      showError("Error", "Failed to stop task timer.");
+      showError("Error", "Failed to pause task timer.");
+    }
+  };
+
+  const handleQuickFinishTask = async (task: any) => {
+    const confirmed = await showConfirm(
+      "Finish & Complete Task?",
+      `Are you sure you want to finish "${task.title}"? This will stop your timer, mark the task as 100% Completed, and permanently record your hours spent today as locked and unchangeable.`,
+      "Yes, Finish Task",
+      "Keep Working"
+    );
+    if (!confirmed) return;
+
+    try {
+      const res = await fetch("/api/tasks/timer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "stop",
+          task_id: task.id,
+          session_summary: `Task finished and verified complete`,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        showSuccess("Task Completed!", `Total recorded time: ${data.hours_spent}h locked in Hours Spent.`);
+        window.dispatchEvent(new Event("task-timer-updated"));
+        fetchActiveUserTimer();
+        fetchTasks();
+      } else {
+        showError("Failed to Complete Task", data.error || "Unknown error");
+      }
+    } catch (err) {
+      console.error(err);
+      showError("Error", "Failed to finish task.");
     }
   };
 
@@ -727,7 +762,8 @@ export default function DailyTasksPage() {
   const openProgressModal = (task: any) => {
     setSelectedTaskForProgress(task);
     setProgressPercentage(task.progress_percentage || 0);
-    setHoursSpentToday(Math.max(0, parseFloat(task.hours_spent) || 2.0));
+    const recordedHours = task.hours_spent !== null && task.hours_spent !== undefined ? parseFloat(task.hours_spent) : 0;
+    setHoursSpentToday(recordedHours || 0);
     setDailySummary(task.daily_summary || "");
     setBlockers(task.blockers || "");
     
@@ -739,7 +775,9 @@ export default function DailyTasksPage() {
   // Save Progress
   const handleSaveProgress = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedTaskForProgress) return;
+    const finalHours = (parseFloat(selectedTaskForProgress.hours_spent) > 0 && !canManageAllTasks)
+      ? parseFloat(selectedTaskForProgress.hours_spent)
+      : Math.max(0, Number(hoursSpentToday) || 0);
 
     setSubmittingProgress(true);
     try {
@@ -750,7 +788,7 @@ export default function DailyTasksPage() {
           id: selectedTaskForProgress.id,
           status: progressStatus,
           progress_percentage: progressPercentage,
-          hours_spent: Math.max(0, Number(hoursSpentToday) || 0),
+          hours_spent: finalHours,
           daily_summary: dailySummary.trim(),
           blockers: blockers.trim() || null,
         }),
@@ -1764,21 +1802,42 @@ export default function DailyTasksPage() {
             {/* Hours Spent & Status */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label htmlFor="hoursSpent" className="font-semibold text-slate-700 text-xs">
-                  Hours Spent Today *
-                </Label>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="hoursSpent" className="font-semibold text-slate-700 text-xs">
+                    Hours Spent Today *
+                  </Label>
+                  {parseFloat(selectedTaskForProgress?.hours_spent) > 0 && (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                      🔒 Locked (Timer)
+                    </span>
+                  )}
+                </div>
                 <Input
                   id="hoursSpent"
                   type="number"
                   min="0"
-                  step="0.5"
+                  step="0.1"
                   value={hoursSpentToday}
+                  readOnly={parseFloat(selectedTaskForProgress?.hours_spent) > 0 && !canManageAllTasks}
                   onChange={(e) => {
+                    if (parseFloat(selectedTaskForProgress?.hours_spent) > 0 && !canManageAllTasks) return;
                     const val = parseFloat(e.target.value);
                     setHoursSpentToday(isNaN(val) ? 0 : Math.max(0, val));
                   }}
+                  className={
+                    parseFloat(selectedTaskForProgress?.hours_spent) > 0 && !canManageAllTasks
+                      ? "bg-slate-100 text-slate-700 cursor-not-allowed border-slate-300 font-bold"
+                      : ""
+                  }
                   required
                 />
+                {parseFloat(selectedTaskForProgress?.hours_spent) > 0 && (
+                  <p className="text-[10px] text-slate-500 font-medium">
+                    {canManageAllTasks
+                      ? "Recorded from task timer (PM/Admin editable)."
+                      : "Recorded from task timer sessions (Unchangeable)."}
+                  </p>
+                )}
               </div>
 
               <div className="space-y-1.5">
@@ -2681,23 +2740,49 @@ export default function DailyTasksPage() {
 
                     {/* Action Buttons */}
                     <TableCell className="align-top text-right space-y-1.5">
-                      {/* Task Start / Pause Timer Button */}
+                      {/* Task Start / Pause / Finish Timer Controls */}
                       {activeUserTimer?.task_id === task.id ? (
+                        <div className="flex items-center gap-1 w-full">
+                          <Button
+                            size="sm"
+                            onClick={() => handleQuickPauseTimer(task.id)}
+                            className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs gap-1 shadow-xs flex-1 justify-center cursor-pointer"
+                            title="Pause timer to go on break"
+                          >
+                            <Pause className="h-3.5 w-3.5 fill-current" /> Pause
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() => handleQuickFinishTask(task)}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-1 shadow-xs flex-1 justify-center cursor-pointer"
+                            title="Finish task and lock hours"
+                          >
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Finish
+                          </Button>
+                        </div>
+                      ) : task.status === "Completed" ? (
+                        <div className="flex items-center justify-center gap-1 py-1 px-2 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold w-full">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> Finished ({task.hours_spent || 0}h)
+                        </div>
+                      ) : (parseFloat(task.hours_spent) > 0 || task.status === "In Progress") ? (
                         <Button
                           size="sm"
-                          onClick={() => handleQuickStopActiveTimer(task.id)}
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-1.5 shadow-sm w-full justify-center animate-pulse cursor-pointer"
+                          variant="outline"
+                          onClick={() => handleOpenStartTimerModal(task)}
+                          className="border-emerald-400 bg-emerald-50/80 hover:bg-emerald-100 text-emerald-800 font-bold text-xs gap-1.5 shadow-2xs w-full justify-center cursor-pointer"
+                          title="Resume timer on this task"
                         >
-                          <Pause className="h-3.5 w-3.5" /> Pause Timer
+                          <Play className="h-3.5 w-3.5 text-emerald-600 fill-emerald-600" /> Resume Timer ({task.hours_spent}h)
                         </Button>
                       ) : (
                         <Button
                           size="sm"
                           variant="outline"
                           onClick={() => handleOpenStartTimerModal(task)}
-                          className="border-emerald-300 bg-emerald-50/80 hover:bg-emerald-100 text-emerald-800 font-bold text-xs gap-1.5 shadow-2xs w-full justify-center cursor-pointer"
+                          className="border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-xs gap-1.5 shadow-2xs w-full justify-center cursor-pointer"
+                          title="Start timer on this task"
                         >
-                          <Play className="h-3.5 w-3.5 text-emerald-600" /> Start Timer
+                          <Play className="h-3.5 w-3.5 text-slate-500" /> Start Timer
                         </Button>
                       )}
 

@@ -178,12 +178,11 @@ export async function POST(req: Request) {
     }
 
     // -------------------------------------------------------------
-    // ACTION: PAUSE / STOP TIMER
+    // ACTION: PAUSE (Break / Pause session, to be resumed later)
     // -------------------------------------------------------------
-    if (action === "pause" || action === "stop") {
-      const { task_id, end_time, session_summary, blockers, progress_percentage } = body;
+    if (action === "pause") {
+      const { task_id, end_time, session_summary, blockers } = body;
 
-      // Find active timer for this user
       let query = "SELECT * FROM task_time_logs WHERE user_id = ? AND is_active = 1";
       const params: any[] = [currentUserId];
       if (task_id) {
@@ -194,7 +193,7 @@ export async function POST(req: Request) {
 
       const [activeLogs]: any = await pool.query(query, params);
       if (activeLogs.length === 0) {
-        return NextResponse.json({ error: "No active running timer found to pause/stop." }, { status: 404 });
+        return NextResponse.json({ error: "No active running timer found to pause." }, { status: 404 });
       }
 
       const activeTimer = activeLogs[0];
@@ -203,31 +202,114 @@ export async function POST(req: Request) {
       const durationMins = Math.max(1, Math.round((effectiveEndTime.getTime() - startTime.getTime()) / (1000 * 60)));
       const endTimeFormatted = effectiveEndTime.toISOString().slice(0, 19).replace('T', ' ');
 
-      // Update timer log
+      // Update timer log as paused
       await pool.query(
         `UPDATE task_time_logs 
-         SET ended_at = ?, duration_minutes = ?, session_summary = IFNULL(?, session_summary), is_active = 0 
+         SET ended_at = ?, duration_minutes = ?, session_summary = IFNULL(?, 'Paused for break'), is_active = 0 
          WHERE id = ?`,
         [endTimeFormatted, durationMins, session_summary || null, activeTimer.id]
       );
 
-      // Sync cumulative hours_spent to task
       const totalHours = await syncTaskHours(activeTimer.task_id);
 
-      // Optionally update progress % or remarks on task
-      if (progress_percentage !== undefined) {
-        await pool.query("UPDATE tasks SET progress_percentage = ? WHERE id = ?", [progress_percentage, activeTimer.task_id]);
-      }
       if (blockers) {
         await pool.query("UPDATE tasks SET blockers = ? WHERE id = ?", [blockers, activeTimer.task_id]);
       }
 
-      // Auto-sync session into daily_work audit table
+      // Auto-sync session to daily_work
       try {
         const [taskInfo]: any = await pool.query("SELECT title, project_id, status FROM tasks WHERE id = ?", [activeTimer.task_id]);
         const project_id = taskInfo[0]?.project_id || null;
         const taskTitle = taskInfo[0]?.title || "Task";
-        const taskStatus = taskInfo[0]?.status || "In Progress";
+        const sessionHours = parseFloat((durationMins / 60).toFixed(2));
+        const todayStr = effectiveEndTime.toISOString().split("T")[0];
+
+        await pool.query(
+          `INSERT INTO daily_work (user_id, project_id, task_id, date, hours_worked, work_description, status, remarks)
+           VALUES (?, ?, ?, ?, ?, ?, 'In Progress', ?)`,
+          [
+            currentUserId,
+            project_id,
+            activeTimer.task_id,
+            todayStr,
+            sessionHours,
+            session_summary || `[Paused] Worked on: ${taskTitle} (${durationMins} mins)`,
+            blockers || "Paused - on break"
+          ]
+        );
+      } catch (workLogErr) {
+        console.error("Failed to auto-sync pause session to daily_work:", workLogErr);
+      }
+
+      return NextResponse.json({
+        success: true,
+        is_paused: true,
+        message: "Timer paused for break. You can resume work when you return.",
+        duration_minutes: durationMins,
+        hours_spent: totalHours,
+        ended_at: endTimeFormatted
+      });
+    }
+
+    // -------------------------------------------------------------
+    // ACTION: STOP / FINISH (Task Done / Completed)
+    // -------------------------------------------------------------
+    if (action === "stop" || action === "complete" || action === "finish") {
+      const { task_id, end_time, session_summary, blockers, task_status } = body;
+
+      let query = "SELECT * FROM task_time_logs WHERE user_id = ? AND is_active = 1";
+      const params: any[] = [currentUserId];
+      if (task_id) {
+        query += " AND task_id = ?";
+        params.push(task_id);
+      }
+      query += " ORDER BY started_at DESC LIMIT 1";
+
+      const [activeLogs]: any = await pool.query(query, params);
+      
+      let durationMins = 0;
+      let effectiveEndTime = end_time ? new Date(end_time) : new Date();
+      let endTimeFormatted = effectiveEndTime.toISOString().slice(0, 19).replace('T', ' ');
+      let targetTaskId = task_id;
+
+      if (activeLogs.length > 0) {
+        const activeTimer = activeLogs[0];
+        targetTaskId = activeTimer.task_id;
+        const startTime = new Date(activeTimer.started_at);
+        durationMins = Math.max(1, Math.round((effectiveEndTime.getTime() - startTime.getTime()) / (1000 * 60)));
+
+        await pool.query(
+          `UPDATE task_time_logs 
+           SET ended_at = ?, duration_minutes = ?, session_summary = IFNULL(?, 'Task finished & timer stopped'), is_active = 0 
+           WHERE id = ?`,
+          [endTimeFormatted, durationMins, session_summary || null, activeTimer.id]
+        );
+      }
+
+      if (!targetTaskId) {
+        return NextResponse.json({ error: "task_id is required" }, { status: 400 });
+      }
+
+      // Sync cumulative hours_spent to task
+      const totalHours = await syncTaskHours(targetTaskId);
+
+      // Mark task completed / done with 100% progress
+      const finalStatus = task_status || "Completed";
+      await pool.query(
+        `UPDATE tasks 
+         SET status = ?, 
+             progress_percentage = 100, 
+             daily_summary = IFNULL(?, daily_summary),
+             blockers = IFNULL(?, blockers) 
+         WHERE id = ?`,
+        [finalStatus, session_summary || "Task completed via timer stop", blockers || null, targetTaskId]
+      );
+
+      // Auto-sync final completion into daily_work
+      try {
+        const [taskInfo]: any = await pool.query("SELECT title, project_id FROM tasks WHERE id = ?", [targetTaskId]);
+        const project_id = taskInfo[0]?.project_id || null;
+        const taskTitle = taskInfo[0]?.title || "Task";
         const sessionHours = parseFloat((durationMins / 60).toFixed(2));
         const todayStr = effectiveEndTime.toISOString().split("T")[0];
 
@@ -237,21 +319,22 @@ export async function POST(req: Request) {
           [
             currentUserId,
             project_id,
-            activeTimer.task_id,
+            targetTaskId,
             todayStr,
-            sessionHours,
-            session_summary || `Worked on: ${taskTitle} (${durationMins} mins via timer)`,
-            taskStatus,
-            blockers || null
+            sessionHours > 0 ? sessionHours : totalHours,
+            session_summary || `[Completed] Finished task: ${taskTitle} (Total: ${totalHours}h)`,
+            finalStatus,
+            "Task marked done via timer"
           ]
         );
       } catch (workLogErr) {
-        console.error("Failed to auto-sync timer session to daily_work:", workLogErr);
+        console.error("Failed to auto-sync stop session to daily_work:", workLogErr);
       }
 
       return NextResponse.json({
         success: true,
-        message: "Timer stopped successfully",
+        is_completed: true,
+        message: `Task finished and marked ${finalStatus}! Total hours spent: ${totalHours}h recorded.`,
         duration_minutes: durationMins,
         hours_spent: totalHours,
         ended_at: endTimeFormatted
