@@ -204,6 +204,24 @@ export default function DailyTasksPage() {
 
   // Direct Start / Resume Timer without custom time selection modal
   const handleStartTimerDirect = async (task: any) => {
+    // 1. Validation: Once logged/completed, cannot start the same task again
+    if (task.status === "Completed") {
+      showWarning(
+        "Task Already Logged",
+        `Task "${task.title}" is already completed and logged (${task.hours_spent || 0}h). Once logged, you cannot start this task again.`
+      );
+      return;
+    }
+
+    // 2. Validation: If another task is active, cannot start until earlier task timer ends
+    if (activeUserTimer && activeUserTimer.task_id !== task.id) {
+      showWarning(
+        "Active Task Timer In Progress",
+        `You are currently tracking "${activeUserTimer.task_title}". You cannot start another task timer until the earlier task timer is paused or finished.`
+      );
+      return;
+    }
+
     try {
       const res = await fetch("/api/tasks/timer", {
         method: "POST",
@@ -226,7 +244,7 @@ export default function DailyTasksPage() {
         fetchActiveUserTimer();
         fetchTasks();
       } else {
-        showError("Failed to Start Timer", data.error || "Unknown error");
+        showError("Timer Start Blocked", data.error || "Unknown error");
       }
     } catch (err) {
       console.error(err);
@@ -2773,16 +2791,26 @@ export default function DailyTasksPage() {
                           </Button>
                         </div>
                       ) : task.status === "Completed" ? (
-                        <div className="flex items-center justify-center gap-1 py-1 px-2 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold w-full">
-                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> Finished ({task.hours_spent || 0}h)
+                        <div 
+                          className="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-slate-100 text-slate-600 border border-slate-200 text-xs font-bold w-full select-none cursor-not-allowed"
+                          title="Task completed and logged. Once logged, this task cannot be started again."
+                        >
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> Logged ({task.hours_spent || 0}h)
                         </div>
                       ) : (parseFloat(task.hours_spent) > 0 || task.status === "In Progress") ? (
                         <Button
                           size="sm"
                           variant="outline"
                           onClick={() => handleStartTimerDirect(task)}
-                          className="border-emerald-400 bg-emerald-50/80 hover:bg-emerald-100 text-emerald-800 font-bold text-xs gap-1.5 shadow-2xs w-full justify-center cursor-pointer"
-                          title="Resume timer on this task"
+                          disabled={!!activeUserTimer && activeUserTimer.task_id !== task.id}
+                          className={`border-emerald-400 bg-emerald-50/80 hover:bg-emerald-100 text-emerald-800 font-bold text-xs gap-1.5 shadow-2xs w-full justify-center ${
+                            !!activeUserTimer && activeUserTimer.task_id !== task.id ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
+                          }`}
+                          title={
+                            !!activeUserTimer && activeUserTimer.task_id !== task.id
+                              ? `Active timer is running on "${activeUserTimer.task_title}". Pause or finish it first.`
+                              : "Resume timer on this task"
+                          }
                         >
                           <Play className="h-3.5 w-3.5 text-emerald-600 fill-emerald-600" /> Resume Timer ({task.hours_spent}h)
                         </Button>
@@ -2791,8 +2819,15 @@ export default function DailyTasksPage() {
                           size="sm"
                           variant="outline"
                           onClick={() => handleStartTimerDirect(task)}
-                          className="border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-xs gap-1.5 shadow-2xs w-full justify-center cursor-pointer"
-                          title="Start timer on this task"
+                          disabled={!!activeUserTimer && activeUserTimer.task_id !== task.id}
+                          className={`border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-xs gap-1.5 shadow-2xs w-full justify-center ${
+                            !!activeUserTimer && activeUserTimer.task_id !== task.id ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
+                          }`}
+                          title={
+                            !!activeUserTimer && activeUserTimer.task_id !== task.id
+                              ? `Active timer is running on "${activeUserTimer.task_title}". Pause or finish it first.`
+                              : "Start timer on this task"
+                          }
                         >
                           <Play className="h-3.5 w-3.5 text-slate-500" /> Start Timer
                         </Button>

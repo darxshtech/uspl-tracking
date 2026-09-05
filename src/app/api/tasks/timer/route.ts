@@ -127,7 +127,7 @@ export async function POST(req: Request) {
     const { action } = body;
 
     // -------------------------------------------------------------
-    // ACTION: START TIMER (With Auto-pause for existing active timer)
+    // ACTION: START TIMER (With Strict Exclusivity & Completion Checks)
     // -------------------------------------------------------------
     if (action === "start") {
       const { task_id, start_time } = body;
@@ -135,12 +135,44 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "task_id is required" }, { status: 400 });
       }
 
-      // 1. Verify task exists
-      const [tasks]: any = await pool.query("SELECT id, title, status, project_id FROM tasks WHERE id = ?", [task_id]);
+      // 1. Verify task exists and verify it is not already completed/logged
+      const [tasks]: any = await pool.query(
+        "SELECT id, title, status, project_id, hours_spent FROM tasks WHERE id = ?",
+        [task_id]
+      );
       if (tasks.length === 0) {
         return NextResponse.json({ error: "Task not found" }, { status: 404 });
       }
       const task = tasks[0];
+
+      // Validation: Once task is logged as completed, it cannot be started again
+      if (task.status === "Completed") {
+        return NextResponse.json({
+          error: `Task "${task.title}" is already completed and logged (${task.hours_spent || 0}h). Once logged, you cannot start this task again.`
+        }, { status: 400 });
+      }
+
+      // 2. Validation: If another task timer is active, user cannot start another until the earlier one ends
+      const [existingActive]: any = await pool.query(
+        `SELECT ttl.id, ttl.task_id, t.title as task_title 
+         FROM task_time_logs ttl 
+         JOIN tasks t ON ttl.task_id = t.id 
+         WHERE ttl.user_id = ? AND ttl.is_active = 1`,
+        [currentUserId]
+      );
+
+      if (existingActive.length > 0) {
+        const currentActive = existingActive[0];
+        if (currentActive.task_id === task_id) {
+          return NextResponse.json({
+            error: `Timer is already running on this task ("${currentActive.task_title}").`
+          }, { status: 400 });
+        } else {
+          return NextResponse.json({
+            error: `Another task is currently active ("${currentActive.task_title}"). You cannot start another task timer until the earlier task timer is paused or ended.`
+          }, { status: 400 });
+        }
+      }
 
       // Determine starting timestamp: Regular employees always start at now.
       // Only management (PM, Admin, CEO) may supply a custom start_time.
@@ -152,29 +184,6 @@ export async function POST(req: Request) {
         }
       }
       const startTimeFormatted = effectiveStartTime.toISOString().slice(0, 19).replace('T', ' ');
-
-      // 2. Timer Exclusivity: Automatically pause/close any previous active timer for this user
-      const [existingActive]: any = await pool.query(
-        "SELECT id, task_id, started_at FROM task_time_logs WHERE user_id = ? AND is_active = 1",
-        [currentUserId]
-      );
-
-      for (const prevTimer of existingActive) {
-        const prevStart = new Date(prevTimer.started_at);
-        const prevEnd = effectiveStartTime > prevStart ? effectiveStartTime : new Date();
-        const durationMins = Math.max(1, Math.round((prevEnd.getTime() - prevStart.getTime()) / (1000 * 60)));
-        const prevEndFormatted = prevEnd.toISOString().slice(0, 19).replace('T', ' ');
-
-        await pool.query(
-          `UPDATE task_time_logs 
-           SET ended_at = ?, duration_minutes = ?, is_active = 0 
-           WHERE id = ?`,
-          [prevEndFormatted, durationMins, prevTimer.id]
-        );
-
-        // Recalculate previous task's hours_spent
-        await syncTaskHours(prevTimer.task_id);
-      }
 
       // 3. Insert new active timer
       const [insertResult]: any = await pool.query(
