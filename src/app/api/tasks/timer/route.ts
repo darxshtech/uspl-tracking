@@ -43,7 +43,12 @@ export async function GET(req: Request) {
         `SELECT ttl.*, 
                 u.id as user_id, u.name as user_name, u.email as user_email, u.role as user_role,
                 t.id as task_id, t.title as task_title, t.priority, t.status as task_status,
-                p.id as project_id, p.name as project_name
+                p.id as project_id, p.name as project_name,
+                (
+                  SELECT IFNULL(SUM(duration_minutes), 0) * 60 
+                  FROM task_time_logs 
+                  WHERE task_id = ttl.task_id AND user_id = ttl.user_id AND is_active = 0
+                ) as previous_duration_seconds
          FROM task_time_logs ttl
          JOIN users u ON ttl.user_id = u.id
          JOIN tasks t ON ttl.task_id = t.id
@@ -86,9 +91,21 @@ export async function GET(req: Request) {
       [currentUserId]
     );
 
+    let activeTimer = activeRows.length > 0 ? activeRows[0] : null;
+    if (activeTimer) {
+      // Calculate accumulated seconds from previous finished sessions on this task
+      const [prevSum]: any = await pool.query(
+        `SELECT IFNULL(SUM(duration_minutes), 0) * 60 as prev_seconds
+         FROM task_time_logs
+         WHERE task_id = ? AND user_id = ? AND is_active = 0`,
+        [activeTimer.task_id, currentUserId]
+      );
+      activeTimer.previous_duration_seconds = Math.round(parseFloat(prevSum[0]?.prev_seconds || 0));
+    }
+
     return NextResponse.json({
       success: true,
-      active_timer: activeRows.length > 0 ? activeRows[0] : null
+      active_timer: activeTimer
     });
   } catch (error: any) {
     console.error("GET /api/tasks/timer error:", error);
@@ -103,7 +120,7 @@ export async function POST(req: Request) {
   const currentUserId = parseInt(String((session.user as any).id), 10);
   const currentUserName = session.user?.name || "User";
   const currentRole = (session.user as any).role;
-  const isManagement = ["PM", "Admin"].includes(currentRole);
+  const isManagement = ["PM", "Admin", "CEO"].includes(currentRole);
 
   try {
     const body = await req.json();
@@ -125,10 +142,14 @@ export async function POST(req: Request) {
       }
       const task = tasks[0];
 
-      // Determine starting timestamp
-      const effectiveStartTime = start_time ? new Date(start_time) : new Date();
-      if (isNaN(effectiveStartTime.getTime())) {
-        return NextResponse.json({ error: "Invalid start_time format" }, { status: 400 });
+      // Determine starting timestamp: Regular employees always start at now.
+      // Only management (PM, Admin, CEO) may supply a custom start_time.
+      let effectiveStartTime = new Date();
+      if (isManagement && start_time) {
+        const customDate = new Date(start_time);
+        if (!isNaN(customDate.getTime())) {
+          effectiveStartTime = customDate;
+        }
       }
       const startTimeFormatted = effectiveStartTime.toISOString().slice(0, 19).replace('T', ' ');
 
@@ -342,11 +363,11 @@ export async function POST(req: Request) {
     }
 
     // -------------------------------------------------------------
-    // ACTION: EDIT PAST LOG (PM & Admin Only)
+    // ACTION: EDIT PAST LOG (PM, Admin & CEO Only)
     // -------------------------------------------------------------
     if (action === "edit_log") {
       if (!isManagement) {
-        return NextResponse.json({ error: "Unauthorized: Only PM and Admin can manually adjust past timer logs." }, { status: 403 });
+        return NextResponse.json({ error: "Unauthorized: Only PM, Admin, and CEO can manually adjust past timer logs." }, { status: 403 });
       }
 
       const { log_id, started_at, ended_at, session_summary } = body;
@@ -383,6 +404,34 @@ export async function POST(req: Request) {
         success: true,
         message: "Time log updated successfully by manager",
         duration_minutes: durationMins,
+        total_hours: totalHours
+      });
+    }
+
+    // -------------------------------------------------------------
+    // ACTION: DELETE PAST LOG (PM, Admin & CEO Only)
+    // -------------------------------------------------------------
+    if (action === "delete_log") {
+      if (!isManagement) {
+        return NextResponse.json({ error: "Unauthorized: Only PM, Admin, and CEO can delete timer logs." }, { status: 403 });
+      }
+
+      const { log_id } = body;
+      if (!log_id) {
+        return NextResponse.json({ error: "log_id is required" }, { status: 400 });
+      }
+
+      const [targetLog]: any = await pool.query("SELECT task_id FROM task_time_logs WHERE id = ?", [log_id]);
+      if (targetLog.length === 0) {
+        return NextResponse.json({ error: "Time log entry not found" }, { status: 404 });
+      }
+
+      await pool.query("DELETE FROM task_time_logs WHERE id = ?", [log_id]);
+      const totalHours = await syncTaskHours(targetLog[0].task_id);
+
+      return NextResponse.json({
+        success: true,
+        message: "Time log deleted successfully and task hours recalculated",
         total_hours: totalHours
       });
     }

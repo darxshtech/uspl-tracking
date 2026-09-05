@@ -152,11 +152,6 @@ export default function DailyTasksPage() {
 
   // Active Timer state
   const [activeUserTimer, setActiveUserTimer] = useState<any>(null);
-  const [startTimerModalOpen, setStartTimerModalOpen] = useState(false);
-  const [selectedTaskForTimer, setSelectedTaskForTimer] = useState<any>(null);
-  const [customStartTime, setCustomStartTime] = useState("");
-  const [isCustomStart, setIsCustomStart] = useState(false);
-  const [startingTimer, setStartingTimer] = useState(false);
 
   // Time Logs History Modal state
   const [timeLogsModalOpen, setTimeLogsModalOpen] = useState(false);
@@ -164,7 +159,7 @@ export default function DailyTasksPage() {
   const [taskTimeLogs, setTaskTimeLogs] = useState<any[]>([]);
   const [loadingTimeLogs, setLoadingTimeLogs] = useState(false);
 
-  // PM / Admin Edit Time Log state
+  // PM / Admin / CEO Edit Time Log state
   const [editingLogId, setEditingLogId] = useState<number | null>(null);
   const [editLogStart, setEditLogStart] = useState("");
   const [editLogEnd, setEditLogEnd] = useState("");
@@ -207,42 +202,26 @@ export default function DailyTasksPage() {
     };
   }, []);
 
-  const handleOpenStartTimerModal = (task: any) => {
-    setSelectedTaskForTimer(task);
-    setIsCustomStart(false);
-    // Default custom start time to current local datetime format for input
-    const now = new Date();
-    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-    setCustomStartTime(now.toISOString().slice(0, 16));
-    setStartTimerModalOpen(true);
-  };
-
-  const handleStartTimerSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedTaskForTimer) return;
-    setStartingTimer(true);
+  // Direct Start / Resume Timer without custom time selection modal
+  const handleStartTimerDirect = async (task: any) => {
     try {
-      let formattedStart = undefined;
-      if (isCustomStart && customStartTime) {
-        formattedStart = new Date(customStartTime).toISOString();
-      }
-
       const res = await fetch("/api/tasks/timer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "start",
-          task_id: selectedTaskForTimer.id,
-          start_time: formattedStart,
+          task_id: task.id,
         }),
       });
 
       const data = await res.json();
       if (res.ok) {
-        setStartTimerModalOpen(false);
-        setIsCustomStart(false);
-        setCustomStartTime("");
-        showToast("Task timer started! Active timer is running.");
+        const isResuming = parseFloat(task.hours_spent) > 0;
+        showToast(
+          isResuming
+            ? `▶ Resumed timer for "${task.title}" (Continuing from ${task.hours_spent}h)`
+            : `▶ Started timer for "${task.title}"`
+        );
         window.dispatchEvent(new Event("task-timer-updated"));
         fetchActiveUserTimer();
         fetchTasks();
@@ -252,8 +231,6 @@ export default function DailyTasksPage() {
     } catch (err) {
       console.error(err);
       showError("Error", "Failed to start task timer.");
-    } finally {
-      setStartingTimer(false);
     }
   };
 
@@ -390,6 +367,41 @@ export default function DailyTasksPage() {
       showError("Error", "Failed to edit time log.");
     } finally {
       setSavingEditLog(false);
+    }
+  };
+
+  const handleDeleteTimeLog = async (logId: number) => {
+    const confirmed = await showConfirm(
+      "Delete Time Session?",
+      "Are you sure you want to delete this time session? The task's total hours spent will be automatically recalculated and synced.",
+      "Yes, Delete Session",
+      "Cancel"
+    );
+    if (!confirmed) return;
+
+    try {
+      const res = await fetch("/api/tasks/timer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "delete_log",
+          log_id: logId,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        showToast("Time session deleted and hours updated.");
+        if (selectedTaskForTimeLogs) {
+          handleOpenTimeLogs(selectedTaskForTimeLogs);
+        }
+        fetchTasks();
+      } else {
+        showError("Failed to Delete", data.error || "Unknown error");
+      }
+    } catch (err) {
+      console.error(err);
+      showError("Error", "Failed to delete time session.");
     }
   };
 
@@ -2768,7 +2780,7 @@ export default function DailyTasksPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => handleOpenStartTimerModal(task)}
+                          onClick={() => handleStartTimerDirect(task)}
                           className="border-emerald-400 bg-emerald-50/80 hover:bg-emerald-100 text-emerald-800 font-bold text-xs gap-1.5 shadow-2xs w-full justify-center cursor-pointer"
                           title="Resume timer on this task"
                         >
@@ -2778,7 +2790,7 @@ export default function DailyTasksPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => handleOpenStartTimerModal(task)}
+                          onClick={() => handleStartTimerDirect(task)}
                           className="border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-xs gap-1.5 shadow-2xs w-full justify-center cursor-pointer"
                           title="Start timer on this task"
                         >
@@ -2904,97 +2916,6 @@ export default function DailyTasksPage() {
         </Table>
       </div>
 
-      {/* START TIMER MODAL (Start Now vs Custom Start Time) */}
-      <Dialog open={startTimerModalOpen} onOpenChange={setStartTimerModalOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-lg font-bold text-slate-900">
-              <Play className="h-5 w-5 text-emerald-600" /> Start Task Timer
-            </DialogTitle>
-          </DialogHeader>
-
-          {selectedTaskForTimer && (
-            <form onSubmit={handleStartTimerSubmit} className="space-y-4 pt-2">
-              <div className="rounded-xl bg-emerald-50 p-3 text-xs border border-emerald-200 space-y-1">
-                <div className="font-bold text-emerald-950">{selectedTaskForTimer.title}</div>
-                <div className="text-emerald-700">{selectedTaskForTimer.project_name || "Project Task"}</div>
-              </div>
-
-              <div className="space-y-2">
-                <Label className="text-xs font-bold text-slate-800">When did you start?</Label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsCustomStart(false)}
-                    className={`p-3 rounded-xl border text-xs font-bold flex flex-col items-center gap-1 transition ${
-                      !isCustomStart 
-                        ? "bg-emerald-50 border-emerald-400 text-emerald-900 shadow-xs" 
-                        : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                    }`}
-                  >
-                    <Flame className="h-4 w-4 text-emerald-600" />
-                    <span>Start Right Now</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setIsCustomStart(true)}
-                    className={`p-3 rounded-xl border text-xs font-bold flex flex-col items-center gap-1 transition ${
-                      isCustomStart 
-                        ? "bg-indigo-50 border-indigo-400 text-indigo-900 shadow-xs" 
-                        : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                    }`}
-                  >
-                    <Calendar className="h-4 w-4 text-indigo-600" />
-                    <span>Custom Start Time</span>
-                  </button>
-                </div>
-              </div>
-
-              {isCustomStart && (
-                <div className="space-y-1.5 animate-fade-in">
-                  <Label htmlFor="customStartTime" className="text-xs font-bold text-slate-700">
-                    Select Start Date & Time
-                  </Label>
-                  <Input
-                    id="customStartTime"
-                    type="datetime-local"
-                    value={customStartTime}
-                    onChange={(e) => setCustomStartTime(e.target.value)}
-                    className="text-xs"
-                    required={isCustomStart}
-                  />
-                  <p className="text-[11px] text-slate-400">Specify when work actually began on this task.</p>
-                </div>
-              )}
-
-              <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-[11px] text-slate-500">
-                ℹ️ <strong>Timer Rule:</strong> Starting this task will automatically pause any other active task timer running for your account.
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setStartTimerModalOpen(false)}
-                  disabled={startingTimer}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={startingTimer}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-1.5"
-                >
-                  <Play className="h-3.5 w-3.5" />
-                  {startingTimer ? "Starting..." : "Begin Timer"}
-                </Button>
-              </div>
-            </form>
-          )}
-        </DialogContent>
-      </Dialog>
-
       {/* TIME LOGS HISTORY MODAL (With PM / Admin Edit Controls) */}
       <Dialog open={timeLogsModalOpen} onOpenChange={setTimeLogsModalOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -3014,9 +2935,9 @@ export default function DailyTasksPage() {
                   </Badge>
                 </div>
                 <p className="text-xs text-slate-500">Project: {selectedTaskForTimeLogs.project_name || "N/A"}</p>
-                {(role === "PM" || role === "Admin") && (
+                {canManageAllTasks && (
                   <p className="text-[11px] text-emerald-700 font-semibold pt-1">
-                    🛡️ Management Privileges: As {role}, you can adjust recorded session times if corrections are needed.
+                    🛡️ Management Privileges: As {role}, you can adjust or delete recorded employee session times.
                   </p>
                 )}
               </div>
@@ -3127,16 +3048,26 @@ export default function DailyTasksPage() {
                               )}
                             </div>
 
-                            {/* PM / Admin Edit Button */}
-                            {(role === "PM" || role === "Admin") && !log.is_active && (
-                              <button
-                                type="button"
-                                onClick={() => handleStartEditLog(log)}
-                                className="p-1.5 text-slate-400 hover:text-sky-600 hover:bg-slate-100 rounded-lg transition cursor-pointer shrink-0"
-                                title="Adjust session time"
-                              >
-                                <Edit3 className="h-3.5 w-3.5" />
-                              </button>
+                            {/* PM / Admin / CEO Edit & Delete Controls */}
+                            {canManageAllTasks && !log.is_active && (
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartEditLog(log)}
+                                  className="p-1.5 text-slate-400 hover:text-sky-600 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                                  title="Adjust session time (Admin, CEO, PM)"
+                                >
+                                  <Edit3 className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteTimeLog(log.id)}
+                                  className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
+                                  title="Delete time session"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
                             )}
                           </div>
                         )}

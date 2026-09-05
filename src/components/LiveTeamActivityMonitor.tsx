@@ -17,6 +17,7 @@ interface ActiveTeamTimer {
   project_id?: number;
   project_name?: string;
   started_at: string;
+  previous_duration_seconds?: number;
 }
 
 interface TeamTimerStats {
@@ -82,9 +83,9 @@ export default function LiveTeamActivityMonitor() {
     };
   }, [fetchTeamTimers]);
 
-  const calculateDuration = (startedAt: string) => {
+  const calculateDuration = (startedAt: string, prevSecs: number = 0) => {
     const startMs = new Date(startedAt).getTime();
-    const diffSecs = Math.max(0, Math.floor((currentTimeMs - startMs) / 1000));
+    const diffSecs = (Number(prevSecs) || 0) + Math.max(0, Math.floor((currentTimeMs - startMs) / 1000));
     const hrs = Math.floor(diffSecs / 3600);
     const mins = Math.floor((diffSecs % 3600) / 60);
     const secs = diffSecs % 60;
@@ -209,7 +210,7 @@ export default function LiveTeamActivityMonitor() {
                 <div className="flex items-center gap-1.5">
                   <Clock className="h-3.5 w-3.5 text-emerald-600 animate-pulse" />
                   <span className="font-mono font-bold text-emerald-700">
-                    {calculateDuration(timer.started_at)}
+                    {calculateDuration(timer.started_at, timer.previous_duration_seconds)}
                   </span>
                 </div>
 

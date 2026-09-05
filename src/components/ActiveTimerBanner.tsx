@@ -11,6 +11,7 @@ interface ActiveTimerData {
   priority?: string;
   started_at: string;
   is_active: number;
+  previous_duration_seconds?: number;
 }
 
 export default function ActiveTimerBanner() {
@@ -33,9 +34,11 @@ export default function ActiveTimerBanner() {
         const data = await res.json();
         if (data.active_timer) {
           setActiveTimer(data.active_timer);
+          const prevSecs = Number(data.active_timer.previous_duration_seconds) || 0;
           const startMs = new Date(data.active_timer.started_at).getTime();
           const nowMs = Date.now();
-          setElapsedSeconds(Math.max(0, Math.floor((nowMs - startMs) / 1000)));
+          const currentSecs = Math.max(0, Math.floor((nowMs - startMs) / 1000));
+          setElapsedSeconds(prevSecs + currentSecs);
         } else {
           setActiveTimer(null);
           setElapsedSeconds(0);
@@ -64,17 +67,24 @@ export default function ActiveTimerBanner() {
     };
   }, [fetchActiveTimer]);
 
-  // Live stopwatch counter (ticks every second)
+  // Live stopwatch counter (ticks every second, continuing from previous paused time)
   useEffect(() => {
     if (!activeTimer) {
       if (timerRef.current) clearInterval(timerRef.current);
       return;
     }
 
+    const prevSecs = Number(activeTimer.previous_duration_seconds) || 0;
+    const startMs = new Date(activeTimer.started_at).getTime();
+
+    // Initialize immediately
+    const initialSecs = prevSecs + Math.max(0, Math.floor((Date.now() - startMs) / 1000));
+    setElapsedSeconds(initialSecs);
+
     timerRef.current = setInterval(() => {
-      const startMs = new Date(activeTimer.started_at).getTime();
       const nowMs = Date.now();
-      setElapsedSeconds(Math.max(0, Math.floor((nowMs - startMs) / 1000)));
+      const currentSessionSecs = Math.max(0, Math.floor((nowMs - startMs) / 1000));
+      setElapsedSeconds(prevSecs + currentSessionSecs);
     }, 1000);
 
     return () => {
