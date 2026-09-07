@@ -13,6 +13,9 @@ export async function GET(req: Request) {
 
     const isExecutive = ["Admin", "CEO", "PM"].includes(role);
 
+    const { searchParams } = new URL(req.url);
+    const filterProjectId = searchParams.get("project_id") || searchParams.get("projectId");
+
     let query = `
       SELECT c.*, p.name as project_title, u.name as user_name 
       FROM credentials c 
@@ -20,10 +23,24 @@ export async function GET(req: Request) {
       JOIN users u ON c.user_id = u.id 
     `;
     let params: any[] = [];
+    const conditions: string[] = [];
 
     if (!isExecutive) {
-      query += " WHERE c.user_id = ?";
-      params = [userId];
+      conditions.push(`(
+        c.user_id = ? 
+        OR c.project_id IN (SELECT project_id FROM project_members WHERE user_id = ?) 
+        OR c.project_id IN (SELECT project_id FROM tasks WHERE assigned_to = ? OR id IN (SELECT task_id FROM task_assignees WHERE user_id = ?))
+      )`);
+      params.push(userId, userId, String(userId), userId);
+    }
+
+    if (filterProjectId) {
+      conditions.push("c.project_id = ?");
+      params.push(parseInt(filterProjectId, 10));
+    }
+
+    if (conditions.length > 0) {
+      query += " WHERE " + conditions.join(" AND ");
     }
     
     query += " ORDER BY c.created_at DESC";

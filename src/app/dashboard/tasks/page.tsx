@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -44,7 +45,14 @@ import {
   Paperclip,
   Link2,
   Users,
-  Pause
+  Pause,
+  KeyRound,
+  Copy,
+  Check,
+  Eye,
+  EyeOff,
+  Globe,
+  Laptop
 } from "lucide-react";
 import { formatHoursAndMinutes } from "@/lib/timeUtils";
 import LiveTeamActivityMonitor from "@/components/LiveTeamActivityMonitor";
@@ -172,6 +180,93 @@ export default function DailyTasksPage() {
   const [editLogSummary, setEditLogSummary] = useState("");
   const [savingEditLog, setSavingEditLog] = useState(false);
 
+  // Project Credentials Modal State
+  const [credentials, setCredentials] = useState<any[]>([]);
+  const [projectCredsModalOpen, setProjectCredsModalOpen] = useState(false);
+  const [selectedProjectForCreds, setSelectedProjectForCreds] = useState<{ id: number; name: string } | null>(null);
+  const [credsVisiblePasswords, setCredsVisiblePasswords] = useState<Record<string, boolean>>({});
+  const [credsCopiedKey, setCredsCopiedKey] = useState<string | null>(null);
+
+  // Group credentials by project_id for instant lookup
+  const projectCredentialsMap = useMemo(() => {
+    const map = new Map<number, any[]>();
+    credentials.forEach((c) => {
+      if (c.project_id) {
+        if (!map.has(c.project_id)) map.set(c.project_id, []);
+        map.get(c.project_id)!.push(c);
+      }
+    });
+    return map;
+  }, [credentials]);
+
+  const fetchCredentials = async () => {
+    try {
+      const res = await fetch("/api/credentials?_=" + Date.now());
+      const data = await res.json();
+      if (Array.isArray(data)) setCredentials(data);
+    } catch (err) {
+      console.error("Failed to fetch credentials:", err);
+    }
+  };
+
+  const handleCopyCredText = (text: string, keyName: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    setCredsCopiedKey(keyName);
+    showToast(`${label} copied!`, "success");
+    setTimeout(() => setCredsCopiedKey(null), 2000);
+  };
+
+  const handleToggleCredPassword = (key: string) => {
+    setCredsVisiblePasswords((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const handleOpenProjectCredentials = (projectId: number, projectName: string) => {
+    setSelectedProjectForCreds({ id: projectId, name: projectName });
+    setProjectCredsModalOpen(true);
+  };
+
+  // Helper to extract structured accounts from credentials text
+  const parseCredentialSections = (text: string, defaultRole: string = "Account") => {
+    if (!text) return [];
+    const lines = text.split("\n");
+    const sections: { role: string; username?: string; password?: string; notes?: string; raw: string }[] = [];
+    let currentSection: any = null;
+
+    lines.forEach((line) => {
+      const trimmed = line.trim();
+      const roleHeaderMatch = trimmed.match(/^\[(.*?)\]$/);
+
+      if (roleHeaderMatch) {
+        if (currentSection) sections.push(currentSection);
+        currentSection = { role: roleHeaderMatch[1], raw: line };
+      } else {
+        if (!currentSection) {
+          currentSection = { role: defaultRole, raw: line };
+        } else {
+          currentSection.raw += "\n" + line;
+        }
+
+        const colonIdx = trimmed.indexOf(":");
+        if (colonIdx !== -1) {
+          const field = trimmed.substring(0, colonIdx).trim().toLowerCase();
+          const val = trimmed.substring(colonIdx + 1).trim();
+          if (field.includes("user") || field.includes("email") || field.includes("login")) {
+            currentSection.username = val;
+          } else if (field.includes("pass") || field.includes("pwd") || field.includes("key")) {
+            currentSection.password = val;
+          } else if (field.includes("role")) {
+            currentSection.role = val;
+          }
+        }
+      }
+    });
+
+    if (currentSection) {
+      sections.push(currentSection);
+    }
+    return sections;
+  };
+
   const fetchActiveUserTimer = async () => {
     try {
       const res = await fetch("/api/tasks/timer?mode=active");
@@ -188,6 +283,7 @@ export default function DailyTasksPage() {
     fetchTasks();
     fetchProjects();
     fetchEmployees();
+    fetchCredentials();
     fetchActiveUserTimer();
 
     const handleTimerUpdate = () => {
@@ -2798,9 +2894,53 @@ export default function DailyTasksPage() {
                     </TableCell>
 
                     {/* Project & Assigner */}
-                    <TableCell className="align-top space-y-1">
-                      <div className="font-bold text-slate-900 text-xs">{task.project_name || "N/A"}</div>
-                      <div className="text-[11px] text-slate-500 flex items-center gap-1">
+                    <TableCell className="align-top space-y-1.5 min-w-[200px]">
+                      <div className="flex flex-col gap-1">
+                        {task.project_id ? (
+                          <Link
+                            href={`/dashboard/credentials?projectId=${task.project_id}`}
+                            className="group inline-flex items-center gap-1.5 font-black text-slate-900 hover:text-sky-600 text-xs transition-colors"
+                            title={`Click to open ${task.project_name || "Project"} in Credentials`}
+                          >
+                            <Briefcase className="h-3.5 w-3.5 text-sky-500 shrink-0 group-hover:scale-110 transition-transform" />
+                            <span className="hover:underline underline-offset-2">{task.project_name || "N/A"}</span>
+                            <ExternalLink className="h-3 w-3 opacity-60 group-hover:opacity-100 text-sky-500 transition-opacity" />
+                          </Link>
+                        ) : (
+                          <div className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                            <Briefcase className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                            <span>{task.project_name || "N/A"}</span>
+                          </div>
+                        )}
+
+                        {/* View Project Credentials Button */}
+                        {task.project_id && (
+                          <div className="flex items-center gap-1.5 pt-0.5">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleOpenProjectCredentials(task.project_id, task.project_name || "Project")}
+                              className={`h-6 px-2 text-[10px] font-bold gap-1 rounded-md transition-all shadow-2xs ${
+                                projectCredentialsMap.has(task.project_id)
+                                  ? "bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300 hover:border-amber-400"
+                                  : "bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200"
+                              }`}
+                              title="Quick-view credentials and logins for this project"
+                            >
+                              <KeyRound className="h-3 w-3 text-amber-600" />
+                              <span>View Credentials</span>
+                              {projectCredentialsMap.has(task.project_id) && (
+                                <span className="ml-0.5 px-1 py-0.2 rounded-full text-[9px] bg-amber-200 text-amber-900 font-extrabold">
+                                  {projectCredentialsMap.get(task.project_id)!.length}
+                                </span>
+                              )}
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="text-[11px] text-slate-500 flex items-center gap-1 pt-0.5">
                         <UserCheck className="h-3 w-3 text-sky-500" />
                         <span>
                           Assigned By:{" "}
@@ -3252,6 +3392,304 @@ export default function DailyTasksPage() {
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Project Credentials Modal */}
+      <Dialog open={projectCredsModalOpen} onOpenChange={setProjectCredsModalOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto p-0 border border-slate-200 shadow-2xl rounded-2xl">
+          <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-md px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-xl bg-amber-500/10 text-amber-600 flex items-center justify-center font-bold shadow-inner">
+                <KeyRound className="h-5 w-5" />
+              </div>
+              <div>
+                <DialogTitle className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                  <span>Credentials & Logins</span>
+                  <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-200 text-xs font-bold">
+                    {selectedProjectForCreds?.name || "Project"}
+                  </Badge>
+                </DialogTitle>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Secure access points, environments, and test accounts for this project.
+                </p>
+              </div>
+            </div>
+
+            {selectedProjectForCreds?.id && (
+              <Link
+                href={`/dashboard/credentials?projectId=${selectedProjectForCreds.id}`}
+                target="_blank"
+                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-sky-700 bg-sky-50 hover:bg-sky-100 rounded-lg border border-sky-200 transition-colors"
+                title="Open full project in Credentials Hub"
+              >
+                <span>Credentials Hub</span>
+                <ExternalLink className="h-3.5 w-3.5" />
+              </Link>
+            )}
+          </div>
+
+          <div className="p-6 space-y-4">
+            {(() => {
+              const projectCreds = selectedProjectForCreds
+                ? projectCredentialsMap.get(selectedProjectForCreds.id) || []
+                : [];
+
+              if (projectCreds.length === 0) {
+                return (
+                  <div className="py-12 text-center flex flex-col items-center justify-center space-y-3">
+                    <div className="h-14 w-14 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center shadow-xs">
+                      <KeyRound className="h-7 w-7 stroke-[1.5]" />
+                    </div>
+                    <div className="max-w-sm space-y-1">
+                      <h4 className="font-bold text-slate-800 text-sm">No Credentials Added Yet</h4>
+                      <p className="text-xs text-slate-500">
+                        There are no credentials or test environments saved for{" "}
+                        <span className="font-semibold text-slate-700">{selectedProjectForCreds?.name}</span>.
+                      </p>
+                    </div>
+                    {canManageAllTasks && selectedProjectForCreds?.id && (
+                      <Link
+                        href={`/dashboard/credentials?projectId=${selectedProjectForCreds.id}&openModal=true`}
+                        onClick={() => setProjectCredsModalOpen(false)}
+                        className="mt-2 inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-sm transition-all"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        <span>Add Project Credentials</span>
+                      </Link>
+                    )}
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-4">
+                  {projectCreds.map((cred: any, idx: number) => {
+                    const parsedAccounts = parseCredentialSections(cred.credentials_text || "", cred.credential_type || "Account");
+
+                    return (
+                      <div
+                        key={cred.id || idx}
+                        className="rounded-xl border border-slate-200 bg-white p-4.5 shadow-xs hover:border-amber-300 transition-colors space-y-3"
+                      >
+                        {/* Header: Title, Type badge, and Copy All button */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-slate-900 text-sm">{cred.title || "Project Credentials"}</span>
+                            {cred.credential_type && (
+                              <Badge variant="secondary" className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-700">
+                                {cred.credential_type}
+                              </Badge>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            {cred.credentials_text && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleCopyCredText(cred.credentials_text, `full-${cred.id}`, "Full Credentials")}
+                                className="h-7 px-2 text-xs text-slate-600 hover:text-amber-700 hover:bg-amber-50 gap-1 rounded-md"
+                                title="Copy all login details"
+                              >
+                                {credsCopiedKey === `full-${cred.id}` ? (
+                                  <Check className="h-3.5 w-3.5 text-emerald-600" />
+                                ) : (
+                                  <Copy className="h-3.5 w-3.5" />
+                                )}
+                                <span className="font-semibold text-[11px]">
+                                  {credsCopiedKey === `full-${cred.id}` ? "Copied All" : "Copy All"}
+                                </span>
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* URLs: Live & Demo Links */}
+                        {(cred.url || cred.demo_url) && (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-0.5">
+                            {cred.url && (
+                              <a
+                                href={cred.url.startsWith("http") ? cred.url : `https://${cred.url}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="group flex items-center justify-between p-2 rounded-lg bg-emerald-50/70 border border-emerald-200/70 hover:bg-emerald-100/70 text-emerald-900 transition-colors text-xs"
+                              >
+                                <div className="flex items-center gap-2 min-w-0 pr-2">
+                                  <Globe className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                                  <div className="min-w-0">
+                                    <p className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-700">Live URL</p>
+                                    <p className="font-medium truncate text-emerald-950 text-xs">{cred.url}</p>
+                                  </div>
+                                </div>
+                                <ExternalLink className="h-3.5 w-3.5 text-emerald-600 shrink-0 group-hover:translate-x-0.5 transition-transform" />
+                              </a>
+                            )}
+                            {cred.demo_url && (
+                              <a
+                                href={cred.demo_url.startsWith("http") ? cred.demo_url : `https://${cred.demo_url}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="group flex items-center justify-between p-2 rounded-lg bg-purple-50/70 border border-purple-200/70 hover:bg-purple-100/70 text-purple-900 transition-colors text-xs"
+                              >
+                                <div className="flex items-center gap-2 min-w-0 pr-2">
+                                  <Laptop className="h-3.5 w-3.5 text-purple-600 shrink-0" />
+                                  <div className="min-w-0">
+                                    <p className="text-[10px] font-extrabold uppercase tracking-wider text-purple-700">Demo / Staging URL</p>
+                                    <p className="font-medium truncate text-purple-950 text-xs">{cred.demo_url}</p>
+                                  </div>
+                                </div>
+                                <ExternalLink className="h-3.5 w-3.5 text-purple-600 shrink-0 group-hover:translate-x-0.5 transition-transform" />
+                              </a>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Parsed Accounts / Login Details */}
+                        {parsedAccounts.length > 0 ? (
+                          <div className="space-y-2 pt-1">
+                            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                              Accounts & Roles ({parsedAccounts.length})
+                            </p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                              {parsedAccounts.map((acc, aIdx) => {
+                                const credKey = `${cred.id}-${aIdx}`;
+                                const isPassVisible = !!credsVisiblePasswords[credKey];
+
+                                return (
+                                  <div
+                                    key={aIdx}
+                                    className="p-3 rounded-lg bg-slate-50 border border-slate-200/80 hover:border-slate-300 transition-colors text-xs space-y-2"
+                                  >
+                                    <div className="flex items-center justify-between">
+                                      <span className="font-bold text-slate-800 text-xs px-1.5 py-0.5 bg-white border border-slate-200 rounded text-[11px]">
+                                        {acc.role || `Account #${aIdx + 1}`}
+                                      </span>
+                                    </div>
+
+                                    {/* Username field */}
+                                    {acc.username && (
+                                      <div className="flex items-center justify-between gap-1 bg-white p-1.5 px-2 rounded border border-slate-200">
+                                        <div className="min-w-0 flex-1">
+                                          <p className="text-[9px] uppercase font-bold text-slate-400">Username / Email</p>
+                                          <p className="font-mono text-slate-800 text-[11px] truncate select-all">{acc.username}</p>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleCopyCredText(acc.username!, `u-${credKey}`, "Username")}
+                                          className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-700 transition"
+                                          title="Copy username"
+                                        >
+                                          {credsCopiedKey === `u-${credKey}` ? (
+                                            <Check className="h-3 w-3 text-emerald-600" />
+                                          ) : (
+                                            <Copy className="h-3 w-3" />
+                                          )}
+                                        </button>
+                                      </div>
+                                    )}
+
+                                    {/* Password field */}
+                                    {acc.password && (
+                                      <div className="flex items-center justify-between gap-1 bg-white p-1.5 px-2 rounded border border-slate-200">
+                                        <div className="min-w-0 flex-1">
+                                          <p className="text-[9px] uppercase font-bold text-slate-400">Password</p>
+                                          <p className="font-mono text-slate-800 text-[11px] truncate">
+                                            {isPassVisible ? acc.password : "••••••••••••"}
+                                          </p>
+                                        </div>
+                                        <div className="flex items-center gap-0.5">
+                                          <button
+                                            type="button"
+                                            onClick={() => handleToggleCredPassword(credKey)}
+                                            className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-700 transition"
+                                            title={isPassVisible ? "Hide password" : "Show password"}
+                                          >
+                                            {isPassVisible ? (
+                                              <EyeOff className="h-3 w-3" />
+                                            ) : (
+                                              <Eye className="h-3 w-3" />
+                                            )}
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleCopyCredText(acc.password!, `p-${credKey}`, "Password")}
+                                            className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-700 transition"
+                                            title="Copy password"
+                                          >
+                                            {credsCopiedKey === `p-${credKey}` ? (
+                                              <Check className="h-3 w-3 text-emerald-600" />
+                                            ) : (
+                                              <Copy className="h-3 w-3" />
+                                            )}
+                                          </button>
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* Raw details fallback if no specific username/pass */}
+                                    {!acc.username && !acc.password && (
+                                      <pre className="font-mono text-[10px] text-slate-700 bg-white p-2 rounded border border-slate-200 whitespace-pre-wrap select-all">
+                                        {acc.raw}
+                                      </pre>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ) : cred.credentials_text ? (
+                          <div className="pt-1">
+                            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                              Details & Notes
+                            </p>
+                            <pre className="font-mono text-[11px] text-slate-800 bg-slate-50 p-3 rounded-lg border border-slate-200 whitespace-pre-wrap select-all">
+                              {cred.credentials_text}
+                            </pre>
+                          </div>
+                        ) : null}
+
+                        {/* Extra description */}
+                        {cred.description && (
+                          <p className="text-[11px] text-slate-500 italic bg-amber-50/50 border border-amber-100 p-2 rounded-lg">
+                            {cred.description}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+
+          <div className="bg-slate-50 px-6 py-3.5 border-t border-slate-200/80 flex items-center justify-between">
+            <p className="text-xs text-slate-400">
+              {selectedProjectForCreds ? `${projectCredentialsMap.get(selectedProjectForCreds.id)?.length || 0} credential record(s)` : ""}
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setProjectCredsModalOpen(false)}
+                className="h-8 text-xs font-semibold"
+              >
+                Close
+              </Button>
+              {selectedProjectForCreds?.id && (
+                <Link
+                  href={`/dashboard/credentials?projectId=${selectedProjectForCreds.id}`}
+                  onClick={() => setProjectCredsModalOpen(false)}
+                  className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-md transition-colors"
+                >
+                  <span>Open Full Credentials</span>
+                  <ExternalLink className="h-3 w-3" />
+                </Link>
+              )}
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

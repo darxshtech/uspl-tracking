@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -98,25 +99,24 @@ function WebsitePreviewCard({ url, label, type }: { url: string; label: string; 
                 <Globe className="h-6 w-6 animate-spin" style={{ animationDuration: "3s" }} />
               </div>
               <div className="space-y-2 flex flex-col items-center">
-                <div className="h-2 w-28 bg-slate-200 rounded-full" />
-                <div className="h-2 w-20 bg-slate-200 rounded-full" />
+                <div className="h-3 w-32 bg-slate-200 rounded-full" />
+                <div className="h-2 w-20 bg-slate-200/60 rounded-full" />
               </div>
-              <span className="text-[10px] text-slate-400 font-semibold">Loading preview...</span>
             </div>
           </div>
         )}
 
-        {/* Error Fallback */}
+        {/* Fallback when iframe is blocked by X-Frame-Options */}
         {iframeError && (
-          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-gradient-to-br from-slate-50 to-white">
-            <div className="flex flex-col items-center gap-2">
-              <div className={`h-14 w-14 rounded-2xl flex items-center justify-center border-2 shadow-sm ${
-                isLive ? "bg-emerald-50 border-emerald-200" : "bg-amber-50 border-amber-200"
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 text-slate-400">
+            <div className="flex flex-col items-center gap-2 text-center p-4">
+              <div className={`h-10 w-10 rounded-xl flex items-center justify-center ${
+                isLive ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
               }`}>
                 <img 
                   src={`https://www.google.com/s2/favicons?domain=${domain}&sz=64`} 
-                  alt="icon" 
-                  className="h-7 w-7 rounded-lg object-contain"
+                  alt="" 
+                  className="h-6 w-6 rounded object-contain"
                   onError={(e: any) => {
                     e.currentTarget.style.display = 'none';
                   }}
@@ -178,8 +178,13 @@ function WebsitePreviewCard({ url, label, type }: { url: string; label: string; 
   );
 }
 
-export default function CredentialsPage() {
+function CredentialsContent() {
   const { data: session } = useSession();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const queryProjectId = searchParams.get("projectId") || searchParams.get("project_id");
+  const openAddModal = searchParams.get("openModal") === "true";
+
   const role = (session?.user as any)?.role || "User";
   const currentUserId = (session?.user as any)?.id;
   const isExecutive = ["Admin", "CEO", "PM"].includes(role);
@@ -214,6 +219,13 @@ export default function CredentialsPage() {
     fetchProjects();
     if (isExecutive) fetchEmployees();
   }, [isExecutive]);
+
+  useEffect(() => {
+    if (openAddModal && queryProjectId) {
+      setProjectId(queryProjectId);
+      setModalOpen(true);
+    }
+  }, [openAddModal, queryProjectId]);
 
   useEffect(() => {
     if (currentUserId && selectedUserIds.length === 0) {
@@ -422,6 +434,9 @@ export default function CredentialsPage() {
   };
 
   const filteredCredentials = credentials.filter((cred: any) => {
+    if (queryProjectId && String(cred.project_id) !== String(queryProjectId)) {
+      return false;
+    }
     const q = searchQuery.toLowerCase();
     const pTitle = (cred.project_title || "").toLowerCase();
     const uName = (cred.user_name || "").toLowerCase();
@@ -643,6 +658,28 @@ export default function CredentialsPage() {
           </Dialog>
         </div>
       </div>
+
+      {/* Active Project Filter Pill */}
+      {queryProjectId && (
+        <div className="flex items-center justify-between p-3.5 rounded-2xl bg-sky-50 border border-sky-200 text-sky-950 text-xs font-semibold shadow-2xs">
+          <div className="flex items-center gap-2">
+            <div className="h-6 w-6 rounded-full bg-sky-100 flex items-center justify-center text-sky-700 font-bold shrink-0">
+              <KeyRound className="h-3.5 w-3.5" />
+            </div>
+            <span>
+              Showing credentials for project: <strong>{projects.find((p: any) => String(p.id) === String(queryProjectId))?.name || `Project #${queryProjectId}`}</strong>
+            </span>
+          </div>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => router.push("/dashboard/credentials")}
+            className="text-xs h-7 font-bold text-sky-700 hover:text-sky-950 hover:bg-sky-100/80 rounded-lg cursor-pointer"
+          >
+            Clear Filter & View All Projects
+          </Button>
+        </div>
+      )}
 
       {/* Search Bar */}
       <div className="relative max-w-md">
@@ -877,5 +914,13 @@ export default function CredentialsPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function CredentialsPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-slate-500 animate-pulse">Loading credentials...</div>}>
+      <CredentialsContent />
+    </Suspense>
   );
 }
