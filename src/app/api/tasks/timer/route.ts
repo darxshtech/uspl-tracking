@@ -3,6 +3,11 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import pool from "@/lib/db";
 
+function formatToMySQLDateTime(d: Date): string {
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -16,6 +21,13 @@ export async function GET(req: Request) {
   const taskId = searchParams.get("task_id");
 
   try {
+    // 0. Auto-healing: Fix any legacy records where started_at was saved with UTC offset (started_at < created_at - 1 hour)
+    await pool.query(
+      `UPDATE task_time_logs 
+       SET started_at = created_at 
+       WHERE is_active = 1 AND started_at < (created_at - INTERVAL 1 HOUR)`
+    ).catch(() => {});
+
     // 1. History of sessions for a specific task
     if (mode === "history") {
       if (!taskId) {
@@ -187,28 +199,26 @@ export async function POST(req: Request) {
         }
       }
 
-      // Determine starting timestamp: Regular employees always start at now.
-      // Only management (PM, Admin, CEO) may supply a custom start_time.
-      let effectiveStartTime = new Date();
+      // 3. Insert new active timer using MySQL CURRENT_TIMESTAMP to avoid TZ discrepancies
+      let insertQuery = `INSERT INTO task_time_logs (task_id, user_id, started_at, is_active) VALUES (?, ?, CURRENT_TIMESTAMP, 1)`;
+      let insertParams: any[] = [task_id, currentUserId];
+
       if (isManagement && start_time) {
         const customDate = new Date(start_time);
         if (!isNaN(customDate.getTime())) {
-          effectiveStartTime = customDate;
+          insertQuery = `INSERT INTO task_time_logs (task_id, user_id, started_at, is_active) VALUES (?, ?, ?, 1)`;
+          insertParams = [task_id, currentUserId, formatToMySQLDateTime(customDate)];
         }
-      }
-      const startTimeFormatted = effectiveStartTime.toISOString().slice(0, 19).replace('T', ' ');
-
-      // 3. Insert new active timer
-      let insertQuery = `INSERT INTO task_time_logs (task_id, user_id, started_at, is_active) VALUES (?, ?, ?, 1)`;
-      let insertParams = [task_id, currentUserId, startTimeFormatted];
-      
-      // If no custom start time provided, use MySQL CURRENT_TIMESTAMP to avoid TZ issues
-      if (!(isManagement && start_time)) {
-        insertQuery = `INSERT INTO task_time_logs (task_id, user_id, started_at, is_active) VALUES (?, ?, CURRENT_TIMESTAMP, 1)`;
-        insertParams = [task_id, currentUserId];
       }
 
       const [insertResult]: any = await pool.query(insertQuery, insertParams);
+
+      // Fetch the actual started_at from the database
+      const [insertedRows]: any = await pool.query(
+        "SELECT started_at FROM task_time_logs WHERE id = ?",
+        [insertResult.insertId]
+      );
+      const dbStartedAt = insertedRows[0]?.started_at;
 
       // 4. Update task status to "In Progress" if currently "Assigned"
       if (task.status === "Assigned" || task.status === "Planning") {
@@ -220,7 +230,7 @@ export async function POST(req: Request) {
         message: "Timer started successfully",
         timer_id: insertResult.insertId,
         task_id,
-        started_at: startTimeFormatted,
+        started_at: dbStartedAt,
         paused_previous_count: existingActive.length
       }, { status: 201 });
     }
@@ -245,18 +255,42 @@ export async function POST(req: Request) {
       }
 
       const activeTimer = activeLogs[0];
-      const effectiveEndTime = end_time ? new Date(end_time) : new Date();
-      const startTime = new Date(activeTimer.started_at);
-      const durationMins = Math.max(1, Math.round((effectiveEndTime.getTime() - startTime.getTime()) / (1000 * 60)));
-      const endTimeFormatted = effectiveEndTime.toISOString().slice(0, 19).replace('T', ' ');
 
-      // Update timer log as paused
-      await pool.query(
-        `UPDATE task_time_logs 
-         SET ended_at = ?, duration_minutes = ?, session_summary = IFNULL(?, 'Paused for break'), is_active = 0 
-         WHERE id = ?`,
-        [endTimeFormatted, durationMins, session_summary || null, activeTimer.id]
+      let updateSql = `
+        UPDATE task_time_logs 
+        SET ended_at = CURRENT_TIMESTAMP, 
+            duration_minutes = GREATEST(1, ROUND(TIMESTAMPDIFF(SECOND, started_at, CURRENT_TIMESTAMP) / 60)), 
+            session_summary = IFNULL(?, 'Paused for break'), 
+            is_active = 0 
+        WHERE id = ?
+      `;
+      let updateParams: any[] = [session_summary || null, activeTimer.id];
+
+      if (end_time) {
+        const customEndDate = new Date(end_time);
+        if (!isNaN(customEndDate.getTime())) {
+          const formattedEnd = formatToMySQLDateTime(customEndDate);
+          updateSql = `
+            UPDATE task_time_logs 
+            SET ended_at = ?, 
+                duration_minutes = GREATEST(1, ROUND(TIMESTAMPDIFF(SECOND, started_at, ?) / 60)), 
+                session_summary = IFNULL(?, 'Paused for break'), 
+                is_active = 0 
+            WHERE id = ?
+          `;
+          updateParams = [formattedEnd, formattedEnd, session_summary || null, activeTimer.id];
+        }
+      }
+
+      await pool.query(updateSql, updateParams);
+
+      const [updatedLog]: any = await pool.query(
+        "SELECT duration_minutes, ended_at, DATE(ended_at) as log_date FROM task_time_logs WHERE id = ?",
+        [activeTimer.id]
       );
+      const durationMins = updatedLog[0]?.duration_minutes || 1;
+      const endTimeFormatted = updatedLog[0]?.ended_at;
+      const todayStr = updatedLog[0]?.log_date || new Date().toISOString().split("T")[0];
 
       const totalHours = await syncTaskHours(activeTimer.task_id);
 
@@ -270,7 +304,6 @@ export async function POST(req: Request) {
         const project_id = taskInfo[0]?.project_id || null;
         const taskTitle = taskInfo[0]?.title || "Task";
         const sessionHours = parseFloat((durationMins / 60).toFixed(2));
-        const todayStr = effectiveEndTime.toISOString().split("T")[0];
 
         await pool.query(
           `INSERT INTO daily_work (user_id, project_id, task_id, date, hours_worked, work_description, status, remarks)
@@ -316,22 +349,47 @@ export async function POST(req: Request) {
       const [activeLogs]: any = await pool.query(query, params);
       
       let durationMins = 0;
-      let effectiveEndTime = end_time ? new Date(end_time) : new Date();
-      let endTimeFormatted = effectiveEndTime.toISOString().slice(0, 19).replace('T', ' ');
+      let endTimeFormatted = null;
       let targetTaskId = task_id;
 
       if (activeLogs.length > 0) {
         const activeTimer = activeLogs[0];
         targetTaskId = activeTimer.task_id;
-        const startTime = new Date(activeTimer.started_at);
-        durationMins = Math.max(1, Math.round((effectiveEndTime.getTime() - startTime.getTime()) / (1000 * 60)));
 
-        await pool.query(
-          `UPDATE task_time_logs 
-           SET ended_at = ?, duration_minutes = ?, session_summary = IFNULL(?, 'Task finished & timer stopped'), is_active = 0 
-           WHERE id = ?`,
-          [endTimeFormatted, durationMins, session_summary || null, activeTimer.id]
+        let updateSql = `
+          UPDATE task_time_logs 
+          SET ended_at = CURRENT_TIMESTAMP, 
+              duration_minutes = GREATEST(1, ROUND(TIMESTAMPDIFF(SECOND, started_at, CURRENT_TIMESTAMP) / 60)), 
+              session_summary = IFNULL(?, 'Task finished & timer stopped'), 
+              is_active = 0 
+          WHERE id = ?
+        `;
+        let updateParams: any[] = [session_summary || null, activeTimer.id];
+
+        if (end_time) {
+          const customEndDate = new Date(end_time);
+          if (!isNaN(customEndDate.getTime())) {
+            const formattedEnd = formatToMySQLDateTime(customEndDate);
+            updateSql = `
+              UPDATE task_time_logs 
+              SET ended_at = ?, 
+                  duration_minutes = GREATEST(1, ROUND(TIMESTAMPDIFF(SECOND, started_at, ?) / 60)), 
+                  session_summary = IFNULL(?, 'Task finished & timer stopped'), 
+                  is_active = 0 
+              WHERE id = ?
+            `;
+            updateParams = [formattedEnd, formattedEnd, session_summary || null, activeTimer.id];
+          }
+        }
+
+        await pool.query(updateSql, updateParams);
+
+        const [updatedLog]: any = await pool.query(
+          "SELECT duration_minutes, ended_at, DATE(ended_at) as log_date FROM task_time_logs WHERE id = ?",
+          [activeTimer.id]
         );
+        durationMins = updatedLog[0]?.duration_minutes || 1;
+        endTimeFormatted = updatedLog[0]?.ended_at;
       }
 
       if (!targetTaskId) {
@@ -359,7 +417,7 @@ export async function POST(req: Request) {
         const project_id = taskInfo[0]?.project_id || null;
         const taskTitle = taskInfo[0]?.title || "Task";
         const sessionHours = parseFloat((durationMins / 60).toFixed(2));
-        const todayStr = effectiveEndTime.toISOString().split("T")[0];
+        const todayStr = (endTimeFormatted ? String(endTimeFormatted).split(" ")[0] : null) || new Date().toISOString().split("T")[0];
 
         await pool.query(
           `INSERT INTO daily_work (user_id, project_id, task_id, date, hours_worked, work_description, status, remarks)
@@ -409,8 +467,8 @@ export async function POST(req: Request) {
       }
 
       const durationMins = Math.max(1, Math.round((end.getTime() - start.getTime()) / (1000 * 60)));
-      const startFormatted = start.toISOString().slice(0, 19).replace('T', ' ');
-      const endFormatted = end.toISOString().slice(0, 19).replace('T', ' ');
+      const startFormatted = formatToMySQLDateTime(start);
+      const endFormatted = formatToMySQLDateTime(end);
 
       // Find log to identify task_id
       const [targetLog]: any = await pool.query("SELECT task_id FROM task_time_logs WHERE id = ?", [log_id]);
