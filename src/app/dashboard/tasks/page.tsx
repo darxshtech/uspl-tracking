@@ -52,7 +52,8 @@ import {
   Eye,
   EyeOff,
   Globe,
-  Laptop
+  Laptop,
+  ArrowDown
 } from "lucide-react";
 import { formatHoursAndMinutes } from "@/lib/timeUtils";
 import LiveTeamActivityMonitor from "@/components/LiveTeamActivityMonitor";
@@ -186,6 +187,10 @@ export default function DailyTasksPage() {
   const [selectedProjectForCreds, setSelectedProjectForCreds] = useState<{ id: number; name: string } | null>(null);
   const [credsVisiblePasswords, setCredsVisiblePasswords] = useState<Record<string, boolean>>({});
   const [credsCopiedKey, setCredsCopiedKey] = useState<string | null>(null);
+
+  // Live Task Monitoring Highlight State
+  const [highlightedTaskId, setHighlightedTaskId] = useState<number | null>(null);
+  const [highlightedEmployeeName, setHighlightedEmployeeName] = useState<string | null>(null);
 
   // Group credentials by project_id for instant lookup
   const projectCredentialsMap = useMemo(() => {
@@ -1264,6 +1269,37 @@ export default function DailyTasksPage() {
     return map;
   }, [projects]);
 
+  // Jump to and highlight an active task from live activity monitor
+  const handleScrollAndHighlightTask = (taskId: number, employeeName?: string) => {
+    setHighlightedTaskId(taskId);
+    if (employeeName) setHighlightedEmployeeName(employeeName);
+
+    // Ensure the task is visible in the current filtered table
+    const isCurrentlyVisible = filteredTasks.some((t) => t.id === taskId);
+    if (!isCurrentlyVisible) {
+      setActiveTab("all");
+      setSearchQuery("");
+      setFilterProject("ALL");
+      setFilterEmployee("ALL");
+      setFilterDateMode("ALL");
+      setFilterCustomDate("");
+    }
+
+    // Smooth scroll down to target task row
+    setTimeout(() => {
+      const el = document.getElementById(`task-row-${taskId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      } else {
+        setTimeout(() => {
+          document.getElementById(`task-row-${taskId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }, 200);
+      }
+    }, 150);
+
+    showToast(`Focused on active task #${taskId}${employeeName ? ` by ${employeeName}` : ""}`, "info");
+  };
+
   const countToday = tasks.filter((t) => {
     const taskDate = t.target_date ? t.target_date.split("T")[0] : todayStr;
     const isCompleted = t.status === "Completed" || t.status === "Ready for Demo";
@@ -1716,7 +1752,38 @@ export default function DailyTasksPage() {
 
       {/* Live Team Activity Monitor (PM, Admin, CEO) */}
       {canManageAllTasks && (
-        <LiveTeamActivityMonitor />
+        <LiveTeamActivityMonitor 
+          onSelectTask={handleScrollAndHighlightTask}
+          selectedTaskId={highlightedTaskId}
+        />
+      )}
+
+      {/* Active Ongoing Timer Quick Jump Banner (Developers / Testers) */}
+      {!canManageAllTasks && activeUserTimer && (
+        <div 
+          onClick={() => handleScrollAndHighlightTask(activeUserTimer.task_id, session?.user?.name || undefined)}
+          className="rounded-2xl border border-emerald-300 bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 p-4 shadow-xs hover:shadow-md hover:border-emerald-400 transition-all cursor-pointer flex items-center justify-between gap-4 group"
+          title="Click to jump to and highlight your active ongoing task"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="h-9 w-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
+              <Play className="h-4 w-4 fill-white animate-pulse" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black uppercase tracking-wider text-emerald-800">Your Active Ongoing Task</span>
+                <Badge className="bg-emerald-200 text-emerald-900 border-emerald-300 text-[10px] font-bold">In Progress</Badge>
+              </div>
+              <p className="font-bold text-slate-900 text-xs truncate mt-0.5">{activeUserTimer.task_title}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-xs font-bold text-emerald-700 bg-white group-hover:bg-emerald-600 group-hover:text-white px-3 py-1.5 rounded-lg border border-emerald-200 group-hover:border-emerald-600 shadow-2xs transition-all flex items-center gap-1">
+              <span>Jump to Task</span>
+              <ArrowDown className="h-3 w-3" />
+            </span>
+          </div>
+        </div>
       )}
 
       {/* ADVANCED MULTI-FILTER BAR (Project, Date, Developer Name, Search) */}
@@ -2669,6 +2736,48 @@ export default function DailyTasksPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Live Highlight Active Task Banner */}
+      {highlightedTaskId && (
+        <div className="flex items-center justify-between p-3.5 px-4 bg-emerald-600 text-white rounded-xl shadow-lg border border-emerald-500 animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="flex items-center gap-3 text-xs font-bold min-w-0">
+            <span className="relative flex h-3 w-3 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-white"></span>
+            </span>
+            <div className="min-w-0">
+              <span className="font-extrabold uppercase tracking-wider text-[10px] text-emerald-200 block">
+                Highlighted Ongoing Live Task
+              </span>
+              <span className="truncate text-xs">
+                Focusing on Task #{highlightedTaskId}
+                {highlightedEmployeeName ? ` (Active: ${highlightedEmployeeName})` : ""}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                document.getElementById(`task-row-${highlightedTaskId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+              }}
+              className="text-xs font-bold underline hover:text-emerald-100 transition cursor-pointer px-2 py-1"
+            >
+              Scroll to Task ↓
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setHighlightedTaskId(null);
+                setHighlightedEmployeeName(null);
+              }}
+              className="text-xs font-extrabold bg-white/20 hover:bg-white/30 text-white px-3 py-1.5 rounded-lg transition cursor-pointer"
+            >
+              Dismiss ✕
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Task List Table with Dedicated TASK ID and DATE Columns */}
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <Table>
@@ -2709,7 +2818,15 @@ export default function DailyTasksPage() {
                 const isFastTrack = Boolean(task.project_is_fast_track || projectFastTrackMap[task.project_id]);
 
                 return (
-                  <TableRow key={task.id} className="hover:bg-slate-50/80 transition-colors">
+                  <TableRow 
+                    key={task.id} 
+                    id={`task-row-${task.id}`}
+                    className={`transition-all duration-500 ${
+                      highlightedTaskId === task.id
+                        ? "ring-4 ring-emerald-500/90 bg-emerald-50/90 shadow-2xl relative z-20 scale-[1.002]"
+                        : "hover:bg-slate-50/80"
+                    }`}
+                  >
                     {/* DEDICATED AUTO-NUMBERED TASK ID COLUMN */}
                     <TableCell className="align-top text-center">
                       <div className="flex flex-col items-center gap-1">
@@ -2724,6 +2841,12 @@ export default function DailyTasksPage() {
 
                     {/* Task Title, Description, and Checklist */}
                     <TableCell className="align-top max-w-md min-w-[240px]">
+                      {highlightedTaskId === task.id && (
+                        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-600 text-white shadow-xs animate-bounce mb-2 w-fit">
+                          <span className="h-2 w-2 rounded-full bg-white animate-ping" />
+                          <span>Live Ongoing Task Active Now {highlightedEmployeeName ? `(${highlightedEmployeeName})` : ""}</span>
+                        </div>
+                      )}
                       <div className="font-bold text-slate-900 text-sm flex items-center gap-2 flex-wrap">
                         <span className="break-words [overflow-wrap:anywhere] whitespace-pre-wrap min-w-0 max-w-full font-bold text-slate-900 text-sm leading-snug">{task.title}</span>
                         <Badge variant="outline" className="text-[10px] py-0 px-1.5 shrink-0">{task.priority}</Badge>
