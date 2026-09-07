@@ -23,7 +23,11 @@ import {
   FileSpreadsheet,
   AlertCircle,
   Link as LinkIcon,
-  RefreshCw
+  RefreshCw,
+  ListTodo,
+  ChevronDown,
+  ChevronUp,
+  Paperclip
 } from "lucide-react";
 
 import { useSession } from "next-auth/react";
@@ -45,6 +49,48 @@ export default function TestingQueuePage() {
   const [testSheetLink, setTestSheetLink] = useState<string>("");
   const [remarks, setRemarks] = useState<string>("");
   const [submittingAudit, setSubmittingAudit] = useState(false);
+
+  // Sub-task / Checklist Expand State in QA Station
+  const [expandedChecklistTaskId, setExpandedChecklistTaskId] = useState<number | null>(null);
+
+  // Toggle checklist sub-task verification status
+  const handleToggleChecklist = async (checklistId: number, currentCompleted: boolean) => {
+    // Optimistic UI update for tasks table
+    setTasks((prev) =>
+      prev.map((t) => ({
+        ...t,
+        checklists: (t.checklists || []).map((c: any) =>
+          c.id === checklistId ? { ...c, is_completed: !currentCompleted } : c
+        ),
+      }))
+    );
+
+    // Also update selectedTask if modal is currently open
+    setSelectedTask((prev: any) => {
+      if (!prev || !prev.checklists) return prev;
+      return {
+        ...prev,
+        checklists: prev.checklists.map((c: any) =>
+          c.id === checklistId ? { ...c, is_completed: !currentCompleted } : c
+        ),
+      };
+    });
+
+    try {
+      await fetch("/api/tasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "toggle_checklist",
+          checklist_id: checklistId,
+          is_completed: !currentCompleted,
+        }),
+      });
+    } catch (err) {
+      console.error("Failed to toggle checklist:", err);
+      fetchTestingQueue();
+    }
+  };
 
   useEffect(() => {
     if (isTesterOrAdmin) {
@@ -231,6 +277,63 @@ export default function TestingQueuePage() {
               )}
             </div>
 
+            {/* Sub-tasks / Checklists Passed from Developer */}
+            {Array.isArray(selectedTask?.checklists) && selectedTask.checklists.length > 0 && (
+              <div className="space-y-1.5 p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-800">
+                  <span className="flex items-center gap-1.5">
+                    <ListTodo className="h-4 w-4 text-sky-600" />
+                    Sub-tasks Verification ({selectedTask.checklists.filter((c: any) => c.is_completed).length}/{selectedTask.checklists.length} Verified)
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Verify the developer's sub-tasks below as you complete your test pass:
+                </p>
+                <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1 pt-1">
+                  {selectedTask.checklists.map((c: any) => (
+                    <div
+                      key={c.id}
+                      onClick={() => handleToggleChecklist(c.id, c.is_completed)}
+                      className={`p-2 rounded-lg border text-xs flex items-start gap-2 cursor-pointer transition-colors ${
+                        c.is_completed ? "bg-emerald-50/70 border-emerald-200" : "bg-white border-slate-200 hover:bg-slate-50"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={c.is_completed}
+                        onChange={() => {}}
+                        className="rounded border-slate-300 text-sky-600 h-3.5 w-3.5 mt-0.5 shrink-0 cursor-pointer"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <span className={`whitespace-pre-wrap break-words leading-relaxed block ${
+                          c.is_completed ? "line-through text-slate-400 font-normal" : "text-slate-800 font-semibold"
+                        }`}>
+                          {c.item_text}
+                        </span>
+                        {Array.isArray(c.attachments) && c.attachments.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {c.attachments.map((att: any, attIdx: number) => (
+                              <a
+                                key={attIdx}
+                                href={att.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white text-[10px] font-semibold text-slate-600 border border-slate-200 hover:text-sky-600"
+                              >
+                                <Paperclip className="h-2.5 w-2.5" />
+                                <span className="truncate max-w-[120px]">{att.title || "File"}</span>
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Total Issues Found */}
             <div className="space-y-1.5">
               <Label htmlFor="issuesCount" className="font-bold text-slate-900 text-xs">
@@ -376,6 +479,83 @@ export default function TestingQueuePage() {
                         </div>
                       ) : (
                         <span className="text-[10px] text-amber-600 font-semibold mt-1 inline-block">No links provided</span>
+                      )}
+
+                      {/* Developer Sub-tasks / Checklists Passed to Tester */}
+                      {Array.isArray(task.checklists) && task.checklists.length > 0 && (
+                        <div className="mt-3 pt-2.5 border-t border-slate-100 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                              <ListTodo className="h-3.5 w-3.5 text-sky-600" />
+                              Sub-tasks to Test ({task.checklists.filter((c: any) => c.is_completed).length}/{task.checklists.length} Verified)
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setExpandedChecklistTaskId(expandedChecklistTaskId === task.id ? null : task.id)}
+                              className="text-[10px] text-sky-600 hover:text-sky-800 font-bold flex items-center gap-0.5 cursor-pointer"
+                            >
+                              {expandedChecklistTaskId === task.id ? "Collapse" : "Inspect All"}
+                              {expandedChecklistTaskId === task.id ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                            </button>
+                          </div>
+
+                          {/* Preview first 3 or all if expanded */}
+                          <div className="space-y-1.5">
+                            {(expandedChecklistTaskId === task.id ? task.checklists : task.checklists.slice(0, 3)).map((c: any) => (
+                              <div
+                                key={c.id}
+                                onClick={() => handleToggleChecklist(c.id, c.is_completed)}
+                                className={`p-1.5 rounded-md border text-xs flex items-start gap-2 cursor-pointer transition-colors ${
+                                  c.is_completed ? "bg-emerald-50/60 border-emerald-200" : "bg-slate-50 border-slate-200 hover:bg-slate-100"
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={c.is_completed}
+                                  onChange={() => {}}
+                                  className="rounded border-slate-300 text-sky-600 h-3.5 w-3.5 mt-0.5 shrink-0 cursor-pointer"
+                                  title="Check off sub-task as tested/verified"
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <span className={`whitespace-pre-wrap break-words leading-snug block ${
+                                    c.is_completed ? "line-through text-slate-400 font-normal" : "font-medium text-slate-800"
+                                  }`}>
+                                    {c.item_text}
+                                  </span>
+
+                                  {/* Subtask Attachments */}
+                                  {Array.isArray(c.attachments) && c.attachments.length > 0 && (
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                      {c.attachments.map((att: any, attIdx: number) => (
+                                        <a
+                                          key={attIdx}
+                                          href={att.url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white text-[10px] font-semibold text-slate-600 border border-slate-200 hover:text-sky-600"
+                                        >
+                                          <Paperclip className="h-2.5 w-2.5" />
+                                          <span className="truncate max-w-[120px]">{att.title || "File"}</span>
+                                        </a>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+
+                            {expandedChecklistTaskId !== task.id && task.checklists.length > 3 && (
+                              <button
+                                type="button"
+                                onClick={() => setExpandedChecklistTaskId(task.id)}
+                                className="text-[11px] font-semibold text-sky-600 hover:text-sky-800"
+                              >
+                                +{task.checklists.length - 3} more sub-tasks...
+                              </button>
+                            )}
+                          </div>
+                        </div>
                       )}
                     </TableCell>
 

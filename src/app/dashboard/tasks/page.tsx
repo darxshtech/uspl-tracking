@@ -94,6 +94,12 @@ export default function DailyTasksPage() {
   const [editTaskAttTitle, setEditTaskAttTitle] = useState("");
   const [editTaskAttUrl, setEditTaskAttUrl] = useState("");
 
+  // Sub-tasks state for Edit Task modal
+  const [editChecklists, setEditChecklists] = useState<{ id?: number; item_text: string; is_completed?: boolean }[]>([]);
+  const [editNewChecklistInput, setEditNewChecklistInput] = useState("");
+  const [editingEditChecklistIdx, setEditingEditChecklistIdx] = useState<number | null>(null);
+  const [editingEditChecklistText, setEditingEditChecklistText] = useState("");
+
   const [assignToAll, setAssignToAll] = useState(false);
   const [isMockTask, setIsMockTask] = useState(false);
 
@@ -546,6 +552,38 @@ export default function DailyTasksPage() {
     setEditingInitialChecklistText("");
   };
 
+  // Sub-task handlers for Edit Task Modal
+  const handleAddEditChecklist = () => {
+    if (!editNewChecklistInput.trim()) return;
+    setEditChecklists((prev) => [
+      ...prev,
+      { item_text: editNewChecklistInput.trim(), is_completed: false }
+    ]);
+    setEditNewChecklistInput("");
+  };
+
+  const handleRemoveEditChecklist = (index: number) => {
+    setEditChecklists((prev) => prev.filter((_, i) => i !== index));
+    if (editingEditChecklistIdx === index) {
+      setEditingEditChecklistIdx(null);
+      setEditingEditChecklistText("");
+    }
+  };
+
+  const handleStartEditEditChecklist = (index: number, currentText: string) => {
+    setEditingEditChecklistIdx(index);
+    setEditingEditChecklistText(currentText);
+  };
+
+  const handleSaveEditEditChecklist = (index: number) => {
+    if (!editingEditChecklistText.trim()) return;
+    setEditChecklists((prev) =>
+      prev.map((item, i) => (i === index ? { ...item, item_text: editingEditChecklistText.trim() } : item))
+    );
+    setEditingEditChecklistIdx(null);
+    setEditingEditChecklistText("");
+  };
+
   // Task-level attachment handlers for Create Task Modal
   const handleAddInitialTaskAttachment = () => {
     if (!newTaskAttTitle.trim() || !newTaskAttUrl.trim()) {
@@ -713,6 +751,14 @@ export default function DailyTasksPage() {
     setEditTaskAttachments(task.attachments && Array.isArray(task.attachments) ? task.attachments : []);
     setEditTaskAttTitle("");
     setEditTaskAttUrl("");
+    setEditChecklists(task.checklists && Array.isArray(task.checklists) ? task.checklists.map((c: any) => ({
+      id: c.id,
+      item_text: c.item_text,
+      is_completed: Boolean(c.is_completed),
+    })) : []);
+    setEditNewChecklistInput("");
+    setEditingEditChecklistIdx(null);
+    setEditingEditChecklistText("");
     setEditTaskModalOpen(true);
   };
 
@@ -742,6 +788,7 @@ export default function DailyTasksPage() {
           blockers: editBlockers || null,
           remarks: editRemarks || null,
           attachments: editTaskAttachments,
+          checklists: editChecklists,
         }),
       });
 
@@ -1056,7 +1103,7 @@ export default function DailyTasksPage() {
       } else if (activeTab === "assigned_ceo") {
         matchTab = t.assigned_by_type === "CEO" || t.creator_role === "CEO" || t.project_creator_role === "CEO";
       } else if (activeTab === "from_tester") {
-        matchTab = t.assigned_by_type === "Tester" || t.status === "Changes Required" || t.creator_role === "Tester";
+        matchTab = t.assigned_by_type === "Tester" || t.status === "Changes Required" || t.status === "Ready for Testing" || t.status === "Testing" || t.creator_role === "Tester";
       } else if (activeTab === "self_created") {
         matchTab = t.assigned_by_type === "Self Tested" || t.created_by === currentUserId;
       }
@@ -1119,7 +1166,7 @@ export default function DailyTasksPage() {
   const countTomorrow = tasks.filter((t) => (t.target_date ? t.target_date.split("T")[0] : todayStr) > todayStr).length;
   const countPM = tasks.filter((t) => t.assigned_by_type === "PM" || t.creator_role === "PM" || t.project_creator_role === "PM").length;
   const countCEO = tasks.filter((t) => t.assigned_by_type === "CEO" || t.creator_role === "CEO" || t.project_creator_role === "CEO").length;
-  const countTester = tasks.filter((t) => t.assigned_by_type === "Tester" || t.status === "Changes Required" || t.creator_role === "Tester").length;
+  const countTester = tasks.filter((t) => t.assigned_by_type === "Tester" || t.status === "Changes Required" || t.status === "Ready for Testing" || t.status === "Testing" || t.creator_role === "Tester").length;
   const countSelf = tasks.filter((t) => t.assigned_by_type === "Self Tested" || t.created_by === currentUserId).length;
 
   return (
@@ -1738,7 +1785,7 @@ export default function DailyTasksPage() {
           }`}
         >
           <ShieldCheck className="h-3.5 w-3.5 text-red-600" />
-          QA Changes Required ({countTester})
+          {role === "Tester" ? `QA Testing & Issues (${countTester})` : `QA Changes Required (${countTester})`}
         </button>
 
         <button
@@ -2359,6 +2406,96 @@ export default function DailyTasksPage() {
                       >
                         <XCircle className="h-3.5 w-3.5" />
                       </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Subtasks / Checklist in Edit Task Modal */}
+            <div className="space-y-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
+              <Label className="font-bold text-slate-900 flex items-center justify-between text-xs">
+                <span className="flex items-center gap-1.5">
+                  <ListTodo className="h-4 w-4 text-sky-500" /> Checklist Sub-tasks
+                </span>
+                {editChecklists.length > 0 && (
+                  <span className="text-[10px] text-sky-600 font-bold">{editChecklists.length} Sub-tasks</span>
+                )}
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="e.g. Write test cases / verify responsive UI"
+                  value={editNewChecklistInput}
+                  onChange={(e) => setEditNewChecklistInput(e.target.value)}
+                  className="bg-white text-xs h-8"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleAddEditChecklist();
+                    }
+                  }}
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleAddEditChecklist}
+                  className="h-8 bg-sky-600 hover:bg-sky-700 text-white font-semibold text-xs shrink-0"
+                >
+                  Add
+                </Button>
+              </div>
+
+              {editChecklists.length > 0 && (
+                <div className="space-y-1.5 pt-1 max-h-48 overflow-y-auto pr-1">
+                  {editChecklists.map((item, idx) => (
+                    <div key={idx} className="p-2 bg-white rounded-lg border border-slate-200 text-xs flex items-center justify-between gap-2">
+                      {editingEditChecklistIdx === idx ? (
+                        <div className="flex items-center gap-1.5 flex-1">
+                          <Input
+                            value={editingEditChecklistText}
+                            onChange={(e) => setEditingEditChecklistText(e.target.value)}
+                            className="h-7 text-xs bg-white flex-1"
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                handleSaveEditEditChecklist(idx);
+                              }
+                            }}
+                          />
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => handleSaveEditEditChecklist(idx)}
+                            className="h-7 px-2.5 bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs shrink-0"
+                          >
+                            Save
+                          </Button>
+                        </div>
+                      ) : (
+                        <>
+                          <span className="text-slate-800 font-medium whitespace-pre-wrap break-words [overflow-wrap:anywhere] flex-1 leading-relaxed">
+                            ✓ {item.item_text}
+                          </span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleStartEditEditChecklist(idx, item.item_text)}
+                              className="text-sky-600 hover:text-sky-800 hover:bg-sky-50 p-1 rounded cursor-pointer"
+                              title="Edit sub-task text"
+                            >
+                              <Edit3 className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveEditChecklist(idx)}
+                              className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1 rounded cursor-pointer"
+                              title="Delete sub-task"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </>
+                      )}
                     </div>
                   ))}
                 </div>

@@ -51,6 +51,30 @@ export async function GET(req: Request) {
       ORDER BY t.created_at DESC
     `);
 
+    // Safely Fetch checklists for tasks in testing queue
+    const checklistMap: Record<number, any[]> = {};
+    try {
+      const [checklistRows]: any = await pool.query("SELECT * FROM task_checklists ORDER BY id ASC");
+      if (Array.isArray(checklistRows)) {
+        checklistRows.forEach((c: any) => {
+          if (!checklistMap[c.task_id]) checklistMap[c.task_id] = [];
+          let parsedAtts: any[] = [];
+          if (typeof c.attachments === "string") {
+            try { parsedAtts = JSON.parse(c.attachments); } catch (_) {}
+          } else if (Array.isArray(c.attachments)) {
+            parsedAtts = c.attachments;
+          }
+          checklistMap[c.task_id].push({
+            id: c.id,
+            task_id: c.task_id,
+            item_text: c.item_text,
+            is_completed: Boolean(c.is_completed),
+            attachments: parsedAtts,
+          });
+        });
+      }
+    } catch (_) {}
+
     const formatted = rows.map((r: any) => {
       let parsedLinks: string[] = [];
       if (typeof r.task_links === "string") {
@@ -61,9 +85,18 @@ export async function GET(req: Request) {
         parsedLinks = [r.task_link];
       }
 
+      let parsedAttachments: any[] = [];
+      if (typeof r.attachments === "string") {
+        try { parsedAttachments = JSON.parse(r.attachments); } catch (_) {}
+      } else if (Array.isArray(r.attachments)) {
+        parsedAttachments = r.attachments;
+      }
+
       return {
         ...r,
         task_links: parsedLinks,
+        attachments: parsedAttachments,
+        checklists: checklistMap[r.id] || [],
       };
     });
 

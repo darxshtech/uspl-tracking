@@ -29,8 +29,12 @@ export async function GET() {
     `;
     let params: any[] = [];
     
-    // For Developers and Testers: fetch their own daily tasks (assigned, multi-assigned, or self-created)
-    if (role === "Developer" || role === "Tester") {
+    // For Developers: fetch their own daily tasks (assigned, multi-assigned, or self-created)
+    // For Testers: fetch their own daily tasks PLUS any tasks in 'Ready for Testing', 'Testing', or 'Changes Required'
+    if (role === "Tester") {
+      query += " WHERE (t.assigned_to = ? OR t.created_by = ? OR t.id IN (SELECT task_id FROM task_assignees WHERE user_id = ?) OR t.status IN ('Ready for Testing', 'Testing', 'Changes Required'))";
+      params = [userId, userId, userId];
+    } else if (role === "Developer") {
       query += " WHERE (t.assigned_to = ? OR t.created_by = ? OR t.id IN (SELECT task_id FROM task_assignees WHERE user_id = ?))";
       params = [userId, userId, userId];
     }
@@ -414,6 +418,7 @@ export async function PATCH(req: Request) {
       task_link, 
       task_links, 
       attachments,
+      checklists,
       progress_percentage, 
       hours_spent, 
       blockers, 
@@ -530,7 +535,26 @@ export async function PATCH(req: Request) {
         }
       }
 
-      return NextResponse.json({ success: true, id, message: "Task updated successfully by management." });
+      // Update subtasks / checklists if provided
+      if (checklists !== undefined && Array.isArray(checklists)) {
+        await pool.query("DELETE FROM task_checklists WHERE task_id = ?", [id]);
+        for (const item of checklists) {
+          if (typeof item === "string" && item.trim()) {
+            await pool.query(
+              "INSERT INTO task_checklists (task_id, item_text, is_completed) VALUES (?, ?, false)",
+              [id, item.trim()]
+            );
+          } else if (typeof item === "object" && item && item.item_text) {
+            const itemAtts = Array.isArray(item.attachments) ? JSON.stringify(item.attachments) : null;
+            await pool.query(
+              "INSERT INTO task_checklists (task_id, item_text, is_completed, attachments) VALUES (?, ?, ?, ?)",
+              [id, item.item_text.trim(), item.is_completed ? 1 : 0, itemAtts]
+            );
+          }
+        }
+      }
+
+      return NextResponse.json({ success: true, id, message: "Task updated successfully." });
     }
 
     // 3. Action: Start Testing (Check-in by QA Tester)
