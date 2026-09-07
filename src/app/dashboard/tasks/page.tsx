@@ -225,6 +225,17 @@ export default function DailyTasksPage() {
     setProjectCredsModalOpen(true);
   };
 
+  // Helper to get the project live server URL from credentials or task documentation
+  const getProjectLiveServerUrl = (projectId?: number) => {
+    if (!projectId) return null;
+    const creds = projectCredentialsMap.get(projectId) || [];
+    const credWithLive = creds.find((c: any) => c.live_link && c.live_link.trim() !== "");
+    if (credWithLive?.live_link) return credWithLive.live_link.trim();
+    const credWithDemo = creds.find((c: any) => c.demo_link && c.demo_link.trim() !== "");
+    if (credWithDemo?.demo_link) return credWithDemo.demo_link.trim();
+    return null;
+  };
+
   // Helper to extract structured accounts from credentials text
   const parseCredentialSections = (text: string, defaultRole: string = "Account") => {
     if (!text) return [];
@@ -2896,22 +2907,46 @@ export default function DailyTasksPage() {
                     {/* Project & Assigner */}
                     <TableCell className="align-top space-y-1.5 min-w-[200px]">
                       <div className="flex flex-col gap-1">
-                        {task.project_id ? (
-                          <Link
-                            href={`/dashboard/credentials?projectId=${task.project_id}`}
-                            className="group inline-flex items-center gap-1.5 font-black text-slate-900 hover:text-sky-600 text-xs transition-colors"
-                            title={`Click to open ${task.project_name || "Project"} in Credentials`}
-                          >
-                            <Briefcase className="h-3.5 w-3.5 text-sky-500 shrink-0 group-hover:scale-110 transition-transform" />
-                            <span className="hover:underline underline-offset-2">{task.project_name || "N/A"}</span>
-                            <ExternalLink className="h-3 w-3 opacity-60 group-hover:opacity-100 text-sky-500 transition-opacity" />
-                          </Link>
-                        ) : (
-                          <div className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
-                            <Briefcase className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                            <span>{task.project_name || "N/A"}</span>
-                          </div>
-                        )}
+                        {(() => {
+                          const liveServerUrl = getProjectLiveServerUrl(task.project_id);
+                          if (!task.project_id) {
+                            return (
+                              <div className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                                <Briefcase className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                                <span>{task.project_name || "N/A"}</span>
+                              </div>
+                            );
+                          }
+
+                          if (liveServerUrl) {
+                            const formattedUrl = liveServerUrl.startsWith("http") ? liveServerUrl : `https://${liveServerUrl}`;
+                            return (
+                              <a
+                                href={formattedUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="group inline-flex items-center gap-1.5 font-black text-slate-900 hover:text-emerald-600 text-xs transition-colors"
+                                title={`Open Live Server: ${formattedUrl}`}
+                              >
+                                <Globe className="h-3.5 w-3.5 text-emerald-600 shrink-0 group-hover:scale-110 transition-transform" />
+                                <span className="hover:underline underline-offset-2">{task.project_name || "N/A"}</span>
+                                <ExternalLink className="h-3 w-3 opacity-60 group-hover:opacity-100 text-emerald-600 transition-opacity" />
+                              </a>
+                            );
+                          }
+
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenProjectCredentials(task.project_id, task.project_name || "Project")}
+                              className="group inline-flex items-center gap-1.5 font-black text-slate-900 hover:text-sky-600 text-xs text-left transition-colors cursor-pointer"
+                              title="No live server URL configured yet (Click to view or add credentials)"
+                            >
+                              <Briefcase className="h-3.5 w-3.5 text-slate-400 shrink-0 group-hover:text-sky-500 transition-colors" />
+                              <span className="hover:underline underline-offset-2">{task.project_name || "N/A"}</span>
+                            </button>
+                          );
+                        })()}
 
                         {/* View Project Credentials Button */}
                         {task.project_id && (
@@ -3475,10 +3510,10 @@ export default function DailyTasksPage() {
                         {/* Header: Title, Type badge, and Copy All button */}
                         <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
                           <div className="flex items-center gap-2">
-                            <span className="font-bold text-slate-900 text-sm">{cred.title || "Project Credentials"}</span>
-                            {cred.credential_type && (
+                            <span className="font-bold text-slate-900 text-sm">{cred.title || cred.project_title || "Project Credentials"}</span>
+                            {(cred.role || cred.credential_type) && (
                               <Badge variant="secondary" className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-700">
-                                {cred.credential_type}
+                                {cred.role || cred.credential_type}
                               </Badge>
                             )}
                           </div>
@@ -3507,11 +3542,11 @@ export default function DailyTasksPage() {
                         </div>
 
                         {/* URLs: Live & Demo Links */}
-                        {(cred.url || cred.demo_url) && (
+                        {(cred.live_link || cred.url || cred.demo_link || cred.demo_url) && (
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-0.5">
-                            {cred.url && (
+                            {(cred.live_link || cred.url) && (
                               <a
-                                href={cred.url.startsWith("http") ? cred.url : `https://${cred.url}`}
+                                href={(cred.live_link || cred.url).startsWith("http") ? (cred.live_link || cred.url) : `https://${cred.live_link || cred.url}`}
                                 target="_blank"
                                 rel="noreferrer"
                                 className="group flex items-center justify-between p-2 rounded-lg bg-emerald-50/70 border border-emerald-200/70 hover:bg-emerald-100/70 text-emerald-900 transition-colors text-xs"
@@ -3519,16 +3554,16 @@ export default function DailyTasksPage() {
                                 <div className="flex items-center gap-2 min-w-0 pr-2">
                                   <Globe className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
                                   <div className="min-w-0">
-                                    <p className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-700">Live URL</p>
-                                    <p className="font-medium truncate text-emerald-950 text-xs">{cred.url}</p>
+                                    <p className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-700">Live Server URL</p>
+                                    <p className="font-medium truncate text-emerald-950 text-xs">{cred.live_link || cred.url}</p>
                                   </div>
                                 </div>
                                 <ExternalLink className="h-3.5 w-3.5 text-emerald-600 shrink-0 group-hover:translate-x-0.5 transition-transform" />
                               </a>
                             )}
-                            {cred.demo_url && (
+                            {(cred.demo_link || cred.demo_url) && (
                               <a
-                                href={cred.demo_url.startsWith("http") ? cred.demo_url : `https://${cred.demo_url}`}
+                                href={(cred.demo_link || cred.demo_url).startsWith("http") ? (cred.demo_link || cred.demo_url) : `https://${cred.demo_link || cred.demo_url}`}
                                 target="_blank"
                                 rel="noreferrer"
                                 className="group flex items-center justify-between p-2 rounded-lg bg-purple-50/70 border border-purple-200/70 hover:bg-purple-100/70 text-purple-900 transition-colors text-xs"
@@ -3537,7 +3572,7 @@ export default function DailyTasksPage() {
                                   <Laptop className="h-3.5 w-3.5 text-purple-600 shrink-0" />
                                   <div className="min-w-0">
                                     <p className="text-[10px] font-extrabold uppercase tracking-wider text-purple-700">Demo / Staging URL</p>
-                                    <p className="font-medium truncate text-purple-950 text-xs">{cred.demo_url}</p>
+                                    <p className="font-medium truncate text-purple-950 text-xs">{cred.demo_link || cred.demo_url}</p>
                                   </div>
                                 </div>
                                 <ExternalLink className="h-3.5 w-3.5 text-purple-600 shrink-0 group-hover:translate-x-0.5 transition-transform" />

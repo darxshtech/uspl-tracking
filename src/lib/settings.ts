@@ -113,24 +113,46 @@ export async function getTotalLeavesAllowed(): Promise<number> {
 }
 
 export async function getAllPolicies() {
-  await ensureSettingsTable();
-  const [rows]: any = await pool.query("SELECT setting_key, setting_value FROM system_settings");
-  
-  const settingsMap: Record<string, string> = {};
-  rows.forEach((r: any) => {
-    settingsMap[r.setting_key] = r.setting_value;
-  });
+  const defaultPolicies = {
+    full_day_hours: 9,
+    half_day_min_hours: 4.5,
+    total_leaves_allowed: 2,
+    half_days_for_one_leave: 3,
+    carry_forward_leaves: true,
+    carry_forward_half_days: true,
+    carry_forward_reset_month: 1,
+    payroll_calculation_basis: "calendar_days",
+    policy_rules_text: `1. Shift Working Hours: A standard full-day shift requires 9 hours of active work.
+2. Absent Threshold: If an employee logs out before completing half of the shift (< 4.5 hours), it will be automatically recorded as a FULL DAY ABSENT.
+3. Half Day Policy: Working between 4.5 hours and 9 hours will be recorded as a HALF DAY.
+4. Monthly Paid Leaves: Every staff employee has an assigned monthly paid quota (e.g. 1 or 2 days/month).
+5. Leave Carry Forward: Unused paid leaves roll over month-to-month until Year-End (Dec 31st), resetting on Jan 1st.
+6. Half Days Ratio: Every 3 half days count as 1 full day paid leave deduction. If paid quota is 0, converts to 1 Unpaid Leave (LWP).
+7. Holidays & Weekly Offs: Sundays (weekly offs) and company holidays scheduled by Management are not deducted as paid leaves.
+8. Salary Deduction: Unpaid leaves (LWP) are deducted from monthly salary based on daily rate (Base Salary / Total Month Days).`,
+  };
 
-  const fullDayHours = parseFloat(settingsMap["full_day_hours"] || "9");
-  const halfDayMinHours = parseFloat(settingsMap["half_day_min_hours"] || (fullDayHours / 2).toString());
-  const totalLeavesAllowed = parseInt(settingsMap["total_leaves_allowed"] || "2", 10);
-  const halfDaysForOneLeave = parseInt(settingsMap["half_days_for_one_leave"] || "3", 10);
-  const carryForwardLeaves = settingsMap["carry_forward_leaves"] !== "0";
-  const carryForwardHalfDays = settingsMap["carry_forward_half_days"] !== "0";
-  const carryForwardResetMonth = parseInt(settingsMap["carry_forward_reset_month"] || "1", 10); // 1 = January
-  const payrollCalculationBasis = settingsMap["payroll_calculation_basis"] || "calendar_days"; // calendar_days vs working_days
+  try {
+    await ensureSettingsTable();
+    const [rows]: any = await pool.query("SELECT setting_key, setting_value FROM system_settings");
+    
+    const settingsMap: Record<string, string> = {};
+    if (Array.isArray(rows)) {
+      rows.forEach((r: any) => {
+        settingsMap[r.setting_key] = r.setting_value;
+      });
+    }
 
-  const policyRulesText = settingsMap["policy_rules_text"] || `1. Shift Working Hours: A standard full-day shift requires ${fullDayHours} hours of active work.
+    const fullDayHours = parseFloat(settingsMap["full_day_hours"] || "9");
+    const halfDayMinHours = parseFloat(settingsMap["half_day_min_hours"] || (fullDayHours / 2).toString());
+    const totalLeavesAllowed = parseInt(settingsMap["total_leaves_allowed"] || "2", 10);
+    const halfDaysForOneLeave = parseInt(settingsMap["half_days_for_one_leave"] || "3", 10);
+    const carryForwardLeaves = settingsMap["carry_forward_leaves"] !== "0";
+    const carryForwardHalfDays = settingsMap["carry_forward_half_days"] !== "0";
+    const carryForwardResetMonth = parseInt(settingsMap["carry_forward_reset_month"] || "1", 10); // 1 = January
+    const payrollCalculationBasis = settingsMap["payroll_calculation_basis"] || "calendar_days"; // calendar_days vs working_days
+
+    const policyRulesText = settingsMap["policy_rules_text"] || `1. Shift Working Hours: A standard full-day shift requires ${fullDayHours} hours of active work.
 2. Absent Threshold: If an employee logs out before completing half of the shift (< ${halfDayMinHours} hours), it will be automatically recorded as a FULL DAY ABSENT.
 3. Half Day Policy: Working between ${halfDayMinHours} hours and ${fullDayHours} hours will be recorded as a HALF DAY.
 4. Monthly Paid Leaves: Every staff employee has an assigned monthly paid quota (e.g. 1 or 2 days/month).
@@ -139,17 +161,21 @@ export async function getAllPolicies() {
 7. Holidays & Weekly Offs: Sundays (weekly offs) and company holidays scheduled by Management are not deducted as paid leaves.
 8. Salary Deduction: Unpaid leaves (LWP) are deducted from monthly salary based on daily rate (Base Salary / Total Month Days).`;
 
-  return {
-    full_day_hours: isNaN(fullDayHours) ? 9 : fullDayHours,
-    half_day_min_hours: isNaN(halfDayMinHours) ? 4.5 : halfDayMinHours,
-    total_leaves_allowed: isNaN(totalLeavesAllowed) ? 2 : totalLeavesAllowed,
-    half_days_for_one_leave: isNaN(halfDaysForOneLeave) ? 3 : halfDaysForOneLeave,
-    carry_forward_leaves: carryForwardLeaves,
-    carry_forward_half_days: carryForwardHalfDays,
-    carry_forward_reset_month: carryForwardResetMonth,
-    payroll_calculation_basis: payrollCalculationBasis,
-    policy_rules_text: policyRulesText,
-  };
+    return {
+      full_day_hours: isNaN(fullDayHours) ? 9 : fullDayHours,
+      half_day_min_hours: isNaN(halfDayMinHours) ? 4.5 : halfDayMinHours,
+      total_leaves_allowed: isNaN(totalLeavesAllowed) ? 2 : totalLeavesAllowed,
+      half_days_for_one_leave: isNaN(halfDaysForOneLeave) ? 3 : halfDaysForOneLeave,
+      carry_forward_leaves: carryForwardLeaves,
+      carry_forward_half_days: carryForwardHalfDays,
+      carry_forward_reset_month: carryForwardResetMonth,
+      payroll_calculation_basis: payrollCalculationBasis,
+      policy_rules_text: policyRulesText,
+    };
+  } catch (err) {
+    console.error("[Settings] Error fetching system policies, using fallback defaults:", err);
+    return defaultPolicies;
+  }
 }
 
 export async function updatePolicies(updates: {

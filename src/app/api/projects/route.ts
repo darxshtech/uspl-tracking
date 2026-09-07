@@ -8,8 +8,9 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
 
   try {
-    const role = (session.user as any).role;
-    const userId = (session.user as any).id;
+    const user = session?.user as any;
+    const role = user?.role || "Developer";
+    const userId = user?.id ? parseInt(String(user.id), 10) : null;
     
     let query = `
       SELECT p.*, 
@@ -23,7 +24,7 @@ export async function GET() {
     let params: any[] = [];
     
     // Developer and Tester should only see assigned projects
-    if (role === "Developer" || role === "Tester") {
+    if ((role === "Developer" || role === "Tester") && userId) {
       query += `
         WHERE p.id IN (
           SELECT project_id FROM project_members WHERE user_id = ?
@@ -44,13 +45,15 @@ export async function GET() {
     `);
 
     const memberMap: Record<number, any[]> = {};
-    memberRows.forEach((m: any) => {
-      if (!memberMap[m.project_id]) memberMap[m.project_id] = [];
-      memberMap[m.project_id].push({ id: m.id, name: m.name, role: m.role });
-    });
+    if (Array.isArray(memberRows)) {
+      memberRows.forEach((m: any) => {
+        if (!memberMap[m.project_id]) memberMap[m.project_id] = [];
+        memberMap[m.project_id].push({ id: m.id, name: m.name, role: m.role });
+      });
+    }
 
     // Format attachments & members safely
-    const formatted = rows.map((r: any) => {
+    const formatted = Array.isArray(rows) ? rows.map((r: any) => {
       let attachments = [];
       if (typeof r.attachments === "string") {
         try { attachments = JSON.parse(r.attachments); } catch (_) {}
@@ -63,10 +66,11 @@ export async function GET() {
         attachments: attachments || [],
         members: memberMap[r.id] || [],
       };
-    });
+    }) : [];
 
     return NextResponse.json(formatted);
   } catch (error: any) {
+    console.error("[Projects API GET Error]:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
