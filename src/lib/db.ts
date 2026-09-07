@@ -5,10 +5,17 @@ const globalForDb = globalThis as unknown as {
   _wrappedPool: boolean | undefined;
 };
 
+const isServerless = Boolean(
+  process.env.VERCEL ||
+  process.env.AWS_LAMBDA_FUNCTION_NAME ||
+  process.env.NETLIFY
+);
+
 // Safe connection limit for hosting with max 16 user connections total (e.g. cPanel).
-// Defaults to 4 connections to allow multiple worker processes, local dev,
-// and background scripts to coexist without exceeding 16 active user connections.
-const connectionLimit = parseInt(process.env.DB_CONNECTION_LIMIT || '4', 10);
+// In Vercel serverless, each lambda container serves 1 request at a time, so connectionLimit = 1.
+// In Node.js / cPanel / local dev, defaults to 3 to leave headroom for Vercel lambdas & background tasks.
+const defaultLimit = isServerless ? '1' : '3';
+const connectionLimit = parseInt(process.env.DB_CONNECTION_LIMIT || defaultLimit, 10);
 
 const pool = globalForDb._mysqlPool ?? mysql.createPool({
   host: process.env.DB_HOST || '127.0.0.1',
@@ -19,13 +26,20 @@ const pool = globalForDb._mysqlPool ?? mysql.createPool({
   waitForConnections: true,
   dateStrings: true,
   connectionLimit,
-  maxIdle: 1, // Minimize idle connections held against cPanel limit
-  idleTimeout: 10000, // Release idle connection back to MySQL after 10 seconds
+  maxIdle: isServerless ? 0 : 1, // Never hold idle connections open inside frozen serverless containers
+  idleTimeout: isServerless ? 2000 : 10000, // Drop idle connections fast
   queueLimit: 0, // In-memory queue: incoming requests wait safely without failing
   connectTimeout: 10000, // 10s connection timeout
-  enableKeepAlive: true,
+  enableKeepAlive: !isServerless, // Do NOT keepalive across frozen serverless instances
   keepAliveInitialDelay: 0,
   ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
+});
+
+// Automatically set MySQL session timeouts to 10 seconds.
+// If a serverless function freezes or connection sits idle for 10s,
+// MySQL server will automatically terminate it and reclaim the connection slot.
+(pool as any).on?.('connection', (conn: any) => {
+  conn.query?.('SET SESSION wait_timeout = 10, interactive_timeout = 10').catch?.(() => {});
 });
 
 // Catch pool errors safely
@@ -53,7 +67,7 @@ function isConnectionExhaustionError(err: any): boolean {
   );
 }
 
-async function withRetry<T>(operation: () => Promise<T>, maxRetries = 5): Promise<T> {
+async function withRetry<T>(operation: () => Promise<T>, maxRetries = 6): Promise<T> {
   let attempt = 0;
   while (true) {
     try {
