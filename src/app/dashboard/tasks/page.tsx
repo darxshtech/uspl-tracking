@@ -154,6 +154,8 @@ export default function DailyTasksPage() {
   const [editPriority, setEditPriority] = useState("Medium");
   const [editStatus, setEditStatus] = useState("In Progress");
   const [editTargetDate, setEditTargetDate] = useState("");
+  const [editTimeline, setEditTimeline] = useState<"today" | "tomorrow" | "custom">("today");
+  const [editCustomDate, setEditCustomDate] = useState("");
   const [editAssignedByType, setEditAssignedByType] = useState("PM");
   const [editProgressPercentage, setEditProgressPercentage] = useState(0);
   const [editHoursSpent, setEditHoursSpent] = useState(0);
@@ -839,7 +841,7 @@ export default function DailyTasksPage() {
     }
   };
 
-  // Open Edit Task Modal (PM, CEO, Admin)
+  // Open Edit Task Modal (PM, CEO, Admin, Developer, Tester)
   const openEditTaskModal = (task: any) => {
     setEditingTask(task);
     setEditTitle(task.title || "");
@@ -854,30 +856,83 @@ export default function DailyTasksPage() {
     }
     setEditPriority(task.priority || "Medium");
     setEditStatus(task.status || "In Progress");
-    setEditTargetDate(task.target_date ? task.target_date.split("T")[0] : "");
+
+    // Target date handling & timeline prefill
+    const taskDate = task.target_date ? (task.target_date.includes("T") ? task.target_date.split("T")[0] : task.target_date) : "";
+    setEditTargetDate(taskDate);
+    if (taskDate === todayStr) {
+      setEditTimeline("today");
+      setEditCustomDate("");
+    } else if (taskDate === tomorrowStr) {
+      setEditTimeline("tomorrow");
+      setEditCustomDate("");
+    } else if (taskDate) {
+      setEditTimeline("custom");
+      setEditCustomDate(taskDate);
+    } else {
+      setEditTimeline("today");
+      setEditCustomDate("");
+    }
+
     setEditAssignedByType(task.assigned_by_type || "PM");
     setEditProgressPercentage(task.progress_percentage || 0);
     setEditHoursSpent(parseFloat(task.hours_spent) || 0);
     setEditBlockers(task.blockers || "");
     setEditRemarks(task.remarks || "");
-    setEditTaskAttachments(task.attachments && Array.isArray(task.attachments) ? task.attachments : []);
+
+    // Attachments normalization & prefill
+    let rawAtts: any[] = [];
+    if (Array.isArray(task.attachments)) {
+      rawAtts = task.attachments;
+    } else if (typeof task.attachments === "string" && task.attachments.trim() !== "") {
+      try {
+        rawAtts = JSON.parse(task.attachments);
+      } catch (_) {}
+    }
+    if (rawAtts.length === 0) {
+      if (Array.isArray(task.task_links) && task.task_links.length > 0) {
+        rawAtts = task.task_links.map((link: string, i: number) => ({ title: `Link #${i + 1}`, url: link }));
+      } else if (task.task_link) {
+        rawAtts = [{ title: "Reference Link", url: task.task_link }];
+      }
+    }
+    setEditTaskAttachments(rawAtts);
     setEditTaskAttTitle("");
     setEditTaskAttUrl("");
-    setEditChecklists(task.checklists && Array.isArray(task.checklists) ? task.checklists.map((c: any) => ({
-      id: c.id,
-      item_text: c.item_text,
-      is_completed: Boolean(c.is_completed),
-    })) : []);
+
+    // Checklists normalization & prefill
+    let rawChecklists: any[] = [];
+    if (Array.isArray(task.checklists)) {
+      rawChecklists = task.checklists.map((c: any) => ({
+        id: c.id,
+        item_text: typeof c === "string" ? c : (c.item_text || ""),
+        is_completed: typeof c === "object" ? Boolean(c.is_completed) : false,
+      }));
+    }
+    setEditChecklists(rawChecklists);
     setEditNewChecklistInput("");
     setEditingEditChecklistIdx(null);
     setEditingEditChecklistText("");
     setEditTaskModalOpen(true);
   };
 
-  // Save Edit Task (PM, CEO, Admin)
+  // Save Edit Task
   const handleSaveEditTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingTask) return;
+
+    let finalTargetDate = editTargetDate;
+    if (editTimeline === "today") {
+      finalTargetDate = todayStr;
+    } else if (editTimeline === "tomorrow") {
+      finalTargetDate = tomorrowStr;
+    } else if (editTimeline === "custom") {
+      if (!editCustomDate) {
+        showError("Invalid Date", "Please select a specific date for the scheduled target date.");
+        return;
+      }
+      finalTargetDate = editCustomDate;
+    }
 
     setSavingEditTask(true);
     try {
@@ -890,10 +945,10 @@ export default function DailyTasksPage() {
           title: editTitle.trim(),
           description: editDescription.trim() || null,
           project_id: editProjectId ? parseInt(editProjectId) : undefined,
-          assigned_to: editAssignedTo.map((id) => parseInt(id)),
+          assigned_to: canManageAllTasks ? editAssignedTo.map((id) => parseInt(id)) : undefined,
           priority: editPriority,
           status: editStatus,
-          target_date: editTargetDate || undefined,
+          target_date: finalTargetDate || undefined,
           assigned_by_type: editAssignedByType,
           progress_percentage: editProgressPercentage,
           hours_spent: editHoursSpent,
@@ -2333,7 +2388,7 @@ export default function DailyTasksPage() {
       <Dialog open={editTaskModalOpen} onOpenChange={setEditTaskModalOpen}>
         <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-lg font-bold text-slate-900">
+            <DialogTitle className="text-xl font-bold text-slate-900 flex items-center gap-2">
               <Edit3 className="h-5 w-5 text-sky-500" />
               Edit Task Details
             </DialogTitle>
@@ -2341,94 +2396,56 @@ export default function DailyTasksPage() {
 
           <form onSubmit={handleSaveEditTask} className="space-y-4 pt-2">
             <div className="space-y-1.5">
-              <Label htmlFor="editTaskTitle" className="font-semibold text-slate-700 text-xs">Task Title *</Label>
+              <Label htmlFor="editTaskTitle" className="font-semibold text-slate-700">Task Title *</Label>
               <Input
                 id="editTaskTitle"
                 value={editTitle}
                 onChange={(e) => setEditTitle(e.target.value)}
+                placeholder="e.g. Implement Stripe Webhook Listener"
                 required
               />
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="editTaskDescription" className="font-semibold text-slate-700 text-xs">Description & Scope</Label>
+              <Label htmlFor="editTaskDescription" className="font-semibold text-slate-700">Description / Goal</Label>
               <textarea
                 id="editTaskDescription"
                 rows={3}
                 value={editDescription}
                 onChange={(e) => setEditDescription(e.target.value)}
+                placeholder="Detailed description of task deliverables and requirements..."
                 className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500 leading-relaxed"
               />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <div className="space-y-1.5">
-                <Label className="font-semibold text-slate-700 text-xs">Project</Label>
+                <Label className="font-semibold text-slate-700 text-xs">Project *</Label>
                 <Select value={editProjectId} onValueChange={(val) => setEditProjectId(val || "")}>
-                  <SelectTrigger><SelectValue placeholder="Project" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="Select Project" /></SelectTrigger>
                   <SelectContent>
                     {projects.map((p) => (
-                      <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
+                      <SelectItem key={p.id} value={p.id.toString()}>
+                        {p.name} {p.creator_name ? `(By: ${p.creator_name})` : ""}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
 
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label className="font-semibold text-slate-700 text-xs flex items-center justify-between">
-                  <span>
-                    <Users className="h-3.5 w-3.5 inline text-sky-500 mr-1" />
-                    Assigned Team Members * {editAssignedTo.length > 0 && `(${editAssignedTo.length} selected)`}
-                    {editProjectId && (
-                      <span className="ml-1 text-[10px] text-sky-700 font-bold bg-sky-50 px-1.5 py-0.5 rounded border border-sky-200">
-                        Project Members ({editProjectAssignedEmployees.length})
-                      </span>
-                    )}
-                  </span>
-                </Label>
-                <div className="border border-slate-200 rounded-xl bg-white p-2 space-y-1 max-h-36 overflow-y-auto">
-                  {editProjectAssignedEmployees.length === 0 ? (
-                    <p className="text-xs text-slate-400 italic p-2 text-center">No team members assigned to this project.</p>
-                  ) : (
-                    editProjectAssignedEmployees.map((e) => {
-                      const isSelected = editAssignedTo.includes(e.id.toString());
-                      return (
-                        <div
-                          key={e.id}
-                          onClick={() => {
-                            setEditAssignedTo((prev) =>
-                              isSelected
-                                ? prev.filter((x) => x !== e.id.toString())
-                                : [...prev, e.id.toString()]
-                            );
-                          }}
-                          className={`flex items-center justify-between p-1 rounded-lg text-xs cursor-pointer transition-all ${
-                            isSelected
-                              ? "bg-sky-50 text-sky-900 font-bold border border-sky-200"
-                              : "hover:bg-slate-50 text-slate-700"
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={() => {}}
-                              className="rounded border-slate-300 text-sky-600 h-3.5 w-3.5 cursor-pointer"
-                            />
-                            <span>{e.name}</span>
-                          </div>
-                          <Badge variant="outline" className="text-[10px] font-semibold text-slate-500">
-                            {e.role}
-                          </Badge>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
+              <div className="space-y-1.5">
+                <Label className="font-semibold text-slate-700 text-xs">Task Assigned By *</Label>
+                <Select value={editAssignedByType} onValueChange={(val: any) => setEditAssignedByType(val || "PM")}>
+                  <SelectTrigger><SelectValue placeholder="Assigned By" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PM">📋 PM (Project Manager)</SelectItem>
+                    <SelectItem value="CEO">👑 CEO (Executive)</SelectItem>
+                    <SelectItem value="Tester">🧪 Tester (QA Bug Fix)</SelectItem>
+                    <SelectItem value="Self Tested">✍️ Self Tested</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-            </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <Label className="font-semibold text-slate-700 text-xs">Priority</Label>
                 <Select value={editPriority} onValueChange={(val) => setEditPriority(val || "Medium")}>
@@ -2458,79 +2475,162 @@ export default function DailyTasksPage() {
                   </SelectContent>
                 </Select>
               </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="editTaskTargetDate" className="font-semibold text-slate-700 text-xs">Scheduled Target Date</Label>
-                <Input
-                  id="editTaskTargetDate"
-                  type="date"
-                  value={editTargetDate}
-                  onChange={(e) => setEditTargetDate(e.target.value)}
-                  className="text-xs"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className="font-semibold text-slate-700 text-xs">Assigned By Tag</Label>
-                <Select value={editAssignedByType} onValueChange={(val) => setEditAssignedByType(val || "PM")}>
-                  <SelectTrigger><SelectValue placeholder="Assigned By" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="PM">📋 PM</SelectItem>
-                    <SelectItem value="CEO">👑 CEO</SelectItem>
-                    <SelectItem value="Tester">🧪 Tester</SelectItem>
-                    <SelectItem value="Self Tested">✍️ Self Tested</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            {/* Assigned Team Members: Interactive multi-select for PM/CEO/Admin; Read-only badge for Dev/Tester */}
+            {canManageAllTasks ? (
               <div className="space-y-1.5">
-                <Label htmlFor="editProgressPct" className="font-semibold text-slate-700 text-xs">Progress (% Done)</Label>
-                <Input
-                  id="editProgressPct"
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={editProgressPercentage}
-                  onChange={(e) => setEditProgressPercentage(parseInt(e.target.value) || 0)}
-                  className="text-xs"
-                />
+                <Label className="font-semibold text-slate-700 text-xs flex items-center justify-between">
+                  <span>
+                    <Users className="h-3.5 w-3.5 inline text-sky-500 mr-1" />
+                    Assign Team Members * {editAssignedTo.length > 0 && `(${editAssignedTo.length} selected)`}
+                    {editProjectId && (
+                      <span className="ml-1 text-[10px] text-sky-700 font-bold bg-sky-50 px-1.5 py-0.5 rounded border border-sky-200">
+                        Project Members ({editProjectAssignedEmployees.length})
+                      </span>
+                    )}
+                  </span>
+                  {editAssignedTo.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setEditAssignedTo([])}
+                      className="text-[10px] text-red-500 hover:underline font-bold"
+                    >
+                      Clear Selection
+                    </button>
+                  )}
+                </Label>
+                <div className="border border-slate-200 rounded-xl bg-white p-2 space-y-1 max-h-36 overflow-y-auto">
+                  {editProjectAssignedEmployees.length === 0 ? (
+                    <p className="text-xs text-slate-400 italic p-2 text-center">No team members assigned to this project.</p>
+                  ) : (
+                    editProjectAssignedEmployees.map((e) => {
+                      const isSelected = editAssignedTo.includes(e.id.toString());
+                      return (
+                        <div
+                          key={e.id}
+                          onClick={() => {
+                            setEditAssignedTo((prev) =>
+                              isSelected
+                                ? prev.filter((x) => x !== e.id.toString())
+                                : [...prev, e.id.toString()]
+                            );
+                          }}
+                          className={`flex items-center justify-between p-1.5 rounded-lg text-xs cursor-pointer transition-all ${
+                            isSelected
+                              ? "bg-sky-50 text-sky-900 font-bold border border-sky-200"
+                              : "hover:bg-slate-50 text-slate-700"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {}}
+                              className="rounded border-slate-300 text-sky-600 h-3.5 w-3.5 cursor-pointer"
+                            />
+                            <span>{e.name}</span>
+                          </div>
+                          <Badge variant="outline" className="text-[10px] font-semibold text-slate-500">
+                            {e.role}
+                          </Badge>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <Label className="font-semibold text-slate-700 text-xs flex items-center gap-1.5">
+                  <Users className="h-3.5 w-3.5 text-sky-500" /> Assigned Team Member(s)
+                </Label>
+                <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl flex flex-wrap gap-1.5 items-center">
+                  {editAssignedTo.length > 0 ? (
+                    employees
+                      .filter((e) => editAssignedTo.includes(e.id.toString()))
+                      .map((e) => (
+                        <Badge key={e.id} variant="secondary" className="bg-white border border-slate-200 text-slate-800 text-xs font-semibold py-1 px-2.5 flex items-center gap-1.5 shadow-xs">
+                          <span className="h-2 w-2 rounded-full bg-emerald-500 inline-block" />
+                          <span>{e.name}</span>
+                          <span className="text-[10px] text-slate-500 font-normal">({e.role})</span>
+                        </Badge>
+                      ))
+                  ) : editingTask?.assignee_name ? (
+                    <Badge variant="secondary" className="bg-white border border-slate-200 text-slate-800 text-xs font-semibold py-1 px-2.5 shadow-xs">
+                      👤 {editingTask.assignee_name}
+                    </Badge>
+                  ) : (
+                    <span className="text-xs text-slate-400 italic">Self Assigned / Current User</span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Timeline Selection (Target Date & Schedule) */}
+            <div className="space-y-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
+              <Label className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
+                <Calendar className="h-4 w-4 text-sky-500" /> Target Date & Schedule
+              </Label>
+              <div className="grid grid-cols-3 gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setEditTimeline("today")}
+                  className={`p-2 rounded-lg border text-xs font-bold transition-all flex flex-col items-center gap-1 ${
+                    editTimeline === "today"
+                      ? "bg-sky-50 border-sky-400 text-sky-900 shadow-xs"
+                      : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  <Flame className="h-4 w-4 text-amber-500" />
+                  <span>⚡ To Do Today</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setEditTimeline("tomorrow")}
+                  className={`p-2 rounded-lg border text-xs font-bold transition-all flex flex-col items-center gap-1 ${
+                    editTimeline === "tomorrow"
+                      ? "bg-indigo-50 border-indigo-400 text-indigo-900 shadow-xs"
+                      : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  <SunMedium className="h-4 w-4 text-indigo-500" />
+                  <span>🌅 For Tomorrow</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setEditTimeline("custom")}
+                  className={`p-2 rounded-lg border text-xs font-bold transition-all flex flex-col items-center gap-1 ${
+                    editTimeline === "custom"
+                      ? "bg-purple-50 border-purple-400 text-purple-900 shadow-xs"
+                      : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  <Calendar className="h-4 w-4 text-purple-500" />
+                  <span>📅 Specific Date</span>
+                </button>
               </div>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="editHours" className="font-semibold text-slate-700 text-xs">Hours Logged</Label>
-                <Input
-                  id="editHours"
-                  type="text"
-                  value={formatHoursAndMinutes(editHoursSpent)}
-                  readOnly={true}
-                  className="text-xs bg-slate-100 cursor-not-allowed font-medium text-slate-700"
-                />
-                {editHoursSpent > 0 && (
-                  <p className="text-[10px] text-slate-500">
-                    {editHoursSpent} hrs recorded via timer
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="editBlockersInput" className="font-semibold text-slate-700 text-xs">Blockers (Optional)</Label>
-              <Input
-                id="editBlockersInput"
-                value={editBlockers}
-                onChange={(e) => setEditBlockers(e.target.value)}
-                placeholder="Blockers or pending dependencies..."
-                className="text-xs"
-              />
+              {editTimeline === "custom" && (
+                <div className="pt-2">
+                  <Input
+                    type="date"
+                    value={editCustomDate}
+                    onChange={(e) => setEditCustomDate(e.target.value)}
+                    className="bg-white text-xs"
+                    required
+                  />
+                </div>
+              )}
             </div>
 
             {/* Task Attachments in Edit Task Modal */}
             <div className="space-y-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
               <Label className="font-bold text-slate-900 flex items-center justify-between text-xs">
                 <span className="flex items-center gap-1.5">
-                  <Paperclip className="h-4 w-4 text-sky-500" /> Task Attachments & Reference Links
+                  <Paperclip className="h-4 w-4 text-sky-500" /> Task Attachments & Reference Links (Optional)
                 </span>
                 {editTaskAttachments.length > 0 && (
                   <span className="text-[10px] text-sky-600 font-bold">{editTaskAttachments.length} Attached</span>
@@ -2602,7 +2702,7 @@ export default function DailyTasksPage() {
             <div className="space-y-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
               <Label className="font-bold text-slate-900 flex items-center justify-between text-xs">
                 <span className="flex items-center gap-1.5">
-                  <ListTodo className="h-4 w-4 text-sky-500" /> Checklist Sub-tasks
+                  <ListTodo className="h-4 w-4 text-sky-500" /> Add Checklist Sub-tasks (Optional)
                 </span>
                 {editChecklists.length > 0 && (
                   <span className="text-[10px] text-sky-600 font-bold">{editChecklists.length} Sub-tasks</span>
@@ -2610,7 +2710,7 @@ export default function DailyTasksPage() {
               </Label>
               <div className="flex gap-2">
                 <Input
-                  placeholder="e.g. Write test cases / verify responsive UI"
+                  placeholder="e.g. Write unit test cases / verify responsive UI"
                   value={editNewChecklistInput}
                   onChange={(e) => setEditNewChecklistInput(e.target.value)}
                   className="bg-white text-xs h-8"
@@ -2686,6 +2786,48 @@ export default function DailyTasksPage() {
                   ))}
                 </div>
               )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="editProgressPct" className="font-semibold text-slate-700 text-xs">Progress (% Done)</Label>
+                <Input
+                  id="editProgressPct"
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={editProgressPercentage}
+                  onChange={(e) => setEditProgressPercentage(parseInt(e.target.value) || 0)}
+                  className="text-xs"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="editHours" className="font-semibold text-slate-700 text-xs">Hours Logged</Label>
+                <Input
+                  id="editHours"
+                  type="text"
+                  value={formatHoursAndMinutes(editHoursSpent)}
+                  readOnly={true}
+                  className="text-xs bg-slate-100 cursor-not-allowed font-medium text-slate-700"
+                />
+                {editHoursSpent > 0 && (
+                  <p className="text-[10px] text-slate-500">
+                    {editHoursSpent} hrs recorded via timer
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="editBlockersInput" className="font-semibold text-slate-700 text-xs">Blockers (Optional)</Label>
+              <Input
+                id="editBlockersInput"
+                value={editBlockers}
+                onChange={(e) => setEditBlockers(e.target.value)}
+                placeholder="Blockers or pending dependencies..."
+                className="text-xs"
+              />
             </div>
 
             <Button
