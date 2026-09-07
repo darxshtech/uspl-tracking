@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { Play, Clock, RefreshCw, Users, Briefcase, Activity, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
+import EmployeeProductivityTag from "@/components/EmployeeProductivityTag";
 
 interface ActiveTeamTimer {
   id: number;
@@ -37,21 +38,35 @@ export default function LiveTeamActivityMonitor() {
   const [loading, setLoading] = useState<boolean>(true);
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
   const [currentTimeMs, setCurrentTimeMs] = useState<number>(Date.now());
+  const [productivityMap, setProductivityMap] = useState<Map<number, any>>(new Map());
 
   const fetchTeamTimers = useCallback(async (isSilent = false) => {
     if (!isSilent) setLoading(true);
     try {
-      const res = await fetch("/api/tasks/timer?mode=team");
-      if (res.ok) {
-        const data = await res.json();
+      const [timerRes, prodRes] = await Promise.all([
+        fetch("/api/tasks/timer?mode=team&_=" + Date.now()),
+        fetch("/api/analytics/employee-productivity?period=today&_=" + Date.now())
+      ]);
+
+      if (timerRes.ok) {
+        const data = await timerRes.json();
         if (data.success) {
           setActiveTimers(data.active_timers || []);
           if (data.stats) setStats(data.stats);
           setLastRefreshed(new Date());
         }
       }
+
+      if (prodRes.ok) {
+        const prodData = await prodRes.json();
+        if (prodData && Array.isArray(prodData.employees)) {
+          const map = new Map<number, any>();
+          prodData.employees.forEach((emp: any) => map.set(emp.id, emp));
+          setProductivityMap(map);
+        }
+      }
     } catch (err) {
-      console.error("Failed to load team active timers:", err);
+      console.error("Failed to load team active timers or productivity:", err);
     } finally {
       if (!isSilent) setLoading(false);
     }
@@ -192,9 +207,18 @@ export default function LiveTeamActivityMonitor() {
                     </div>
                   </div>
 
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
-                    Active
-                  </span>
+                  {productivityMap.has(timer.user_id) ? (
+                    <EmployeeProductivityTag
+                      tag={productivityMap.get(timer.user_id)?.tag}
+                      score={productivityMap.get(timer.user_id)?.score}
+                      metrics={productivityMap.get(timer.user_id)?.metrics}
+                      size="xs"
+                    />
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
+                      Active
+                    </span>
+                  )}
                 </div>
 
                 <div className="bg-slate-50 p-2 rounded-lg border border-slate-100 text-xs">

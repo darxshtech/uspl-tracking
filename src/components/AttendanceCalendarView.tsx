@@ -22,6 +22,7 @@ import {
   Users 
 } from "lucide-react";
 import { formatHoursAndMinutes, calculateHoursDifference, getCurrentISTTime12 } from "@/lib/timeUtils";
+import EmployeeProductivityTag from "@/components/EmployeeProductivityTag";
 
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
@@ -47,10 +48,34 @@ export default function AttendanceCalendarView({
   const [currentYear, setCurrentYear] = useState(2026);
   const [currentMonth, setCurrentMonth] = useState(7); // August (0-indexed)
   const [selectedEmployeeId, setSelectedEmployeeId] = useState(initialEmployeeId);
+  const [employeeProductivity, setEmployeeProductivity] = useState<any>(null);
 
   useEffect(() => {
     setSelectedEmployeeId(initialEmployeeId);
   }, [initialEmployeeId]);
+
+  // Fetch productivity metrics for selected employee in the viewed month
+  useEffect(() => {
+    if (selectedEmployeeId === "ALL") {
+      setEmployeeProductivity(null);
+      return;
+    }
+    const mStr = String(currentMonth + 1).padStart(2, "0");
+    const start_date = `${currentYear}-${mStr}-01`;
+    const lastDay = new Date(currentYear, currentMonth + 1, 0).getDate();
+    const end_date = `${currentYear}-${mStr}-${String(lastDay).padStart(2, "0")}`;
+
+    fetch(`/api/analytics/employee-productivity?period=custom&start_date=${start_date}&end_date=${end_date}&employee_id=${selectedEmployeeId}&_=` + Date.now())
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && Array.isArray(data.employees) && data.employees.length > 0) {
+          setEmployeeProductivity(data.employees[0]);
+        } else {
+          setEmployeeProductivity(null);
+        }
+      })
+      .catch(() => setEmployeeProductivity(null));
+  }, [selectedEmployeeId, currentYear, currentMonth]);
 
   const [holidays, setHolidays] = useState<any[]>([]);
   const [attendanceRecords, setAttendanceRecords] = useState<any[]>([]);
@@ -254,20 +279,30 @@ export default function AttendanceCalendarView({
         <div className="flex flex-wrap items-center gap-3">
           {/* Employee Selector for Managers */}
           {!hideEmployeeSelect && canAddHoliday && employees.length > 0 && (
-            <div className="min-w-[180px]">
-              <Select value={selectedEmployeeId} onValueChange={(val) => setSelectedEmployeeId(val || "ALL")}>
-                <SelectTrigger className="h-9 text-xs">
-                  <SelectValue placeholder="All Employees" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">All Team Members</SelectItem>
-                  {employees
-                    .filter((e) => e.role !== "CEO" && e.role !== "Admin")
-                    .map((e) => (
-                      <SelectItem key={e.id} value={e.id.toString()}>{e.name} ({e.role})</SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
+            <div className="flex items-center gap-2">
+              <div className="min-w-[180px]">
+                <Select value={selectedEmployeeId} onValueChange={(val) => setSelectedEmployeeId(val || "ALL")}>
+                  <SelectTrigger className="h-9 text-xs">
+                    <SelectValue placeholder="All Employees" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">All Team Members</SelectItem>
+                    {employees
+                      .filter((e) => e.role !== "CEO" && e.role !== "Admin")
+                      .map((e) => (
+                        <SelectItem key={e.id} value={e.id.toString()}>{e.name} ({e.role})</SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {employeeProductivity && (
+                <EmployeeProductivityTag
+                  tag={employeeProductivity.tag}
+                  score={employeeProductivity.score}
+                  metrics={employeeProductivity.metrics}
+                  size="sm"
+                />
+              )}
             </div>
           )}
 

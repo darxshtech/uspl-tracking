@@ -34,6 +34,7 @@ import {
   X
 } from "lucide-react";
 import AttendanceCalendarView from "@/components/AttendanceCalendarView";
+import EmployeeProductivityTag from "@/components/EmployeeProductivityTag";
 import { formatHoursAndMinutes, calculateHoursDifference, getCurrentISTTime12 } from "@/lib/timeUtils";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
@@ -96,6 +97,9 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
 
   // Live IST Clock for Active Shifts
   const [currentISTTime, setCurrentISTTime] = useState<string>("");
+
+  // Employee Productivity Analytics State
+  const [productivityMap, setProductivityMap] = useState<Map<number, any>>(new Map());
 
   useEffect(() => {
     setCurrentISTTime(getCurrentISTTime12());
@@ -191,6 +195,22 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
       } else {
         setRecords([]);
       }
+
+      // Also fetch productivity evaluation for the selected month
+      const start_date = `${selectedYear}-${selectedMonth}-01`;
+      const lastDay = new Date(parseInt(selectedYear, 10), parseInt(selectedMonth, 10), 0).getDate();
+      const end_date = `${selectedYear}-${selectedMonth}-${String(lastDay).padStart(2, "0")}`;
+
+      fetch(`/api/analytics/employee-productivity?period=custom&start_date=${start_date}&end_date=${end_date}&_=` + Date.now())
+        .then((pRes) => (pRes.ok ? pRes.json() : null))
+        .then((pData) => {
+          if (pData && Array.isArray(pData.employees)) {
+            const map = new Map<number, any>();
+            pData.employees.forEach((emp: any) => map.set(emp.id, emp));
+            setProductivityMap(map);
+          }
+        })
+        .catch((err) => console.error("Error fetching productivity in attendance:", err));
     } catch (err) {
       console.error("Error fetching attendance manage records:", err);
     } finally {
@@ -879,7 +899,19 @@ export default function PMAttendanceManager({ employees }: { employees: any[] })
             ) : (
               records.map((rec) => (
                 <TableRow key={rec.id} className="hover:bg-slate-50/80 transition-colors">
-                  <TableCell className="font-bold text-slate-900 text-sm">{rec.employee_name}</TableCell>
+                  <TableCell className="font-bold text-slate-900 text-sm">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span>{rec.employee_name}</span>
+                      {productivityMap.has(rec.user_id) && (
+                        <EmployeeProductivityTag
+                          tag={productivityMap.get(rec.user_id)?.tag}
+                          score={productivityMap.get(rec.user_id)?.score}
+                          metrics={productivityMap.get(rec.user_id)?.metrics}
+                          size="xs"
+                        />
+                      )}
+                    </div>
+                  </TableCell>
                   <TableCell><Badge variant="outline" className="text-xs">{rec.employee_role}</Badge></TableCell>
                   <TableCell className="text-xs text-slate-700 font-medium">{new Date(rec.date).toLocaleDateString()}</TableCell>
                   <TableCell className="font-mono text-xs text-slate-800 font-semibold">{rec.login_time || "--:--"}</TableCell>

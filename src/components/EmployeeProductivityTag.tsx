@@ -1,0 +1,256 @@
+"use client";
+
+import React, { useState, useRef, useEffect } from "react";
+import { useSession } from "next-auth/react";
+import { 
+  Sparkles, 
+  CheckCircle2, 
+  AlertTriangle, 
+  Moon, 
+  Clock, 
+  CheckSquare, 
+  Briefcase, 
+  TrendingUp,
+  X
+} from "lucide-react";
+import { formatHoursAndMinutes } from "@/lib/timeUtils";
+
+export interface EmployeeProductivityMetrics {
+  shift_hours?: number;
+  task_hours?: number;
+  utilization_rate?: number;
+  tasks_total?: number;
+  tasks_completed?: number;
+  tasks_in_progress?: number;
+  task_rate?: number;
+  subtasks_total?: number;
+  subtasks_completed?: number;
+  subtask_rate?: number;
+  total_projects?: number;
+  active_projects?: number;
+  project_rate?: number;
+}
+
+export interface EmployeeProductivityTagProps {
+  tag?: "ideal" | "active" | "idle" | "off" | string;
+  score?: number;
+  metrics?: EmployeeProductivityMetrics;
+  size?: "xs" | "sm" | "md";
+  showScore?: boolean;
+  className?: string;
+}
+
+export default function EmployeeProductivityTag({
+  tag = "active",
+  score,
+  metrics,
+  size = "xs",
+  showScore = true,
+  className = "",
+}: EmployeeProductivityTagProps) {
+  const { data: session } = useSession();
+  const role = (session?.user as any)?.role;
+  const isAuthorized = ["Admin", "CEO", "PM"].includes(role);
+
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Close tooltip when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    if (isOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isOpen]);
+
+  // If not executive leadership, do not render anything
+  if (!isAuthorized) {
+    return null;
+  }
+
+  // Configuration per tag
+  const config = {
+    ideal: {
+      label: "Ideal",
+      badgeClass: "bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100/90 shadow-xs",
+      dotClass: "bg-emerald-500",
+      icon: <Sparkles className="h-3 w-3 text-emerald-600 fill-emerald-100 animate-pulse" />,
+      accentColor: "emerald",
+      title: "🌟 Ideal Performer",
+      desc: "High working-time efficiency, consistent task delivery & active across assigned projects.",
+    },
+    active: {
+      label: "Active",
+      badgeClass: "bg-sky-50 text-sky-800 border-sky-300 hover:bg-sky-100/90 shadow-xs",
+      dotClass: "bg-sky-500",
+      icon: <CheckCircle2 className="h-3 w-3 text-sky-600" />,
+      accentColor: "sky",
+      title: "🟢 Active & Working",
+      desc: "Steady workload pacing with reliable subtask & task completion progress.",
+    },
+    idle: {
+      label: "Under-utilized",
+      badgeClass: "bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100/90 shadow-xs",
+      dotClass: "bg-amber-500",
+      icon: <AlertTriangle className="h-3 w-3 text-amber-600" />,
+      accentColor: "amber",
+      title: "🟡 Under-utilized",
+      desc: "Attendance shift hours exceed logged task timer output or tasks are currently stalled.",
+    },
+    off: {
+      label: "Off Shift",
+      badgeClass: "bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200/80",
+      dotClass: "bg-slate-400",
+      icon: <Moon className="h-3 w-3 text-slate-400" />,
+      accentColor: "slate",
+      title: "⚪ Off Shift / Leave",
+      desc: "No active attendance shift or scheduled leave during this evaluated timeframe.",
+    },
+  }[tag as "ideal" | "active" | "idle" | "off"] || {
+    label: tag,
+    badgeClass: "bg-slate-100 text-slate-700 border-slate-300",
+    dotClass: "bg-slate-500",
+    icon: null,
+    accentColor: "slate",
+    title: tag,
+    desc: "",
+  };
+
+  const sizeClass = {
+    xs: "text-[10px] px-1.5 py-0.5 gap-1",
+    sm: "text-[11px] px-2 py-0.5 gap-1.5",
+    md: "text-xs px-2.5 py-1 gap-1.5",
+  }[size];
+
+  return (
+    <div 
+      ref={containerRef} 
+      className={`relative inline-block text-left ${className}`}
+      onMouseEnter={() => metrics && setIsOpen(true)}
+      onMouseLeave={() => setIsOpen(false)}
+    >
+      <button
+        type="button"
+        onClick={() => metrics && setIsOpen(!isOpen)}
+        className={`inline-flex items-center rounded-md border font-semibold tracking-tight transition-all cursor-pointer select-none ${config.badgeClass} ${sizeClass}`}
+        title="Click or hover to inspect 4-pillar productivity breakdown"
+      >
+        {config.icon}
+        <span>{config.label}</span>
+        {showScore && score !== undefined && tag !== "off" && (
+          <span className="opacity-75 font-mono text-[9px] font-bold ml-0.5">
+            {score}%
+          </span>
+        )}
+      </button>
+
+      {/* Floating Detailed Breakdown Tooltip / Popover */}
+      {isOpen && metrics && (
+        <div 
+          className="absolute z-50 bottom-full mb-2 left-1/2 -translate-x-1/2 w-64 sm:w-72 bg-white rounded-xl shadow-xl border border-slate-200 p-3 text-xs animate-in fade-in zoom-in-95 duration-150"
+          style={{ filter: "drop-shadow(0 10px 15px rgba(0,0,0,0.1))" }}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+            <div className="flex items-center gap-1.5">
+              <span className={`h-2 w-2 rounded-full ${config.dotClass}`} />
+              <span className="font-bold text-slate-800 text-xs">{config.title}</span>
+            </div>
+            {score !== undefined && tag !== "off" && (
+              <span className="font-mono font-bold text-[11px] px-1.5 py-0.5 bg-slate-100 text-slate-700 rounded border border-slate-200">
+                Score: {score}/100
+              </span>
+            )}
+          </div>
+
+          <p className="text-[10px] text-slate-500 mt-1.5 mb-2.5 leading-tight">
+            {config.desc}
+          </p>
+
+          {/* 4-Pillar Metric Grid */}
+          <div className="space-y-2 bg-slate-50/80 p-2 rounded-lg border border-slate-100">
+            {/* 1. Working Time Utilization */}
+            <div>
+              <div className="flex items-center justify-between text-[11px] font-medium text-slate-700">
+                <span className="flex items-center gap-1">
+                  <Clock className="h-3 w-3 text-sky-500" />
+                  <span>Time Utilization:</span>
+                </span>
+                <span className="font-bold text-slate-800">
+                  {metrics.utilization_rate ?? 0}%
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-[10px] text-slate-500 pl-4 mt-0.5">
+                <span>Shift: {metrics.shift_hours ?? 0}h</span>
+                <span>Tasks: {metrics.task_hours ?? 0}h</span>
+              </div>
+            </div>
+
+            {/* 2. Tasks Output */}
+            <div className="pt-1.5 border-t border-slate-200/60">
+              <div className="flex items-center justify-between text-[11px] font-medium text-slate-700">
+                <span className="flex items-center gap-1">
+                  <TrendingUp className="h-3 w-3 text-emerald-500" />
+                  <span>Tasks Delivery:</span>
+                </span>
+                <span className="font-bold text-slate-800">
+                  {metrics.task_rate ?? 0}%
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-[10px] text-slate-500 pl-4 mt-0.5">
+                <span>Completed: {metrics.tasks_completed ?? 0}</span>
+                <span>Total: {metrics.tasks_total ?? 0}</span>
+              </div>
+            </div>
+
+            {/* 3. Subtask Checklists */}
+            <div className="pt-1.5 border-t border-slate-200/60">
+              <div className="flex items-center justify-between text-[11px] font-medium text-slate-700">
+                <span className="flex items-center gap-1">
+                  <CheckSquare className="h-3 w-3 text-purple-500" />
+                  <span>Subtasks Done:</span>
+                </span>
+                <span className="font-bold text-slate-800">
+                  {metrics.subtask_rate ?? 0}%
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-[10px] text-slate-500 pl-4 mt-0.5">
+                <span>Checklists: {metrics.subtasks_completed ?? 0} / {metrics.subtasks_total ?? 0}</span>
+              </div>
+            </div>
+
+            {/* 4. Project Engagement */}
+            <div className="pt-1.5 border-t border-slate-200/60">
+              <div className="flex items-center justify-between text-[11px] font-medium text-slate-700">
+                <span className="flex items-center gap-1">
+                  <Briefcase className="h-3 w-3 text-indigo-500" />
+                  <span>Project Engagement:</span>
+                </span>
+                <span className="font-bold text-slate-800">
+                  {metrics.project_rate ?? 0}%
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-[10px] text-slate-500 pl-4 mt-0.5">
+                <span>Active: {metrics.active_projects ?? 0} / {metrics.total_projects ?? 0} projects</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-2 text-[9px] text-slate-400 italic text-center">
+            Visible only to PM, CEO, and Admin
+          </div>
+
+          {/* Little arrow at bottom */}
+          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-white" />
+        </div>
+      )}
+    </div>
+  );
+}

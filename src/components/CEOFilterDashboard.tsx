@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { showToast, showError, showSuccess, showWarning } from "@/lib/swal";
 import { formatHoursAndMinutes } from "@/lib/timeUtils";
+import EmployeeProductivityTag from "@/components/EmployeeProductivityTag";
 
 export default function CEOFilterDashboard() {
   const [tasks, setTasks] = useState<any[]>([]);
@@ -42,6 +43,12 @@ export default function CEOFilterDashboard() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+
+  // Productivity Analytics State
+  const [productivityPeriod, setProductivityPeriod] = useState<"today" | "week" | "month" | "year">("today");
+  const [productivitySummary, setProductivitySummary] = useState<any>(null);
+  const [productivityMap, setProductivityMap] = useState<Map<number, any>>(new Map());
+  const [selectedTagFilter, setSelectedTagFilter] = useState<"ALL" | "ideal" | "active" | "idle" | "off">("ALL");
 
   // Shift Working Hours Policy State
   const [fullDayPolicyHours, setFullDayPolicyHours] = useState<number>(8);
@@ -180,6 +187,27 @@ export default function CEOFilterDashboard() {
     }
   }, []);
 
+  const fetchProductivity = useCallback(async (period: string) => {
+    try {
+      const res = await fetch(`/api/analytics/employee-productivity?period=${period}&_=` + Date.now());
+      if (res.ok) {
+        const data = await res.json();
+        setProductivitySummary(data.summary || null);
+        const map = new Map<number, any>();
+        if (Array.isArray(data.employees)) {
+          data.employees.forEach((emp: any) => map.set(emp.id, emp));
+        }
+        setProductivityMap(map);
+      }
+    } catch (err) {
+      console.error("fetchProductivity error:", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchProductivity(productivityPeriod);
+  }, [productivityPeriod, fetchProductivity]);
+
   useEffect(() => {
     fetchData();
 
@@ -187,16 +215,20 @@ export default function CEOFilterDashboard() {
     const interval = setInterval(() => {
       if (typeof document !== "undefined" && document.hidden) return;
       fetchData();
+      fetchProductivity(productivityPeriod);
     }, 15000);
 
-    const handleFocus = () => fetchData();
+    const handleFocus = () => {
+      fetchData();
+      fetchProductivity(productivityPeriod);
+    };
     window.addEventListener("focus", handleFocus);
 
     return () => {
       clearInterval(interval);
       window.removeEventListener("focus", handleFocus);
     };
-  }, [fetchData]);
+  }, [fetchData, fetchProductivity, productivityPeriod]);
 
   // Helper to check if task is assigned to employee (single or multi-assignee)
   const isTaskAssignedToEmployee = (task: any, empId: number) => {
@@ -212,11 +244,15 @@ export default function CEOFilterDashboard() {
     return ["In Progress", "Planning", "Ready for Testing", "Testing", "Changes Required"].includes(status);
   };
 
-  // Build Comprehensive Employee Progress Matrix
+  // Calculate progress stats for each employee
   const employeeProgressList = useMemo(() => {
     return employees.map((emp) => {
       const empTasks = tasks.filter((t) => isTaskAssignedToEmployee(t, emp.id));
-      const empProjectsCount = new Set(empTasks.map((t) => t.project_id).filter(Boolean)).size;
+      const empProjectsCount = projects.filter((p) => {
+        const isMember = Array.isArray(p.members) && p.members.some((m: any) => String(m.id) === String(emp.id));
+        const hasTask = empTasks.some((t) => String(t.project_id) === String(p.id));
+        return isMember || hasTask;
+      }).length;
       
       const empCompleted = empTasks.filter((t) => 
         ["Completed", "Ready for Demo", "Tested (PASS)"].includes(t.status)
@@ -247,18 +283,24 @@ export default function CEOFilterDashboard() {
         lastTask,
       };
     });
-  }, [employees, tasks]);
+  }, [employees, tasks, projects]);
 
   // List of Developers & Testers with NO active tasks
   const idleEmployees = useMemo(() => {
     return employeeProgressList.filter((emp) => emp.hasNoActiveTasks);
   }, [employeeProgressList]);
 
-  // Filtered employee matrix based on search / filter tab
+  // Filtered employee matrix based on search / filter tab and productivity tag filter
   const filteredEmployeeMatrix = useMemo(() => {
     return employeeProgressList.filter((emp) => {
       const matchAssignee = selectedAssignee === "ALL" || String(emp.id) === String(selectedAssignee);
       if (!matchAssignee) return false;
+
+      if (selectedTagFilter !== "ALL") {
+        const prod = productivityMap.get(emp.id);
+        const tag = prod?.tag || "off";
+        if (tag !== selectedTagFilter) return false;
+      }
 
       if (activeWorkloadTab === "active") {
         return emp.activeTasksCount > 0;
@@ -268,7 +310,7 @@ export default function CEOFilterDashboard() {
       }
       return true;
     });
-  }, [employeeProgressList, selectedAssignee, activeWorkloadTab]);
+  }, [employeeProgressList, selectedAssignee, activeWorkloadTab, selectedTagFilter, productivityMap]);
 
   // Filter tasks based on selections
   const filteredTasks = tasks.filter((t) => {
@@ -580,6 +622,172 @@ export default function CEOFilterDashboard() {
         </div>
       </div>
 
+      {/* 4.5 Workforce Productivity & Utilization Analytics */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-amber-500" />
+              <h3 className="text-base font-bold text-slate-900">
+                Workforce Productivity & Utilization Analysis
+              </h3>
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Automated 4-pillar evaluation (Working Time, Tasks, Subtasks & Projects). Visible exclusively to Admin, CEO, and PM.
+            </p>
+          </div>
+
+          {/* Timeframe Filter Buttons */}
+          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200 self-start sm:self-auto">
+            {(["today", "week", "month", "year"] as const).map((p) => {
+              const labels = {
+                today: "Today",
+                week: "This Week",
+                month: "This Month",
+                year: "This Year",
+              };
+              const isSelected = productivityPeriod === p;
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setProductivityPeriod(p)}
+                  className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                    isSelected
+                      ? "bg-white text-slate-900 shadow-xs"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  {labels[p]}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 4 KPI Summary Cards with Quick Filter */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {/* 1. Ideal */}
+          <button
+            type="button"
+            onClick={() => setSelectedTagFilter(selectedTagFilter === "ideal" ? "ALL" : "ideal")}
+            className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+              selectedTagFilter === "ideal"
+                ? "bg-emerald-50 border-emerald-400 ring-2 ring-emerald-500/20 shadow-xs"
+                : "bg-emerald-50/40 border-emerald-200 hover:bg-emerald-50"
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-emerald-800 flex items-center gap-1">
+                🌟 Ideal
+              </span>
+              <span className="text-[10px] font-bold text-emerald-600 bg-emerald-100/70 px-1.5 py-0.5 rounded">
+                ≥75 pts
+              </span>
+            </div>
+            <div className="text-2xl font-black text-emerald-950 mt-1">
+              {productivitySummary?.ideal_count ?? 0}
+            </div>
+            <div className="text-[10px] text-emerald-700 mt-0.5">
+              High efficiency & execution
+            </div>
+          </button>
+
+          {/* 2. Active */}
+          <button
+            type="button"
+            onClick={() => setSelectedTagFilter(selectedTagFilter === "active" ? "ALL" : "active")}
+            className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+              selectedTagFilter === "active"
+                ? "bg-sky-50 border-sky-400 ring-2 ring-sky-500/20 shadow-xs"
+                : "bg-sky-50/40 border-sky-200 hover:bg-sky-50"
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-sky-800 flex items-center gap-1">
+                🟢 Active
+              </span>
+              <span className="text-[10px] font-bold text-sky-600 bg-sky-100/70 px-1.5 py-0.5 rounded">
+                50-74 pts
+              </span>
+            </div>
+            <div className="text-2xl font-black text-sky-950 mt-1">
+              {productivitySummary?.active_count ?? 0}
+            </div>
+            <div className="text-[10px] text-sky-700 mt-0.5">
+              Regular pacing & output
+            </div>
+          </button>
+
+          {/* 3. Under-utilized */}
+          <button
+            type="button"
+            onClick={() => setSelectedTagFilter(selectedTagFilter === "idle" ? "ALL" : "idle")}
+            className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+              selectedTagFilter === "idle"
+                ? "bg-amber-50 border-amber-400 ring-2 ring-amber-500/20 shadow-xs"
+                : "bg-amber-50/40 border-amber-200 hover:bg-amber-50"
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-amber-900 flex items-center gap-1">
+                🟡 Under-utilized
+              </span>
+              <span className="text-[10px] font-bold text-amber-700 bg-amber-100/70 px-1.5 py-0.5 rounded">
+                &lt;50 pts
+              </span>
+            </div>
+            <div className="text-2xl font-black text-amber-950 mt-1">
+              {productivitySummary?.idle_count ?? 0}
+            </div>
+            <div className="text-[10px] text-amber-700 mt-0.5">
+              Low task hours vs shift
+            </div>
+          </button>
+
+          {/* 4. Off / Leave */}
+          <button
+            type="button"
+            onClick={() => setSelectedTagFilter(selectedTagFilter === "off" ? "ALL" : "off")}
+            className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+              selectedTagFilter === "off"
+                ? "bg-slate-100 border-slate-400 ring-2 ring-slate-400/20 shadow-xs"
+                : "bg-slate-50 border-slate-200 hover:bg-slate-100"
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                ⚪ Off Shift
+              </span>
+              <span className="text-[10px] font-bold text-slate-500 bg-slate-200/70 px-1.5 py-0.5 rounded">
+                0 hrs
+              </span>
+            </div>
+            <div className="text-2xl font-black text-slate-800 mt-1">
+              {productivitySummary?.off_count ?? 0}
+            </div>
+            <div className="text-[10px] text-slate-500 mt-0.5">
+              On leave or non-working
+            </div>
+          </button>
+        </div>
+
+        {selectedTagFilter !== "ALL" && (
+          <div className="flex items-center justify-between text-xs bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+            <span className="text-slate-700">
+              Filtering employee matrix by productivity tag: <strong className="uppercase font-bold text-slate-900">{selectedTagFilter}</strong>
+            </span>
+            <button
+              type="button"
+              onClick={() => setSelectedTagFilter("ALL")}
+              className="text-sky-600 font-bold hover:underline cursor-pointer"
+            >
+              Show All Staff
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* 5. Employee Progress Breakdown Matrix with Workload Tabs */}
       <div className="space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -629,7 +837,7 @@ export default function CEOFilterDashboard() {
           <Table className="min-w-[950px]">
             <TableHeader className="bg-slate-50">
               <TableRow>
-                <TableHead className="font-bold min-w-[200px]">Team Member</TableHead>
+                <TableHead className="font-bold min-w-[240px]">Team Member</TableHead>
                 <TableHead className="font-bold min-w-[100px]">Role</TableHead>
                 <TableHead className="font-bold text-center min-w-[150px]">Workload Status</TableHead>
                 <TableHead className="font-bold text-center min-w-[90px]">Projects</TableHead>
@@ -649,13 +857,21 @@ export default function CEOFilterDashboard() {
                 filteredEmployeeMatrix.map((emp) => (
                   <TableRow key={emp.id} className={`transition-colors ${emp.hasNoActiveTasks ? "bg-amber-50/30 hover:bg-amber-50/60" : "hover:bg-slate-50/80"}`}>
                     <TableCell className="font-bold text-slate-900">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
                         <div className={`h-7 w-7 rounded-full text-xs font-bold flex items-center justify-center shrink-0 ${
                           emp.hasNoActiveTasks ? "bg-amber-100 text-amber-800 border border-amber-300" : "bg-sky-100 text-sky-800"
                         }`}>
                           {emp.name.slice(0, 2).toUpperCase()}
                         </div>
                         <span className="truncate">{emp.name}</span>
+                        {productivityMap.has(emp.id) && (
+                          <EmployeeProductivityTag
+                            tag={productivityMap.get(emp.id)?.tag}
+                            score={productivityMap.get(emp.id)?.score}
+                            metrics={productivityMap.get(emp.id)?.metrics}
+                            size="xs"
+                          />
+                        )}
                       </div>
                     </TableCell>
                     
