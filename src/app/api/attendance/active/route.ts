@@ -340,22 +340,21 @@ export async function POST(req: Request) {
 
       // Automatically pause any running task timers upon shift punch-out
       try {
-        const checkoutTime = new Date();
-        const checkoutTimeFormatted = checkoutTime.toISOString().slice(0, 19).replace('T', ' ');
-
         const [activeTimers]: any = await pool.query(
-          "SELECT id, task_id, started_at FROM task_time_logs WHERE user_id = ? AND is_active = 1",
+          `SELECT id, task_id, 
+                  TIMESTAMPDIFF(MINUTE, started_at, CURRENT_TIMESTAMP) as duration_mins
+           FROM task_time_logs 
+           WHERE user_id = ? AND is_active = 1`,
           [userId]
         );
 
         for (const timer of activeTimers) {
-          const startTime = new Date(timer.started_at);
-          const durationMins = Math.max(1, Math.round((checkoutTime.getTime() - startTime.getTime()) / (1000 * 60)));
+          const durationMins = Math.max(1, timer.duration_mins || 1);
           await pool.query(
             `UPDATE task_time_logs 
-             SET ended_at = ?, duration_minutes = ?, session_summary = 'Auto-paused on Shift Punch-Out', is_active = 0 
+             SET ended_at = CURRENT_TIMESTAMP, duration_minutes = ?, session_summary = 'Auto-paused on Shift Punch-Out', is_active = 0 
              WHERE id = ?`,
-            [checkoutTimeFormatted, durationMins, timer.id]
+            [durationMins, timer.id]
           );
 
           const [sumRes]: any = await pool.query(

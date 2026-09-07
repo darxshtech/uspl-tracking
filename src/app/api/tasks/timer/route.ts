@@ -44,6 +44,7 @@ export async function GET(req: Request) {
                 u.id as user_id, u.name as user_name, u.email as user_email, u.role as user_role,
                 t.id as task_id, t.title as task_title, t.priority, t.status as task_status,
                 p.id as project_id, p.name as project_name,
+                TIMESTAMPDIFF(SECOND, ttl.started_at, CURRENT_TIMESTAMP) as current_session_seconds,
                 (
                   SELECT IFNULL(SUM(duration_minutes), 0) * 60 
                   FROM task_time_logs 
@@ -82,7 +83,8 @@ export async function GET(req: Request) {
     const [activeRows]: any = await pool.query(
       `SELECT ttl.*, 
               t.id as task_id, t.title as task_title, t.priority, t.status as task_status,
-              p.name as project_name
+              p.name as project_name,
+              TIMESTAMPDIFF(SECOND, ttl.started_at, CURRENT_TIMESTAMP) as current_session_seconds
        FROM task_time_logs ttl
        JOIN tasks t ON ttl.task_id = t.id
        LEFT JOIN projects p ON t.project_id = p.id
@@ -152,6 +154,17 @@ export async function POST(req: Request) {
         }, { status: 400 });
       }
 
+      // Check-In Validation: Verify employee has an active open shift
+      if (!isManagement) {
+        const [openShift]: any = await pool.query(
+          "SELECT id FROM attendance WHERE user_id = ? AND login_time IS NOT NULL AND logout_time IS NULL ORDER BY date DESC LIMIT 1",
+          [currentUserId]
+        );
+        if (openShift.length === 0) {
+          return NextResponse.json({ error: "You must be Checked-In to start a task timer." }, { status: 400 });
+        }
+      }
+
       // 2. Validation: If another task timer is active, user cannot start another until the earlier one ends
       const [existingActive]: any = await pool.query(
         `SELECT ttl.id, ttl.task_id, t.title as task_title 
@@ -186,14 +199,19 @@ export async function POST(req: Request) {
       const startTimeFormatted = effectiveStartTime.toISOString().slice(0, 19).replace('T', ' ');
 
       // 3. Insert new active timer
-      const [insertResult]: any = await pool.query(
-        `INSERT INTO task_time_logs (task_id, user_id, started_at, is_active) 
-         VALUES (?, ?, ?, 1)`,
-        [task_id, currentUserId, startTimeFormatted]
-      );
+      let insertQuery = `INSERT INTO task_time_logs (task_id, user_id, started_at, is_active) VALUES (?, ?, ?, 1)`;
+      let insertParams = [task_id, currentUserId, startTimeFormatted];
+      
+      // If no custom start time provided, use MySQL CURRENT_TIMESTAMP to avoid TZ issues
+      if (!(isManagement && start_time)) {
+        insertQuery = `INSERT INTO task_time_logs (task_id, user_id, started_at, is_active) VALUES (?, ?, CURRENT_TIMESTAMP, 1)`;
+        insertParams = [task_id, currentUserId];
+      }
+
+      const [insertResult]: any = await pool.query(insertQuery, insertParams);
 
       // 4. Update task status to "In Progress" if currently "Assigned"
-      if (task.status === "Assigned") {
+      if (task.status === "Assigned" || task.status === "Planning") {
         await pool.query("UPDATE tasks SET status = 'In Progress' WHERE id = ?", [task_id]);
       }
 

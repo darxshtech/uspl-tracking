@@ -2276,7 +2276,8 @@ export default function DailyTasksPage() {
                   step="0.5"
                   value={editHoursSpent}
                   onChange={(e) => setEditHoursSpent(parseFloat(e.target.value) || 0)}
-                  className="text-xs"
+                  readOnly={true}
+                  className="text-xs bg-slate-100 cursor-not-allowed"
                 />
               </div>
             </div>
@@ -2797,7 +2798,7 @@ export default function DailyTasksPage() {
                         >
                           <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> Logged ({task.hours_spent || 0}h)
                         </div>
-                      ) : (parseFloat(task.hours_spent) > 0 || task.status === "In Progress") ? (
+                      ) : parseFloat(task.hours_spent) > 0 ? (
                         <Button
                           size="sm"
                           variant="outline"

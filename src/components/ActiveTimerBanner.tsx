@@ -12,6 +12,7 @@ interface ActiveTimerData {
   started_at: string;
   is_active: number;
   previous_duration_seconds?: number;
+  current_session_seconds?: number;
 }
 
 export default function ActiveTimerBanner() {
@@ -35,9 +36,7 @@ export default function ActiveTimerBanner() {
         if (data.active_timer) {
           setActiveTimer(data.active_timer);
           const prevSecs = Number(data.active_timer.previous_duration_seconds) || 0;
-          const startMs = new Date(data.active_timer.started_at).getTime();
-          const nowMs = Date.now();
-          const currentSecs = Math.max(0, Math.floor((nowMs - startMs) / 1000));
+          const currentSecs = Number(data.active_timer.current_session_seconds) || 0;
           setElapsedSeconds(prevSecs + currentSecs);
         } else {
           setActiveTimer(null);
@@ -75,16 +74,19 @@ export default function ActiveTimerBanner() {
     }
 
     const prevSecs = Number(activeTimer.previous_duration_seconds) || 0;
-    const startMs = new Date(activeTimer.started_at).getTime();
+    const currentSessionSecs = Number(activeTimer.current_session_seconds) || 0;
 
     // Initialize immediately
-    const initialSecs = prevSecs + Math.max(0, Math.floor((Date.now() - startMs) / 1000));
+    const initialSecs = prevSecs + currentSessionSecs;
     setElapsedSeconds(initialSecs);
+    
+    // Track client-side start time offset to compute elapsed time smoothly
+    const clientStartMs = Date.now() - (currentSessionSecs * 1000);
 
     timerRef.current = setInterval(() => {
       const nowMs = Date.now();
-      const currentSessionSecs = Math.max(0, Math.floor((nowMs - startMs) / 1000));
-      setElapsedSeconds(prevSecs + currentSessionSecs);
+      const newCurrentSessionSecs = Math.max(0, Math.floor((nowMs - clientStartMs) / 1000));
+      setElapsedSeconds(prevSecs + newCurrentSessionSecs);
     }, 1000);
 
     return () => {
@@ -203,32 +205,12 @@ export default function ActiveTimerBanner() {
               )}
             </div>
 
-            <div className="flex items-center justify-between pt-1 gap-2">
+            <div className="flex items-center pt-1 gap-2">
               <div className="flex items-center gap-1.5 bg-slate-800/80 px-2.5 py-1.5 rounded-lg border border-slate-700/60">
                 <Clock className="h-3.5 w-3.5 text-emerald-400" />
                 <span className="font-mono font-bold text-sm text-emerald-300 tracking-wider">
                   {formatStopwatch(elapsedSeconds)}
                 </span>
-              </div>
-
-              <div className="flex items-center gap-1.5">
-                {/* 1. Pause (Break) button */}
-                <button
-                  onClick={() => handleOpenModal("pause")}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-bold transition shadow-sm cursor-pointer"
-                  title="Pause timer to take a break. You can resume work later."
-                >
-                  <Pause className="h-3.5 w-3.5 fill-current" /> Pause (Break)
-                </button>
-
-                {/* 2. Finish Task button */}
-                <button
-                  onClick={() => handleOpenModal("finish")}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-sm cursor-pointer"
-                  title="Complete task and lock recorded hours."
-                >
-                  <CheckCircle2 className="h-3.5 w-3.5" /> Finish Task
-                </button>
               </div>
             </div>
           </div>
