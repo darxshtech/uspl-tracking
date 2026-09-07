@@ -1891,10 +1891,14 @@ export default function DailyTasksPage() {
                 </div>
                 <Input
                   id="hoursSpent"
-                  type="number"
+                  type={parseFloat(selectedTaskForProgress?.hours_spent) > 0 && !canManageAllTasks ? "text" : "number"}
                   min="0"
                   step="0.1"
-                  value={hoursSpentToday}
+                  value={
+                    parseFloat(selectedTaskForProgress?.hours_spent) > 0 && !canManageAllTasks
+                      ? formatHoursAndMinutes(hoursSpentToday)
+                      : hoursSpentToday
+                  }
                   readOnly={parseFloat(selectedTaskForProgress?.hours_spent) > 0 && !canManageAllTasks}
                   onChange={(e) => {
                     if (parseFloat(selectedTaskForProgress?.hours_spent) > 0 && !canManageAllTasks) return;
@@ -1903,17 +1907,23 @@ export default function DailyTasksPage() {
                   }}
                   className={
                     parseFloat(selectedTaskForProgress?.hours_spent) > 0 && !canManageAllTasks
-                      ? "bg-slate-100 text-slate-700 cursor-not-allowed border-slate-300 font-bold"
+                      ? "bg-slate-100 text-slate-800 cursor-not-allowed border-slate-300 font-bold"
                       : ""
                   }
                   required
                 />
-                {parseFloat(selectedTaskForProgress?.hours_spent) > 0 && (
+                {parseFloat(selectedTaskForProgress?.hours_spent) > 0 ? (
                   <p className="text-[10px] text-slate-500 font-medium">
                     {canManageAllTasks
-                      ? "Recorded from task timer (PM/Admin editable)."
-                      : "Recorded from task timer sessions (Unchangeable)."}
+                      ? `Recorded from timer (${formatHoursAndMinutes(hoursSpentToday)} / ${hoursSpentToday} hrs - PM editable).`
+                      : `Recorded from task timer sessions (${hoursSpentToday} hrs total).`}
                   </p>
+                ) : (
+                  hoursSpentToday > 0 && (
+                    <p className="text-[10px] text-sky-600 font-medium">
+                      Equivalent: {formatHoursAndMinutes(hoursSpentToday)}
+                    </p>
+                  )
                 )}
               </div>
 
@@ -2318,14 +2328,16 @@ export default function DailyTasksPage() {
                 <Label htmlFor="editHours" className="font-semibold text-slate-700 text-xs">Hours Logged</Label>
                 <Input
                   id="editHours"
-                  type="number"
-                  min="0"
-                  step="0.5"
-                  value={editHoursSpent}
-                  onChange={(e) => setEditHoursSpent(parseFloat(e.target.value) || 0)}
+                  type="text"
+                  value={formatHoursAndMinutes(editHoursSpent)}
                   readOnly={true}
-                  className="text-xs bg-slate-100 cursor-not-allowed"
+                  className="text-xs bg-slate-100 cursor-not-allowed font-medium text-slate-700"
                 />
+                {editHoursSpent > 0 && (
+                  <p className="text-[10px] text-slate-500">
+                    {editHoursSpent} hrs recorded via timer
+                  </p>
+                )}
               </div>
             </div>
 
