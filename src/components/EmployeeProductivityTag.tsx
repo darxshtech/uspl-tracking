@@ -11,6 +11,7 @@ import {
   CheckSquare, 
   Briefcase, 
   TrendingUp,
+  Flame,
   X
 } from "lucide-react";
 import { formatHoursAndMinutes } from "@/lib/timeUtils";
@@ -23,6 +24,11 @@ export interface EmployeeProductivityMetrics {
   tasks_completed?: number;
   tasks_in_progress?: number;
   task_rate?: number;
+  priority_rate?: number;
+  urgent_tasks_count?: number;
+  urgent_tasks_completed?: number;
+  high_tasks_count?: number;
+  high_tasks_completed?: number;
   subtasks_total?: number;
   subtasks_completed?: number;
   subtask_rate?: number;
@@ -174,14 +180,14 @@ export default function EmployeeProductivityTag({
             {config.desc}
           </p>
 
-          {/* 4-Pillar Metric Grid */}
+          {/* 5-Pillar Metric Grid */}
           <div className="space-y-2 bg-slate-50/80 p-2 rounded-lg border border-slate-100">
-            {/* 1. Working Time Utilization */}
+            {/* 1. Working Time Utilization (Check-in to Check-out) */}
             <div>
               <div className="flex items-center justify-between text-[11px] font-medium text-slate-700">
                 <span className="flex items-center gap-1">
                   <Clock className="h-3 w-3 text-sky-500" />
-                  <span>Time Utilization:</span>
+                  <span>Shift & Timer Hours:</span>
                 </span>
                 <span className="font-bold text-slate-800">
                   {metrics.utilization_rate ?? 0}%
@@ -189,11 +195,11 @@ export default function EmployeeProductivityTag({
               </div>
               <div className="flex items-center justify-between text-[10px] text-slate-500 pl-4 mt-0.5">
                 <span>Shift: {metrics.shift_hours ?? 0}h</span>
-                <span>Tasks: {metrics.task_hours ?? 0}h</span>
+                <span>Timer: {metrics.task_hours ?? 0}h</span>
               </div>
             </div>
 
-            {/* 2. Tasks Output */}
+            {/* 2. Tasks Delivery */}
             <div className="pt-1.5 border-t border-slate-200/60">
               <div className="flex items-center justify-between text-[11px] font-medium text-slate-700">
                 <span className="flex items-center gap-1">
@@ -210,35 +216,52 @@ export default function EmployeeProductivityTag({
               </div>
             </div>
 
-            {/* 3. Subtask Checklists */}
+            {/* 3. Priority of Tasks (Urgent & High Impact) */}
+            <div className="pt-1.5 border-t border-slate-200/60">
+              <div className="flex items-center justify-between text-[11px] font-medium text-slate-700">
+                <span className="flex items-center gap-1">
+                  <Flame className="h-3 w-3 text-amber-500" />
+                  <span>Task Priorities:</span>
+                </span>
+                <span className="font-bold text-amber-900">
+                  {metrics.priority_rate ?? 0}%
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-[10px] text-slate-500 pl-4 mt-0.5">
+                <span>Urgent: {metrics.urgent_tasks_completed ?? 0}/{metrics.urgent_tasks_count ?? 0}</span>
+                <span>High: {metrics.high_tasks_completed ?? 0}/{metrics.high_tasks_count ?? 0}</span>
+              </div>
+            </div>
+
+            {/* 4. Number of Subtasks Executed */}
             <div className="pt-1.5 border-t border-slate-200/60">
               <div className="flex items-center justify-between text-[11px] font-medium text-slate-700">
                 <span className="flex items-center gap-1">
                   <CheckSquare className="h-3 w-3 text-purple-500" />
-                  <span>Subtasks Done:</span>
+                  <span>Number of Subtasks:</span>
                 </span>
                 <span className="font-bold text-slate-800">
                   {metrics.subtask_rate ?? 0}%
                 </span>
               </div>
               <div className="flex items-center justify-between text-[10px] text-slate-500 pl-4 mt-0.5">
-                <span>Checklists: {metrics.subtasks_completed ?? 0} / {metrics.subtasks_total ?? 0}</span>
+                <span>Done: {metrics.subtasks_completed ?? 0} / {metrics.subtasks_total ?? 0} checklists</span>
               </div>
             </div>
 
-            {/* 4. Project Engagement */}
+            {/* 5. Number of Projects Assigned and Working On */}
             <div className="pt-1.5 border-t border-slate-200/60">
               <div className="flex items-center justify-between text-[11px] font-medium text-slate-700">
                 <span className="flex items-center gap-1">
                   <Briefcase className="h-3 w-3 text-indigo-500" />
-                  <span>Project Engagement:</span>
+                  <span>Projects Assigned & Active:</span>
                 </span>
                 <span className="font-bold text-slate-800">
                   {metrics.project_rate ?? 0}%
                 </span>
               </div>
               <div className="flex items-center justify-between text-[10px] text-slate-500 pl-4 mt-0.5">
-                <span>Active: {metrics.active_projects ?? 0} / {metrics.total_projects ?? 0} projects</span>
+                <span>Working On: {metrics.active_projects ?? 0} / {metrics.total_projects ?? 0}</span>
               </div>
             </div>
           </div>

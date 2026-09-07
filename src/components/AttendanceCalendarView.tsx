@@ -531,8 +531,8 @@ export default function AttendanceCalendarView({
                 </div>
               </div>
 
-              {/* 4-Pillar Metric Strip for the selected employee */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
+              {/* 5-Pillar Metric Strip for the selected employee */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-7 gap-2">
                 <div className="p-2 bg-white rounded-lg border border-slate-200 text-center">
                   <div className="text-[10px] font-semibold text-slate-500 uppercase">Shift Time</div>
                   <div className="text-xs font-extrabold text-slate-900 mt-0.5">{employeeProductivity.metrics?.shift_hours || 0} hrs</div>
@@ -549,6 +549,15 @@ export default function AttendanceCalendarView({
                   <div className="text-[10px] font-semibold text-slate-500 uppercase">Tasks Done</div>
                   <div className="text-xs font-extrabold text-emerald-600 mt-0.5">
                     {employeeProductivity.metrics?.tasks_completed || 0} / {employeeProductivity.metrics?.tasks_total || 0}
+                  </div>
+                </div>
+                <div className="p-2 bg-white rounded-lg border border-slate-200 text-center">
+                  <div className="text-[10px] font-semibold text-amber-800 uppercase">Priority Tasks</div>
+                  <div className="text-xs font-extrabold text-amber-900 mt-0.5">
+                    {employeeProductivity.metrics?.priority_rate || 0}%
+                    <span className="text-[9px] font-semibold text-slate-500 block">
+                      ({(employeeProductivity.metrics?.urgent_tasks_completed || 0) + (employeeProductivity.metrics?.high_tasks_completed || 0)} urgent/high)
+                    </span>
                   </div>
                 </div>
                 <div className="p-2 bg-white rounded-lg border border-slate-200 text-center">

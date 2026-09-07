@@ -112,7 +112,7 @@ export async function GET(req: Request) {
 
     // 5. Batch Query: Tasks assigned to or worked on by employees in date range
     const [taskRows]: any = await pool.query(
-      `SELECT DISTINCT t.id, t.title, t.status, t.project_id, t.assigned_to, t.hours_spent,
+      `SELECT DISTINCT t.id, t.title, t.status, t.project_id, t.assigned_to, t.hours_spent, t.priority,
               DATE_FORMAT(t.created_at, '%Y-%m-%d') as created_date,
               ta.user_id as co_assignee_id
        FROM tasks t
@@ -222,7 +222,47 @@ export async function GET(req: Request) {
         ? Math.min(100, Math.round(((completedTasks + (0.5 * inProgressTasks)) / tasksTotal) * 100))
         : 0;
 
-      // --- D. Subtask Execution ---
+      // --- D. Priority of Tasks Evaluation (Urgent & High Impact) ---
+      // Priorities: Urgent (weight 3.0), High (weight 2.0), Medium (weight 1.2), Low (weight 1.0)
+      let totalPriorityPoints = 0;
+      let earnedPriorityPoints = 0;
+      let urgentTasksCount = 0;
+      let urgentTasksCompleted = 0;
+      let highTasksCount = 0;
+      let highTasksCompleted = 0;
+
+      for (const t of uniqueTasks) {
+        const p = (t.priority || "Medium").toLowerCase();
+        let weight = 1.2;
+        if (p === "urgent") {
+          weight = 3.0;
+          urgentTasksCount++;
+        } else if (p === "high") {
+          weight = 2.0;
+          highTasksCount++;
+        } else if (p === "low") {
+          weight = 1.0;
+        }
+
+        totalPriorityPoints += weight;
+
+        const isComplete = ["Completed", "Ready for Demo", "Tested (PASS)"].includes(t.status);
+        const isInProg = ["In Progress", "Planning", "Testing", "Ready for Testing", "Changes Required"].includes(t.status);
+
+        if (isComplete) {
+          earnedPriorityPoints += weight;
+          if (p === "urgent") urgentTasksCompleted++;
+          if (p === "high") highTasksCompleted++;
+        } else if (isInProg) {
+          earnedPriorityPoints += (weight * 0.5);
+        }
+      }
+
+      const priorityRate = totalPriorityPoints > 0
+        ? Math.min(100, Math.round((earnedPriorityPoints / totalPriorityPoints) * 100))
+        : (tasksTotal > 0 ? 100 : 0);
+
+      // --- E. Subtask Execution (Checklists) ---
       const empTaskIds = new Set(uniqueTasks.map((t: any) => t.id));
       const empChecklists = checklistRows.filter((c: any) => empTaskIds.has(c.task_id));
       const subtasksTotal = empChecklists.length;
@@ -233,7 +273,7 @@ export async function GET(req: Request) {
         ? Math.min(100, Math.round((subtasksCompleted / subtasksTotal) * 100))
         : taskRate;
 
-      // --- E. Project Engagement ---
+      // --- F. Number of Projects Assigned and Working On ---
       const assignedProjectIds = new Set<number>();
       for (const pm of projectMemberRows.filter((p: any) => p.user_id === empId)) {
         assignedProjectIds.add(pm.project_id);
@@ -255,20 +295,28 @@ export async function GET(req: Request) {
         ? Math.min(100, Math.round((activeProjects / totalProjects) * 100))
         : (tasksTotal > 0 ? 100 : 0);
 
-      // --- F. Composite Scoring Engine (0 - 100 Points) ---
-      // Utilization is task hours vs shift hours
+      // --- G. Composite Scoring Engine (5 Pillars, 0 - 100 Points) ---
+      // 1. Shift Time & Utilization (Check-in to Check-out): 25%
       const utilizationRate = totalShiftHours > 0
         ? Math.min(100, Math.round((totalTaskHours / totalShiftHours) * 100))
         : 0;
+      const timeScore = Math.round(utilizationRate * 0.25);       // Max 25
 
-      const timeScore = Math.round(utilizationRate * 0.40);       // Max 40
+      // 2. Tasks Completed & Delivered: 25%
       const taskScore = Math.round(taskRate * 0.25);             // Max 25
-      const subtaskScore = Math.round(subtaskRate * 0.20);       // Max 20
+
+      // 3. Priority of Tasks (Urgent/High Impact): 20%
+      const priorityScore = Math.round(priorityRate * 0.20);     // Max 20
+
+      // 4. Number of Subtasks Executed: 15%
+      const subtaskScore = Math.round(subtaskRate * 0.15);       // Max 15
+
+      // 5. Projects Assigned & Working On: 15%
       const projectScore = Math.round(projectRate * 0.15);       // Max 15
 
-      const compositeScore = Math.min(100, timeScore + taskScore + subtaskScore + projectScore);
+      const compositeScore = Math.min(100, timeScore + taskScore + priorityScore + subtaskScore + projectScore);
 
-      // --- G. Determine Performance Tag ---
+      // --- H. Determine Performance Tag ---
       let tag: "ideal" | "active" | "idle" | "off" = "off";
       let tagLabel = "⚪ Off / On Leave";
 
@@ -308,6 +356,11 @@ export async function GET(req: Request) {
           tasks_completed: completedTasks,
           tasks_in_progress: inProgressTasks,
           task_rate: taskRate,
+          priority_rate: priorityRate,
+          urgent_tasks_count: urgentTasksCount,
+          urgent_tasks_completed: urgentTasksCompleted,
+          high_tasks_count: highTasksCount,
+          high_tasks_completed: highTasksCompleted,
           subtasks_total: subtasksTotal,
           subtasks_completed: subtasksCompleted,
           subtask_rate: subtaskRate,
