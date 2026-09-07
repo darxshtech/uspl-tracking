@@ -67,7 +67,7 @@ export async function GET(req: Request) {
   try {
     // 2. Fetch target employee(s) (exclude clients)
     let userQuery = `
-      SELECT id, name, email, role, avatar
+      SELECT id, name, email, role
       FROM users 
       WHERE is_active = 1 AND role != 'Client'
     `;
@@ -295,7 +295,7 @@ export async function GET(req: Request) {
         name: emp.name,
         email: emp.email,
         role: emp.role,
-        avatar: emp.avatar,
+        avatar: null,
         score: compositeScore,
         tag,
         tag_label: tagLabel,
