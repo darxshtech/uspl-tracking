@@ -2983,17 +2983,6 @@ export default function DailyTasksPage() {
                         </Button>
                       )}
 
-                      {/* Time Logs History Button */}
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => handleOpenTimeLogs(task)}
-                        className="text-slate-600 hover:text-slate-900 hover:bg-slate-100 text-[11px] font-semibold gap-1 h-7 w-full justify-center cursor-pointer"
-                        title="View time tracking sessions"
-                      >
-                        <Clock className="h-3 w-3 text-slate-500" /> Time Logs ({formatHoursAndMinutes(task.hours_spent)})
-                      </Button>
-
                       {/* Update Progress Button */}
                       <div>
                         <Button
