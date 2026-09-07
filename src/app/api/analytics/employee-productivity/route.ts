@@ -145,7 +145,59 @@ export async function GET(req: Request) {
       [employeeIds]
     );
 
-    // 8. Process and evaluate metrics per employee
+    // 8. Batch Query: Daily work accomplishments in date range
+    const [periodWorkRows]: any = await pool.query(
+      `SELECT user_id, SUM(hours_worked) as total_work 
+       FROM daily_work 
+       WHERE user_id IN (?) AND date >= ? AND date <= ? 
+       GROUP BY user_id`,
+      [employeeIds, startDate, endDate]
+    );
+    const periodWorkMap = new Map<number, number>();
+    for (const r of periodWorkRows) {
+      periodWorkMap.set(r.user_id, parseFloat(r.total_work || 0));
+    }
+
+    // 9. Batch Query: All-time attendance hours
+    const [allTimeAttRows]: any = await pool.query(
+      `SELECT user_id, SUM(total_hours) as total_shift 
+       FROM attendance 
+       WHERE user_id IN (?) AND total_hours IS NOT NULL 
+       GROUP BY user_id`,
+      [employeeIds]
+    );
+    const allTimeAttMap = new Map<number, number>();
+    for (const r of allTimeAttRows) {
+      allTimeAttMap.set(r.user_id, parseFloat(r.total_shift || 0));
+    }
+
+    // 10. Batch Query: All-time daily work hours
+    const [allTimeWorkRows]: any = await pool.query(
+      `SELECT user_id, SUM(hours_worked) as total_work 
+       FROM daily_work 
+       WHERE user_id IN (?) 
+       GROUP BY user_id`,
+      [employeeIds]
+    );
+    const allTimeWorkMap = new Map<number, number>();
+    for (const r of allTimeWorkRows) {
+      allTimeWorkMap.set(r.user_id, parseFloat(r.total_work || 0));
+    }
+
+    // 11. Batch Query: All-time assigned task hours_spent
+    const [allTimeTaskSpentRows]: any = await pool.query(
+      `SELECT assigned_to, SUM(hours_spent) as total_spent 
+       FROM tasks 
+       WHERE assigned_to IN (?) 
+       GROUP BY assigned_to`,
+      [employeeIds.map(String)]
+    );
+    const allTimeTaskSpentMap = new Map<string, number>();
+    for (const r of allTimeTaskSpentRows) {
+      allTimeTaskSpentMap.set(String(r.assigned_to), parseFloat(r.total_spent || 0));
+    }
+
+    // 12. Process and evaluate metrics per employee
     let idealCount = 0;
     let activeCount = 0;
     let idleCount = 0;
@@ -158,8 +210,13 @@ export async function GET(req: Request) {
       const empAtt = attendanceRows.filter((a: any) => a.user_id === empId);
       let totalShiftHours = 0;
       let hasActiveShiftToday = false;
+      let todayLoginTime: string | null = null;
 
       for (const att of empAtt) {
+        if (att.date_str === todayIST && att.login_time) {
+          todayLoginTime = att.login_time;
+        }
+
         if (att.logout_time && att.total_hours !== null) {
           totalShiftHours += parseFloat(att.total_hours || 0);
         } else if (att.date_str === todayIST && att.login_time && !att.logout_time) {
@@ -171,7 +228,15 @@ export async function GET(req: Request) {
       }
       totalShiftHours = Math.round(totalShiftHours * 100) / 100;
 
-      // --- B. Task Timer Hours Logged ---
+      // All-Time Shift Hours (Closed records sum + live shift elapsed if active today)
+      let allTimeShiftHours = allTimeAttMap.get(empId) || 0;
+      if (hasActiveShiftToday && todayLoginTime) {
+        const liveElapsed = calculateHoursDifference(todayLoginTime, currentTime12);
+        allTimeShiftHours += liveElapsed;
+      }
+      allTimeShiftHours = Math.round(allTimeShiftHours * 100) / 100;
+
+      // --- B. Task Timer & Work Hours Logged ---
       const empLogs = timerRows.filter((l: any) => l.user_id === empId);
       let totalTaskHours = 0;
 
@@ -183,6 +248,12 @@ export async function GET(req: Request) {
         } else {
           totalTaskHours += (parseFloat(log.duration_minutes || 0) / 60);
         }
+      }
+
+      // If work accomplishments logged for this period, incorporate them
+      const periodWorkAccomplishments = periodWorkMap.get(empId) || 0;
+      if (periodWorkAccomplishments > 0) {
+        totalTaskHours = Math.max(totalTaskHours, periodWorkAccomplishments);
       }
 
       // If no timer log records found for this period, fallback to assigned task hours_spent if relevant
@@ -197,6 +268,11 @@ export async function GET(req: Request) {
         totalTaskHours = fallbackHours;
       }
       totalTaskHours = Math.round(totalTaskHours * 100) / 100;
+
+      // All-Time Task / Work Hours: max of work accomplishments vs task hours_spent
+      const allTimeWork = allTimeWorkMap.get(empId) || 0;
+      const allTimeTaskSpent = allTimeTaskSpentMap.get(String(empId)) || 0;
+      const allTimeTaskHours = Math.round(Math.max(allTimeWork, allTimeTaskSpent) * 100) / 100;
 
       // --- C. Tasks Progress & Output ---
       const empTasks = taskRows.filter(
@@ -350,7 +426,11 @@ export async function GET(req: Request) {
         has_active_shift: hasActiveShiftToday,
         metrics: {
           shift_hours: totalShiftHours,
+          all_time_shift_hours: allTimeShiftHours,
           task_hours: totalTaskHours,
+          all_time_task_hours: allTimeTaskHours,
+          active_shift_today: hasActiveShiftToday,
+          login_time_today: todayLoginTime,
           utilization_rate: utilizationRate,
           tasks_total: tasksTotal,
           tasks_completed: completedTasks,

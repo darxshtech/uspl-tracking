@@ -269,6 +269,14 @@ export default function CEOFilterDashboard() {
 
       const lastTask = empTasks.length > 0 ? empTasks[0] : null;
 
+      const prod = productivityMap.get(emp.id);
+      const shiftHours = prod?.metrics?.shift_hours ?? 0;
+      const allTimeShiftHours = prod?.metrics?.all_time_shift_hours ?? 0;
+      const taskHours = prod?.metrics?.task_hours ?? 0;
+      const allTimeTaskHours = prod?.metrics?.all_time_task_hours ?? empTotalHours;
+      const isActiveShift = prod?.metrics?.active_shift_today ?? false;
+      const loginTime = prod?.metrics?.login_time_today ?? null;
+
       return {
         ...emp,
         totalTasks: empTasks.length,
@@ -278,12 +286,18 @@ export default function CEOFilterDashboard() {
         inProgressCount: empInProgress,
         blockedCount: empBlocked,
         totalHours: empTotalHours,
+        shiftHours,
+        allTimeShiftHours,
+        taskHours,
+        allTimeTaskHours,
+        isActiveShift,
+        loginTime,
         completionRate: empRate,
         hasNoActiveTasks,
         lastTask,
       };
     });
-  }, [employees, tasks, projects]);
+  }, [employees, tasks, projects, productivityMap]);
 
   // List of Developers & Testers with NO active tasks
   const idleEmployees = useMemo(() => {
@@ -834,25 +848,40 @@ export default function CEOFilterDashboard() {
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden overflow-x-auto">
-          <Table className="min-w-[950px]">
+          <Table className="min-w-[1000px]">
             <TableHeader className="bg-slate-50">
               <TableRow>
-                <TableHead className="font-bold min-w-[240px]">Team Member</TableHead>
-                <TableHead className="font-bold min-w-[100px]">Role</TableHead>
-                <TableHead className="font-bold text-center min-w-[150px]">Workload Status</TableHead>
-                <TableHead className="font-bold text-center min-w-[90px]">Projects</TableHead>
-                <TableHead className="font-bold text-center min-w-[90px]">Total Tasks</TableHead>
-                <TableHead className="font-bold text-center min-w-[90px]">Completed</TableHead>
-                <TableHead className="font-bold text-center min-w-[90px]">In Progress</TableHead>
-                <TableHead className="font-bold text-center min-w-[110px]">Hours Logged</TableHead>
-                <TableHead className="font-bold text-right min-w-[120px]">Completion Rate</TableHead>
+                <TableHead className="font-bold min-w-[220px]">Team Member</TableHead>
+                <TableHead className="font-bold min-w-[90px]">Role</TableHead>
+                <TableHead className="font-bold text-center min-w-[140px]">Workload Status</TableHead>
+                <TableHead className="font-bold text-center min-w-[80px]">Projects</TableHead>
+                <TableHead className="font-bold text-center min-w-[80px]">Total Tasks</TableHead>
+                <TableHead className="font-bold text-center min-w-[80px]">Completed</TableHead>
+                <TableHead className="font-bold text-center min-w-[80px]">In Progress</TableHead>
+                <TableHead className="font-bold text-center min-w-[140px]">
+                  <div className="flex flex-col items-center leading-tight">
+                    <span className="flex items-center gap-1 text-slate-800">
+                      <Clock className="h-3 w-3 text-sky-500" /> Shift Hours
+                    </span>
+                    <span className="text-[10px] text-sky-600 font-bold capitalize">
+                      ({productivityPeriod === "today" ? "Today" : productivityPeriod === "week" ? "This Week" : productivityPeriod === "month" ? "This Month" : "This Year"})
+                    </span>
+                  </div>
+                </TableHead>
+                <TableHead className="font-bold text-center min-w-[130px]">
+                  <div className="flex flex-col items-center leading-tight">
+                    <span className="text-slate-800">Task Work Logged</span>
+                    <span className="text-[10px] text-slate-500 font-normal">Active & Deliverables</span>
+                  </div>
+                </TableHead>
+                <TableHead className="font-bold text-right min-w-[110px]">Completion Rate</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={9} className="text-center py-8">Calculating live team metrics...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={10} className="text-center py-8">Calculating live team metrics...</TableCell></TableRow>
               ) : filteredEmployeeMatrix.length === 0 ? (
-                <TableRow><TableCell colSpan={9} className="text-center text-slate-500 py-10">No employees match the selected workload filter.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={10} className="text-center text-slate-500 py-10">No employees match the selected workload filter.</TableCell></TableRow>
               ) : (
                 filteredEmployeeMatrix.map((emp) => (
                   <TableRow key={emp.id} className={`transition-colors ${emp.hasNoActiveTasks ? "bg-amber-50/30 hover:bg-amber-50/60" : "hover:bg-slate-50/80"}`}>
@@ -908,9 +937,43 @@ export default function CEOFilterDashboard() {
                         <span className="text-slate-400 text-xs">0</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-center font-bold text-slate-900 text-xs">
-                      {formatHoursAndMinutes(emp.totalHours)}
+                    
+                    {/* Shift Hours Cell */}
+                    <TableCell className="text-center">
+                      <div className="flex flex-col items-center gap-0.5">
+                        <span className="font-black text-slate-900 text-xs sm:text-sm">
+                          {formatHoursAndMinutes(emp.shiftHours)}
+                        </span>
+                        {emp.isActiveShift ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] text-emerald-700 font-bold bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                            On Shift {emp.loginTime ? `(${emp.loginTime})` : ""}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 font-medium">Off Shift</span>
+                        )}
+                        {emp.allTimeShiftHours > 0 && productivityPeriod !== "year" && (
+                          <span className="text-[10px] text-slate-500 font-medium">
+                            All-Time: {formatHoursAndMinutes(emp.allTimeShiftHours)}
+                          </span>
+                        )}
+                      </div>
                     </TableCell>
+
+                    {/* Task Work Logged Cell */}
+                    <TableCell className="text-center">
+                      <div className="flex flex-col items-center gap-0.5">
+                        <span className="font-bold text-slate-800 text-xs sm:text-sm">
+                          {formatHoursAndMinutes(emp.taskHours)}
+                        </span>
+                        {emp.allTimeTaskHours > 0 && (
+                          <span className="text-[10px] text-slate-500 font-medium">
+                            All-Time: {formatHoursAndMinutes(emp.allTimeTaskHours)}
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
+
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
                         <div className="w-16 bg-slate-100 rounded-full h-2 overflow-hidden hidden sm:block">
