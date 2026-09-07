@@ -46,11 +46,20 @@ function LoginForm() {
     setError("");
 
     try {
-      const res = await signIn("credentials", {
+      const cleanEmail = email.trim().toLowerCase();
+
+      // Safeguard against infinite loading: timeout after 15s
+      const signInPromise = signIn("credentials", {
         redirect: false,
-        email,
+        email: cleanEmail,
         password,
       });
+
+      const timeoutPromise = new Promise<{ error?: string }>((_, reject) =>
+        setTimeout(() => reject(new Error("AUTH_TIMEOUT")), 15000)
+      );
+
+      const res = (await Promise.race([signInPromise, timeoutPromise])) as any;
 
       if (res?.error) {
         if (res.error.toLowerCase().includes("deactivated") || res.error.toLowerCase().includes("inactive")) {
@@ -64,8 +73,12 @@ function LoginForm() {
         router.push("/dashboard");
         router.refresh();
       }
-    } catch (err) {
-      setError("An unexpected error occurred during authentication.");
+    } catch (err: any) {
+      if (err?.message === "AUTH_TIMEOUT") {
+        setError("Sign in timed out. Please verify your connection or try again.");
+      } else {
+        setError("An unexpected error occurred during authentication.");
+      }
     } finally {
       setLoading(false);
     }

@@ -14,7 +14,7 @@ const isServerless = Boolean(
 // Safe connection limit for hosting with max 16 user connections total (e.g. cPanel).
 // In Vercel serverless, each lambda container serves 1 request at a time, so connectionLimit = 1.
 // In Node.js / cPanel / local dev, defaults to 3 to leave headroom for Vercel lambdas & background tasks.
-const defaultLimit = isServerless ? '1' : '3';
+const defaultLimit = isServerless ? '2' : '3';
 const connectionLimit = parseInt(process.env.DB_CONNECTION_LIMIT || defaultLimit, 10);
 
 const pool = globalForDb._mysqlPool ?? mysql.createPool({
@@ -26,20 +26,13 @@ const pool = globalForDb._mysqlPool ?? mysql.createPool({
   waitForConnections: true,
   dateStrings: true,
   connectionLimit,
-  maxIdle: isServerless ? 0 : 1, // Never hold idle connections open inside frozen serverless containers
-  idleTimeout: isServerless ? 2000 : 10000, // Drop idle connections fast
+  maxIdle: 1, // Maintain 1 warm connection to avoid slow TCP/SSL handshakes on every request
+  idleTimeout: 10000, // Release idle connection back to MySQL after 10 seconds
   queueLimit: 0, // In-memory queue: incoming requests wait safely without failing
-  connectTimeout: 10000, // 10s connection timeout
-  enableKeepAlive: !isServerless, // Do NOT keepalive across frozen serverless instances
+  connectTimeout: 8000, // 8s connection timeout to fail fast within serverless limits
+  enableKeepAlive: true,
   keepAliveInitialDelay: 0,
   ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
-});
-
-// Automatically set MySQL session timeouts to 10 seconds.
-// If a serverless function freezes or connection sits idle for 10s,
-// MySQL server will automatically terminate it and reclaim the connection slot.
-(pool as any).on?.('connection', (conn: any) => {
-  conn.query?.('SET SESSION wait_timeout = 10, interactive_timeout = 10').catch?.(() => {});
 });
 
 // Catch pool errors safely
@@ -59,15 +52,11 @@ function isConnectionExhaustionError(err: any): boolean {
     errno === 1203 ||
     errno === 1040 ||
     msg.includes('max_user_connections') ||
-    msg.includes('Too many connections') ||
-    msg.includes('Connection lost') ||
-    msg.includes('PROTOCOL_CONNECTION_LOST') ||
-    msg.includes('ECONNRESET') ||
-    msg.includes('ETIMEDOUT')
+    msg.includes('Too many connections')
   );
 }
 
-async function withRetry<T>(operation: () => Promise<T>, maxRetries = 6): Promise<T> {
+async function withRetry<T>(operation: () => Promise<T>, maxRetries = 3): Promise<T> {
   let attempt = 0;
   while (true) {
     try {
@@ -75,10 +64,10 @@ async function withRetry<T>(operation: () => Promise<T>, maxRetries = 6): Promis
     } catch (err: any) {
       attempt++;
       if (isConnectionExhaustionError(err) && attempt <= maxRetries) {
-        // Backoff with random jitter: 200ms, 400ms, 800ms, 1400ms, 2000ms
-        const delay = Math.min(2500, Math.floor(Math.pow(2, attempt - 1) * 200 + Math.random() * 150));
+        // Fast backoff with jitter: 150ms, 300ms, 600ms
+        const delay = Math.min(1000, Math.floor(Math.pow(2, attempt - 1) * 150 + Math.random() * 100));
         console.warn(
-          `[DB Pool] Connection limit / exhaustion detected (${err.message || err.code}). Retrying query in ${delay}ms (attempt ${attempt}/${maxRetries})...`
+          `[DB Pool] Connection limit reached (${err.message || err.code}). Retrying query in ${delay}ms (attempt ${attempt}/${maxRetries})...`
         );
         await new Promise((resolve) => setTimeout(resolve, delay));
         continue;
@@ -87,7 +76,7 @@ async function withRetry<T>(operation: () => Promise<T>, maxRetries = 6): Promis
       if (isConnectionExhaustionError(err)) {
         console.error(`[DB Pool] Max retries exhausted for connection limit error:`, err.message);
         const friendlyError = new Error(
-          "The database server is currently experiencing high activity. Please try again in a few seconds."
+          "The database server is currently experiencing high activity. Please try again in a moment."
         );
         (friendlyError as any).code = err.code || 'ER_USER_LIMIT_REACHED';
         (friendlyError as any).errno = err.errno || 1203;

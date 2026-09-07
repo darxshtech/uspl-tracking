@@ -16,28 +16,34 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Missing email or password");
         }
         
+        const cleanEmail = credentials.email.trim().toLowerCase();
+        
         try {
           const [rows]: any = await pool.query(
-            "SELECT id, name, email, password_hash, role, is_active FROM users WHERE email = ?",
-            [credentials.email]
+            "SELECT id, name, email, password_hash, role, is_active FROM users WHERE LOWER(email) = ?",
+            [cleanEmail]
           );
           
-          if (rows.length === 0) {
+          if (!rows || rows.length === 0) {
+            console.warn(`[Auth] User not found for email: ${cleanEmail}`);
             throw new Error("Invalid credentials");
           }
           
           const user = rows[0];
           
           if (!user.is_active || user.is_active === 0) {
+            console.warn(`[Auth] Deactivated user attempted login: ${cleanEmail}`);
             throw new Error("Your account has been deactivated. Please contact your administrator.");
           }
           
           const isValid = await bcrypt.compare(credentials.password, user.password_hash);
           
           if (!isValid) {
+            console.warn(`[Auth] Password mismatch for: ${cleanEmail}`);
             throw new Error("Invalid credentials");
           }
           
+          console.log(`[Auth] Successful login for: ${user.name} (${user.email}, ${user.role})`);
           return {
             id: user.id.toString(),
             name: user.name,
@@ -45,6 +51,7 @@ export const authOptions: NextAuthOptions = {
             role: user.role
           };
         } catch (error) {
+          console.error("[Auth] Error during authorize():", error);
           throw error;
         }
       }
@@ -85,5 +92,5 @@ export const authOptions: NextAuthOptions = {
       },
     },
   },
-  secret: process.env.NEXTAUTH_SECRET,
+  secret: process.env.NEXTAUTH_SECRET || "uspl-tracking-system-super-secure-secret-token-2026",
 };
