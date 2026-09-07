@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { showToast } from "@/lib/swal";
+import { formatHoursAndMinutes } from "@/lib/timeUtils";
 
 export default function EmployeePersonalProgress() {
   const [tasks, setTasks] = useState<any[]>([]);
@@ -241,7 +242,7 @@ export default function EmployeePersonalProgress() {
                       <div className="flex items-center gap-2.5 shrink-0">
                         {task.hours_spent > 0 && (
                           <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
-                            <Clock className="h-3 w-3 text-sky-500" /> {task.hours_spent}h
+                            <Clock className="h-3 w-3 text-sky-500" /> {formatHoursAndMinutes(task.hours_spent)}
                           </span>
                         )}
                         <Badge

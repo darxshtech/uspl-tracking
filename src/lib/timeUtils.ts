@@ -117,7 +117,7 @@ export function validateCheckoutTimeBuffer(
  */
 export function formatHoursAndMinutes(hours: number | string | null | undefined): string {
   const numericHours = typeof hours === 'string' ? parseFloat(hours) : Number(hours || 0);
-  if (isNaN(numericHours) || numericHours <= 0) return '0 hrs';
+  if (isNaN(numericHours) || numericHours <= 0) return '0 mins';
 
   const totalMinutes = Math.round(numericHours * 60);
   const h = Math.floor(totalMinutes / 60);

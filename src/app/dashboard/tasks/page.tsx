@@ -208,7 +208,7 @@ export default function DailyTasksPage() {
     if (task.status === "Completed") {
       showWarning(
         "Task Already Logged",
-        `Task "${task.title}" is already completed and logged (${task.hours_spent || 0}h). Once logged, you cannot start this task again.`
+        `Task "${task.title}" is already completed and logged (${formatHoursAndMinutes(task.hours_spent)}). Once logged, you cannot start this task again.`
       );
       return;
     }
@@ -237,7 +237,7 @@ export default function DailyTasksPage() {
         const isResuming = parseFloat(task.hours_spent) > 0;
         showToast(
           isResuming
-            ? `▶ Resumed timer for "${task.title}" (Continuing from ${task.hours_spent}h)`
+            ? `▶ Resumed timer for "${task.title}" (Continuing from ${formatHoursAndMinutes(task.hours_spent)})`
             : `▶ Started timer for "${task.title}"`
         );
         window.dispatchEvent(new Event("task-timer-updated"));
@@ -300,7 +300,7 @@ export default function DailyTasksPage() {
 
       const data = await res.json();
       if (res.ok) {
-        showSuccess("Task Completed!", `Total recorded time: ${data.hours_spent}h locked in Hours Spent.`);
+        showSuccess("Task Completed!", `Total recorded time: ${formatHoursAndMinutes(data.hours_spent)} locked in Hours Spent.`);
         window.dispatchEvent(new Event("task-timer-updated"));
         fetchActiveUserTimer();
         fetchTasks();
@@ -2796,7 +2796,7 @@ export default function DailyTasksPage() {
                           className="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-slate-100 text-slate-600 border border-slate-200 text-xs font-bold w-full select-none cursor-not-allowed"
                           title="Task completed and logged. Once logged, this task cannot be started again."
                         >
-                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> Logged ({task.hours_spent || 0}h)
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> Logged ({formatHoursAndMinutes(task.hours_spent)})
                         </div>
                       ) : parseFloat(task.hours_spent) > 0 ? (
                         <Button
@@ -2813,7 +2813,7 @@ export default function DailyTasksPage() {
                               : "Resume timer on this task"
                           }
                         >
-                          <Play className="h-3.5 w-3.5 text-emerald-600 fill-emerald-600" /> Resume Timer ({task.hours_spent}h)
+                          <Play className="h-3.5 w-3.5 text-emerald-600 fill-emerald-600" /> Resume Timer ({formatHoursAndMinutes(task.hours_spent)})
                         </Button>
                       ) : (
                         <Button
@@ -2842,7 +2842,7 @@ export default function DailyTasksPage() {
                         className="text-slate-600 hover:text-slate-900 hover:bg-slate-100 text-[11px] font-semibold gap-1 h-7 w-full justify-center cursor-pointer"
                         title="View time tracking sessions"
                       >
-                        <Clock className="h-3 w-3 text-slate-500" /> Time Logs ({task.hours_spent ? `${task.hours_spent}h` : "0h"})
+                        <Clock className="h-3 w-3 text-slate-500" /> Time Logs ({formatHoursAndMinutes(task.hours_spent)})
                       </Button>
 
                       {/* Update Progress Button */}
@@ -2967,7 +2967,7 @@ export default function DailyTasksPage() {
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-slate-900 text-sm">{selectedTaskForTimeLogs.title}</span>
                   <Badge className="bg-sky-50 text-sky-800 border-sky-200 font-bold">
-                    Total: {selectedTaskForTimeLogs.hours_spent ? `${selectedTaskForTimeLogs.hours_spent} hrs` : "0 hrs"}
+                    Total: {formatHoursAndMinutes(selectedTaskForTimeLogs.hours_spent)}
                   </Badge>
                 </div>
                 <p className="text-xs text-slate-500">Project: {selectedTaskForTimeLogs.project_name || "N/A"}</p>

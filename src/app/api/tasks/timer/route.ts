@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import pool from "@/lib/db";
+import { formatHoursAndMinutes } from "@/lib/timeUtils";
 
 function formatToMySQLDateTime(d: Date): string {
   const pad = (n: number) => n.toString().padStart(2, "0");
@@ -162,7 +163,7 @@ export async function POST(req: Request) {
       // Validation: Once task is logged as completed, it cannot be started again
       if (task.status === "Completed") {
         return NextResponse.json({
-          error: `Task "${task.title}" is already completed and logged (${task.hours_spent || 0}h). Once logged, you cannot start this task again.`
+          error: `Task "${task.title}" is already completed and logged (${formatHoursAndMinutes(task.hours_spent)}). Once logged, you cannot start this task again.`
         }, { status: 400 });
       }
 
@@ -440,7 +441,7 @@ export async function POST(req: Request) {
       return NextResponse.json({
         success: true,
         is_completed: true,
-        message: `Task finished and marked ${finalStatus}! Total hours spent: ${totalHours}h recorded.`,
+        message: `Task finished and marked ${finalStatus}! Total hours spent: ${formatHoursAndMinutes(totalHours)} recorded.`,
         duration_minutes: durationMins,
         hours_spent: totalHours,
         ended_at: endTimeFormatted
