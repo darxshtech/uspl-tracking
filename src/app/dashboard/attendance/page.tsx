@@ -38,8 +38,10 @@ import {
   Save,
   HelpCircle,
   PlusCircle,
-  RefreshCw
+  RefreshCw,
+  TrendingUp
 } from "lucide-react";
+import Link from "next/link";
 
 export default function AttendancePage() {
   const { data: session } = useSession();
@@ -578,6 +580,20 @@ export default function AttendancePage() {
               <PlusCircle className="h-3.5 w-3.5" />
               Log Past Attendance
             </Button>
+          )}
+
+          {/* Productivity Analytics Hub Button */}
+          {isManagement && (
+            <Link href="/dashboard/analytics">
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-900 font-bold text-xs gap-1.5 shadow-xs h-9 cursor-pointer"
+              >
+                <TrendingUp className="h-3.5 w-3.5 text-indigo-600" />
+                Productivity Analytics Hub
+              </Button>
+            </Link>
           )}
 
           <div className="flex items-center gap-2 bg-slate-900 text-white px-3.5 py-1.5 rounded-xl text-xs font-mono font-semibold shadow-xs">

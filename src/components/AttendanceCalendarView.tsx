@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { showError, showSuccess } from "@/lib/swal";
+import Link from "next/link";
 import { 
   ChevronLeft, 
   ChevronRight, 
@@ -19,7 +20,11 @@ import {
   AlertCircle, 
   PartyPopper, 
   Coffee, 
-  Users 
+  Users,
+  TrendingUp,
+  Award,
+  ArrowRight,
+  X
 } from "lucide-react";
 import { formatHoursAndMinutes, calculateHoursDifference, getCurrentISTTime12 } from "@/lib/timeUtils";
 import EmployeeProductivityTag from "@/components/EmployeeProductivityTag";
@@ -49,33 +54,54 @@ export default function AttendanceCalendarView({
   const [currentMonth, setCurrentMonth] = useState(7); // August (0-indexed)
   const [selectedEmployeeId, setSelectedEmployeeId] = useState(initialEmployeeId);
   const [employeeProductivity, setEmployeeProductivity] = useState<any>(null);
+  const [productivitySummary, setProductivitySummary] = useState<any>(null);
+  const [employeeProductivityMap, setEmployeeProductivityMap] = useState<Record<number, any>>({});
+  const [loadingProductivity, setLoadingProductivity] = useState(false);
 
   useEffect(() => {
     setSelectedEmployeeId(initialEmployeeId);
   }, [initialEmployeeId]);
 
-  // Fetch productivity metrics for selected employee in the viewed month
+  // Fetch productivity metrics for the viewed month (for leadership)
   useEffect(() => {
-    if (selectedEmployeeId === "ALL") {
-      setEmployeeProductivity(null);
-      return;
-    }
+    if (!canAddHoliday) return;
+
     const mStr = String(currentMonth + 1).padStart(2, "0");
     const start_date = `${currentYear}-${mStr}-01`;
     const lastDay = new Date(currentYear, currentMonth + 1, 0).getDate();
     const end_date = `${currentYear}-${mStr}-${String(lastDay).padStart(2, "0")}`;
 
-    fetch(`/api/analytics/employee-productivity?period=custom&start_date=${start_date}&end_date=${end_date}&employee_id=${selectedEmployeeId}&_=` + Date.now())
+    setLoadingProductivity(true);
+    fetch(`/api/analytics/employee-productivity?period=custom&start_date=${start_date}&end_date=${end_date}&_=` + Date.now())
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (data && Array.isArray(data.employees) && data.employees.length > 0) {
-          setEmployeeProductivity(data.employees[0]);
+        if (data && Array.isArray(data.employees)) {
+          setProductivitySummary(data.summary || null);
+          const map: Record<number, any> = {};
+          data.employees.forEach((emp: any) => {
+            map[emp.id] = emp;
+          });
+          setEmployeeProductivityMap(map);
+
+          if (selectedEmployeeId !== "ALL") {
+            const found = data.employees.find((e: any) => e.id.toString() === selectedEmployeeId.toString());
+            setEmployeeProductivity(found || null);
+          } else {
+            setEmployeeProductivity(null);
+          }
         } else {
+          setProductivitySummary(null);
           setEmployeeProductivity(null);
+          setEmployeeProductivityMap({});
         }
       })
-      .catch(() => setEmployeeProductivity(null));
-  }, [selectedEmployeeId, currentYear, currentMonth]);
+      .catch(() => {
+        setProductivitySummary(null);
+        setEmployeeProductivity(null);
+        setEmployeeProductivityMap({});
+      })
+      .finally(() => setLoadingProductivity(false));
+  }, [selectedEmployeeId, currentYear, currentMonth, canAddHoliday]);
 
   const [holidays, setHolidays] = useState<any[]>([]);
   const [attendanceRecords, setAttendanceRecords] = useState<any[]>([]);
@@ -366,6 +392,181 @@ export default function AttendanceCalendarView({
         </div>
       </div>
 
+      {/* Executive Monthly Productivity Analytics Bar (Admin, CEO, PM) */}
+      {canAddHoliday && (
+        <div className="rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-50/70 via-white to-sky-50/70 p-4 md:p-5 shadow-xs space-y-3.5 animate-fade-in">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-indigo-100/80 pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-indigo-600 text-white shadow-xs">
+                <Sparkles className="h-4 w-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="font-bold text-slate-900 text-sm md:text-base">
+                    {MONTH_NAMES[currentMonth]} {currentYear} Employee Productivity & Ideal Tags
+                  </h3>
+                  <Badge variant="outline" className="text-[10px] font-bold border-indigo-200 text-indigo-800 bg-indigo-50">
+                    4-Pillar Score
+                  </Badge>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Evaluated across Working Shift Hours, Task Timer Logs, Subtask Checklists, and Assigned Projects
+                </p>
+              </div>
+            </div>
+
+            {/* Quick Link to Dedicated Analytics Dashboard */}
+            <div className="flex items-center gap-2 shrink-0">
+              <Link href="/dashboard/analytics">
+                <Button size="sm" variant="outline" className="border-indigo-200 hover:bg-indigo-100/60 text-indigo-900 font-bold text-xs gap-1.5 h-8 cursor-pointer">
+                  <TrendingUp className="h-3.5 w-3.5 text-indigo-600" /> Open Full Analytics Hub &rarr;
+                </Button>
+              </Link>
+            </div>
+          </div>
+
+          {/* If ALL Employees Selected: Summary Counters & Clickable Team Chips */}
+          {selectedEmployeeId === "ALL" ? (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <div className="bg-white p-2.5 rounded-xl border border-slate-200/80 shadow-2xs flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-700 flex items-center justify-center font-bold text-xs">
+                    👥
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-semibold text-slate-500">Total Team</div>
+                    <div className="text-base font-extrabold text-slate-900">{productivitySummary?.total_employees || 0}</div>
+                  </div>
+                </div>
+
+                <div className="bg-gradient-to-br from-amber-50 to-yellow-50/50 p-2.5 rounded-xl border border-amber-200 shadow-2xs flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-amber-500 text-white flex items-center justify-center font-bold text-sm shadow-xs">
+                    🌟
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-bold text-amber-900">Ideal Employees</div>
+                    <div className="text-base font-black text-amber-950">{productivitySummary?.ideal_count || 0}</div>
+                  </div>
+                </div>
+
+                <div className="bg-gradient-to-br from-emerald-50 to-teal-50/50 p-2.5 rounded-xl border border-emerald-200 shadow-2xs flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-bold text-sm shadow-xs">
+                    🟢
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-bold text-emerald-900">Active / Working</div>
+                    <div className="text-base font-black text-emerald-950">{productivitySummary?.active_count || 0}</div>
+                  </div>
+                </div>
+
+                <div className="bg-gradient-to-br from-slate-50 to-amber-50/30 p-2.5 rounded-xl border border-slate-200 shadow-2xs flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-slate-200 text-slate-700 flex items-center justify-center font-bold text-sm">
+                    🟡
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-semibold text-slate-600">Under-utilized</div>
+                    <div className="text-base font-extrabold text-slate-800">{productivitySummary?.idle_count || 0}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Clickable Team Chips */}
+              <div className="space-y-1 pt-0.5">
+                <span className="text-[11px] font-bold text-slate-600">Click any employee below to filter calendar & view detailed metrics:</span>
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {Object.values(employeeProductivityMap).map((emp: any) => (
+                    <button
+                      key={emp.id}
+                      type="button"
+                      onClick={() => setSelectedEmployeeId(emp.id.toString())}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white hover:bg-indigo-50 border border-slate-200 hover:border-indigo-300 text-xs font-semibold text-slate-800 transition-all cursor-pointer shadow-2xs group"
+                    >
+                      <span className="group-hover:text-indigo-600 font-bold">{emp.name}</span>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                        emp.tag === "ideal" ? "bg-amber-100 text-amber-900 border border-amber-300" :
+                        emp.tag === "active" ? "bg-emerald-100 text-emerald-800" :
+                        "bg-slate-100 text-slate-700"
+                      }`}>
+                        {emp.tag === "ideal" ? "🌟 Ideal" : emp.tag === "active" ? "🟢 Active" : "🟡 Idle"} ({emp.score} pts)
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : employeeProductivity ? (
+            /* If Single Employee Selected: Detailed Breakdown */
+            <div className="space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-sky-600 text-white flex items-center justify-center font-black text-sm shadow-xs">
+                    {employeeProductivity.name?.charAt(0) || "U"}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-extrabold text-slate-900 text-sm">{employeeProductivity.name}</span>
+                      <Badge variant="outline" className="text-[10px] font-semibold text-slate-600">
+                        {employeeProductivity.role}
+                      </Badge>
+                    </div>
+                    <div className="text-[11px] text-slate-500">{employeeProductivity.email}</div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <EmployeeProductivityTag
+                    tag={employeeProductivity.tag}
+                    score={employeeProductivity.score}
+                    metrics={employeeProductivity.metrics}
+                    size="md"
+                  />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setSelectedEmployeeId("ALL")}
+                    className="h-8 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 gap-1"
+                  >
+                    View All &times;
+                  </Button>
+                </div>
+              </div>
+
+              {/* 4-Pillar Metric Strip for the selected employee */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
+                <div className="p-2 bg-white rounded-lg border border-slate-200 text-center">
+                  <div className="text-[10px] font-semibold text-slate-500 uppercase">Shift Time</div>
+                  <div className="text-xs font-extrabold text-slate-900 mt-0.5">{employeeProductivity.metrics?.shift_hours || 0} hrs</div>
+                </div>
+                <div className="p-2 bg-white rounded-lg border border-slate-200 text-center">
+                  <div className="text-[10px] font-semibold text-slate-500 uppercase">Task Timer</div>
+                  <div className="text-xs font-extrabold text-slate-900 mt-0.5">{formatHoursAndMinutes(employeeProductivity.metrics?.task_hours || 0)}</div>
+                </div>
+                <div className="p-2 bg-white rounded-lg border border-slate-200 text-center">
+                  <div className="text-[10px] font-semibold text-slate-500 uppercase">Utilization</div>
+                  <div className="text-xs font-extrabold text-indigo-600 mt-0.5">{employeeProductivity.metrics?.utilization_rate || 0}%</div>
+                </div>
+                <div className="p-2 bg-white rounded-lg border border-slate-200 text-center">
+                  <div className="text-[10px] font-semibold text-slate-500 uppercase">Tasks Done</div>
+                  <div className="text-xs font-extrabold text-emerald-600 mt-0.5">
+                    {employeeProductivity.metrics?.tasks_completed || 0} / {employeeProductivity.metrics?.tasks_total || 0}
+                  </div>
+                </div>
+                <div className="p-2 bg-white rounded-lg border border-slate-200 text-center">
+                  <div className="text-[10px] font-semibold text-slate-500 uppercase">Subtasks</div>
+                  <div className="text-xs font-extrabold text-sky-600 mt-0.5">
+                    {employeeProductivity.metrics?.subtasks_completed || 0} / {employeeProductivity.metrics?.subtasks_total || 0}
+                  </div>
+                </div>
+                <div className="p-2 bg-white rounded-lg border border-slate-200 text-center">
+                  <div className="text-[10px] font-semibold text-slate-500 uppercase">Active Projects</div>
+                  <div className="text-xs font-extrabold text-purple-600 mt-0.5">{employeeProductivity.metrics?.active_projects || 0}</div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      )}
+
       {/* Legend Bar */}
       <div className="flex flex-wrap items-center gap-4 text-xs font-semibold text-slate-600 px-1">
         <div className="flex items-center gap-1.5">
@@ -464,10 +665,11 @@ export default function AttendanceCalendarView({
                     <div className="space-y-1">
                       {attendance.map((rec: any) => {
                         const isPresent = rec.status?.includes("Present") || (rec.login_time && !rec.logout_time && !rec.status?.includes("Leave") && rec.status !== "Holiday");
+                        const empProd = employeeProductivityMap[rec.user_id];
                         return (
                         <div
                           key={rec.id}
-                          className={`p-1.5 rounded-lg text-[10px] border shadow-xs leading-tight ${
+                          className={`p-1.5 rounded-lg text-[10px] border shadow-xs leading-tight transition-all ${
                             isPresent
                               ? "bg-emerald-50 border-emerald-200 text-emerald-900"
                               : rec.status === "Half Day"
@@ -477,9 +679,23 @@ export default function AttendanceCalendarView({
                               : "bg-sky-50 border-sky-200 text-sky-900"
                           }`}
                         >
-                          <div className="font-bold flex items-center justify-between">
-                            <span className="truncate">{rec.employee_name || "Shift"}</span>
-                            <span className="shrink-0 font-semibold">
+                          <div className="font-bold flex items-center justify-between gap-1">
+                            <span className="truncate flex items-center gap-1 min-w-0">
+                              <span className="truncate">{rec.employee_name || "Shift"}</span>
+                              {canAddHoliday && empProd && (
+                                <span
+                                  title={`${empProd.name}: ${empProd.tag_label} (${empProd.score} pts)`}
+                                  className={`text-[8.5px] px-1 py-0.2 rounded font-bold shrink-0 ${
+                                    empProd.tag === "ideal" ? "bg-amber-200/90 text-amber-950 border border-amber-300" :
+                                    empProd.tag === "active" ? "bg-emerald-200/90 text-emerald-950" :
+                                    "bg-slate-200 text-slate-800"
+                                  }`}
+                                >
+                                  {empProd.tag === "ideal" ? "🌟 Ideal" : empProd.tag === "active" ? "🟢" : "🟡"}
+                                </span>
+                              )}
+                            </span>
+                            <span className="shrink-0 font-semibold text-[9.5px]">
                               {rec.login_time && !rec.logout_time
                                 ? `${formatHoursAndMinutes(calculateHoursDifference(rec.login_time, getCurrentISTTime12()))} ⏱️`
                                 : formatHoursAndMinutes(rec.total_hours)}

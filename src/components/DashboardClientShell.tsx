@@ -27,7 +27,8 @@ import {
   BookOpen,
   FolderArchive,
   Mail,
-  Banknote
+  Banknote,
+  TrendingUp
 } from "lucide-react";
 import { getRoleDisplayName, getRoleIconEmoji } from "@/lib/roleUtils";
 
@@ -115,6 +116,7 @@ export default function DashboardClientShell({ children, user }: DashboardClient
 
   const navItems = [
     { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ["Admin", "CEO", "PM", "Developer", "Tester"] },
+    { name: "Productivity Analytics", href: "/dashboard/analytics", icon: TrendingUp, roles: ["Admin", "CEO", "PM"] },
     { name: "Employees", href: "/dashboard/employees", icon: Users, roles: ["Admin", "CEO", "PM"] },
     { name: "Projects", href: "/dashboard/projects", icon: Briefcase, roles: ["Admin", "CEO", "PM", "Developer", "Tester"] },
     { name: "Daily Tasks", href: "/dashboard/tasks", icon: CheckSquare, roles: ["Admin", "CEO", "PM", "Developer", "Tester"] },
