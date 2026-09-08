@@ -89,6 +89,30 @@ export async function GET() {
       // Table may not exist yet, fallback gracefully
     }
 
+    // Fetch active running timers for all tasks
+    const runningTimersMap: Record<number, any> = {};
+    try {
+      const [timerRows]: any = await pool.query(`
+        SELECT ttl.task_id, ttl.user_id, u.name as runner_name, u.role as runner_role, ttl.started_at
+        FROM task_time_logs ttl
+        JOIN users u ON ttl.user_id = u.id
+        WHERE ttl.is_active = 1
+        ORDER BY ttl.started_at DESC
+      `);
+      if (Array.isArray(timerRows)) {
+        timerRows.forEach((tr: any) => {
+          if (!runningTimersMap[tr.task_id]) {
+            runningTimersMap[tr.task_id] = {
+              user_id: tr.user_id,
+              runner_name: tr.runner_name,
+              runner_role: tr.runner_role,
+              started_at: tr.started_at,
+            };
+          }
+        });
+      }
+    } catch (_) {}
+
     const formatted = rows.map((r: any) => {
       let parsedLinks: string[] = [];
       if (typeof r.task_links === "string") {
@@ -121,6 +145,7 @@ export async function GET() {
         attachments: parsedAttachments,
         checklists: checklistMap[r.id] || [],
         assignees: taskAssignees,
+        running_timer: runningTimersMap[r.id] || null,
       };
     });
 

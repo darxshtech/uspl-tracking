@@ -1350,12 +1350,17 @@ export default function DailyTasksPage() {
     return tasks.filter((t) => {
       const taskExpDate = t.expected_date ? t.expected_date.split("T")[0] : (t.target_date ? t.target_date.split("T")[0] : todayStr);
       const taskStartDate = t.start_date ? t.start_date.split("T")[0] : (t.created_at ? t.created_at.split("T")[0] : todayStr);
+      const isFinished = ["Completed", "Ready for Demo", "Tested (PASS)"].includes(t.status);
       const isCompleted = t.status === "Completed" || t.status === "Ready for Demo";
 
       // 1. Tab filtering
       let matchTab = true;
       if (activeTab === "today") {
-        matchTab = taskExpDate <= todayStr || !isCompleted;
+        // Today's task: Scheduled today OR started earlier but still unfinished (carried over).
+        // Yesterday's finished tasks must NOT be shown in today's tab.
+        const isScheduledToday = taskExpDate === todayStr || taskStartDate === todayStr;
+        const isUnfinishedPastTask = !isFinished && (taskStartDate <= todayStr || taskExpDate <= todayStr);
+        matchTab = isScheduledToday || isUnfinishedPastTask;
       } else if (activeTab === "tomorrow") {
         matchTab = taskExpDate > todayStr;
       } else if (activeTab === "assigned_pm") {
@@ -1393,9 +1398,13 @@ export default function DailyTasksPage() {
         return false;
       }
 
-      // 5. Date filter (checks both expected date and start date)
-      if (filterDateMode === "TODAY" && taskExpDate !== todayStr && taskStartDate !== todayStr) {
-        return false;
+      // 5. Date filter (checks both expected date and start date, plus unfinished carryovers)
+      if (filterDateMode === "TODAY") {
+        const isScheduledToday = taskExpDate === todayStr || taskStartDate === todayStr;
+        const isUnfinishedPastTask = !isFinished && (taskStartDate <= todayStr || taskExpDate <= todayStr);
+        if (!isScheduledToday && !isUnfinishedPastTask) {
+          return false;
+        }
       }
       if (filterDateMode === "TOMORROW" && taskExpDate !== tomorrowStr) {
         return false;
@@ -1463,8 +1472,11 @@ export default function DailyTasksPage() {
 
   const countToday = tasks.filter((t) => {
     const taskExpDate = t.expected_date ? t.expected_date.split("T")[0] : (t.target_date ? t.target_date.split("T")[0] : todayStr);
-    const isCompleted = t.status === "Completed" || t.status === "Ready for Demo";
-    return taskExpDate <= todayStr || !isCompleted;
+    const taskStartDate = t.start_date ? t.start_date.split("T")[0] : (t.created_at ? t.created_at.split("T")[0] : todayStr);
+    const isFinished = ["Completed", "Ready for Demo", "Tested (PASS)"].includes(t.status);
+    const isScheduledToday = taskExpDate === todayStr || taskStartDate === todayStr;
+    const isUnfinishedPastTask = !isFinished && (taskStartDate <= todayStr || taskExpDate <= todayStr);
+    return isScheduledToday || isUnfinishedPastTask;
   }).length;
 
   const countTomorrow = tasks.filter((t) => {
@@ -3633,6 +3645,17 @@ export default function DailyTasksPage() {
                           >
                             <CheckCircle2 className="h-3.5 w-3.5" /> Finish
                           </Button>
+                        </div>
+                      ) : task.running_timer ? (
+                        <div 
+                          className="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-300 text-xs font-bold w-full select-none shadow-xs"
+                          title={`Timer is actively running by ${task.running_timer.runner_name} (${task.running_timer.runner_role})`}
+                        >
+                          <span className="relative flex h-2 w-2 shrink-0">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-600"></span>
+                          </span>
+                          <span className="truncate">Running ({task.running_timer.runner_name})</span>
                         </div>
                       ) : task.status === "Completed" ? (
                         <div 
