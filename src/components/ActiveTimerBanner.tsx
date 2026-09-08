@@ -18,7 +18,7 @@ import {
   MessageSquare,
   Volume2
 } from "lucide-react";
-import { playBellChime } from "@/lib/audio";
+import { playBellChime, playReminderAlarmSound } from "@/lib/audio";
 import { sendWebPushNotification, requestNotificationPermission, getNotificationPermission } from "@/lib/pushNotification";
 
 interface ActiveTimerData {
@@ -61,8 +61,7 @@ export default function ActiveTimerBanner() {
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const lastCheckinSecsRef = useRef<number>(0);
-  const snoozeUntilSecsRef = useRef<number>(0);
-  const reminderFiredMilestoneRef = useRef<number>(-1);
+  const snoozeUntilTimestampRef = useRef<number>(0);
   const progressReminderOpenRef = useRef<boolean>(false);
   const activeTimerRef = useRef<ActiveTimerData | null>(null);
 
@@ -85,15 +84,50 @@ export default function ActiveTimerBanner() {
       }
 
       // Initialize lastCheckinSecs from localStorage if exists
-      const storageKey = `unitglo_task_45m_checkin_${activeTimer.task_id}_${activeTimer.id}`;
+      const totalSecs = (Number(activeTimer.previous_duration_seconds) || 0) + (Number(activeTimer.current_session_seconds) || 0);
+      const storageKey = `unitglo_task_45m_checkin_${activeTimer.task_id}`;
       const savedSecs = localStorage.getItem(storageKey);
       if (savedSecs !== null) {
-        lastCheckinSecsRef.current = parseInt(savedSecs, 10) || 0;
+        const parsed = parseInt(savedSecs, 10);
+        if (!isNaN(parsed) && parsed <= totalSecs) {
+          lastCheckinSecsRef.current = parsed;
+        } else {
+          lastCheckinSecsRef.current = 0;
+        }
       } else {
         lastCheckinSecsRef.current = 0;
       }
     }
   }, [activeTimer]);
+
+  // Repeating sound alarm and flashing tab title until progress is saved
+  useEffect(() => {
+    if (!progressReminderOpen) return;
+
+    // 1. Play alert chime immediately
+    playReminderAlarmSound();
+
+    // 2. Play alert chime continuously every 10 seconds UNTIL developer submits progress or snoozes
+    const soundInterval = setInterval(() => {
+      playReminderAlarmSound();
+    }, 10000);
+
+    // 3. Flash document title to alert developer across browser tabs / windows
+    const originalTitle = document.title;
+    let titleToggle = false;
+    const titleInterval = setInterval(() => {
+      titleToggle = !titleToggle;
+      document.title = titleToggle
+        ? "⏰ [ACTION REQUIRED] Update Task Progress!"
+        : "🔔 45-Min Reminder | Unitglo Tracking";
+    }, 1200);
+
+    return () => {
+      clearInterval(soundInterval);
+      clearInterval(titleInterval);
+      document.title = originalTitle;
+    };
+  }, [progressReminderOpen]);
 
   // Request browser push permission if not requested
   useEffect(() => {
@@ -119,7 +153,6 @@ export default function ActiveTimerBanner() {
           setElapsedSeconds(0);
           setCurrentSessionSecsState(0);
           lastCheckinSecsRef.current = 0;
-          reminderFiredMilestoneRef.current = -1;
         }
       }
     } catch (err) {
@@ -163,51 +196,49 @@ export default function ActiveTimerBanner() {
     timerRef.current = setInterval(() => {
       const nowMs = Date.now();
       const currentSessionSecs = Math.max(0, Math.floor((nowMs - clientStartMs) / 1000));
-      setElapsedSeconds(prevSecs + currentSessionSecs);
+      const currentElapsedSecs = prevSecs + currentSessionSecs;
+      
+      setElapsedSeconds(currentElapsedSecs);
       setCurrentSessionSecsState(currentSessionSecs);
 
-      // --- 45-MINUTE REMINDER CADENCE ENGINE ---
-      const secsSinceLastCheckin = currentSessionSecs - lastCheckinSecsRef.current;
+      // --- 45-MINUTE REMINDER CADENCE ENGINE (Cumulative Task Elapsed) ---
+      const secsSinceLastCheckin = Math.max(0, currentElapsedSecs - lastCheckinSecsRef.current);
       const countdown = Math.max(0, 2700 - secsSinceLastCheckin);
       setSecsUntilNextCheckin(countdown);
 
-      // Trigger condition: 45+ minutes since last check-in (2700 seconds) AND snooze has expired
+      // Trigger condition: 45+ minutes worked since last check-in (2700 seconds) AND snooze has expired
+      const isSnoozed = Date.now() < snoozeUntilTimestampRef.current;
       if (
         secsSinceLastCheckin >= 2700 &&
-        currentSessionSecs >= snoozeUntilSecsRef.current &&
+        !isSnoozed &&
         !progressReminderOpenRef.current
       ) {
-        const milestoneKey = Math.floor(secsSinceLastCheckin / 2700);
-        if (reminderFiredMilestoneRef.current !== milestoneKey) {
-          reminderFiredMilestoneRef.current = milestoneKey;
+        // 1. Force un-minimize floating widget
+        setIsMinimized(false);
 
-          // 1. Play high-definition bell chime
-          playBellChime();
+        // 2. Open the interactive Progress Check-In modal (triggers continuous sound loop)
+        setProgressReminderOpen(true);
 
-          // 2. Dispatch Desktop/Mobile Web Push Notification
-          const currentTask = activeTimerRef.current;
-          const taskTitle = currentTask ? currentTask.task_title : "Active Task";
-          sendWebPushNotification({
-            title: "⏱️ 45-Minute Progress Check-In Reminder",
-            body: `You've been working on "${taskTitle}" for 45 minutes! Please update your progress percentage and summary.`,
-            tag: `task-reminder-${currentTask?.task_id || "active"}`,
+        // 3. Dispatch Desktop/Mobile Web Push Notification
+        const currentTask = activeTimerRef.current;
+        const taskTitle = currentTask ? currentTask.task_title : "Active Task";
+        sendWebPushNotification({
+          title: "⏱️ 45-Minute Progress Check-In Reminder",
+          body: `You've worked 45+ minutes on "${taskTitle}"! Please update your progress percentage and summary.`,
+          tag: `task-reminder-${currentTask?.task_id || "active"}`,
+        }).catch(() => {});
+
+        // 4. Log notification in backend notifications table
+        if (currentTask?.task_id) {
+          fetch("/api/tasks/timer", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "notify_reminder",
+              task_id: currentTask.task_id,
+              elapsed_minutes: Math.round(currentElapsedSecs / 60),
+            }),
           }).catch(() => {});
-
-          // 3. Log notification in backend notifications table
-          if (currentTask?.task_id) {
-            fetch("/api/tasks/timer", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                action: "notify_reminder",
-                task_id: currentTask.task_id,
-                elapsed_minutes: Math.round(secsSinceLastCheckin / 60),
-              }),
-            }).catch(() => {});
-          }
-
-          // 4. Open the interactive Progress Check-In modal
-          setProgressReminderOpen(true);
         }
       }
     }, 1000);
@@ -278,9 +309,17 @@ export default function ActiveTimerBanner() {
 
   // Handle Snooze (5 Minutes)
   const handleSnooze = () => {
-    snoozeUntilSecsRef.current = currentSessionSecsState + 300; // 5 minutes snooze
+    snoozeUntilTimestampRef.current = Date.now() + 5 * 60 * 1000; // 5 minutes snooze
     setProgressReminderOpen(false);
-    setSnoozeNotice("Reminder snoozed for 5 minutes.");
+    setSnoozeNotice("Reminder snoozed for 5 minutes. Sound muted.");
+    setTimeout(() => setSnoozeNotice(null), 4000);
+  };
+
+  // Handle Temporary Dismiss (2 Minutes)
+  const handleDismiss = () => {
+    snoozeUntilTimestampRef.current = Date.now() + 2 * 60 * 1000; // 2 minutes snooze
+    setProgressReminderOpen(false);
+    setSnoozeNotice("Reminder muted for 2 minutes. Please submit progress update shortly!");
     setTimeout(() => setSnoozeNotice(null), 4000);
   };
 
@@ -305,11 +344,12 @@ export default function ActiveTimerBanner() {
 
       const data = await res.json();
       if (res.ok) {
-        // Reset 45-minute milestone tracking for this task session
-        lastCheckinSecsRef.current = currentSessionSecsState;
-        const storageKey = `unitglo_task_45m_checkin_${activeTimer.task_id}_${activeTimer.id}`;
-        localStorage.setItem(storageKey, String(currentSessionSecsState));
-        reminderFiredMilestoneRef.current = -1;
+        // Reset 45-minute milestone tracking for this task
+        const currentTotalElapsed = elapsedSeconds;
+        lastCheckinSecsRef.current = currentTotalElapsed;
+        const storageKey = `unitglo_task_45m_checkin_${activeTimer.task_id}`;
+        localStorage.setItem(storageKey, String(currentTotalElapsed));
+        snoozeUntilTimestampRef.current = 0;
 
         // Update local activeTimer representation
         setActiveTimer((prev) => prev ? {
@@ -319,6 +359,7 @@ export default function ActiveTimerBanner() {
           blockers: progressBlockers.trim(),
         } : null);
 
+        // Closes modal and automatically terminates repeating sound alarm
         setProgressReminderOpen(false);
         setCheckinSuccessToast(true);
         setTimeout(() => setCheckinSuccessToast(false), 4500);
@@ -333,6 +374,7 @@ export default function ActiveTimerBanner() {
       setSavingProgress(false);
     }
   };
+
 
   if (!activeTimer) return null;
 
@@ -375,12 +417,19 @@ export default function ActiveTimerBanner() {
             
             {/* Quick 45m check-in button even when minimized */}
             <button
-              onClick={() => setProgressReminderOpen(true)}
-              className="px-2 py-1 bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 rounded-md text-[10px] font-semibold flex items-center gap-1 transition"
+              onClick={() => {
+                setIsMinimized(false);
+                setProgressReminderOpen(true);
+              }}
+              className={`px-2 py-1 rounded-md text-[10px] font-semibold flex items-center gap-1 transition cursor-pointer ${
+                secsUntilNextCheckin === 0
+                  ? "bg-rose-500/30 hover:bg-rose-500/40 text-rose-200 border border-rose-500/50 animate-pulse"
+                  : "bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40"
+              }`}
               title="Update Progress (45m Check-in)"
             >
               <Bell className="h-3 w-3" />
-              {secsUntilNextCheckin === 0 ? "Due" : formatCountdown(secsUntilNextCheckin)}
+              {secsUntilNextCheckin === 0 ? "⏰ 45m Due!" : formatCountdown(secsUntilNextCheckin)}
             </button>
 
             <button
@@ -502,26 +551,53 @@ export default function ActiveTimerBanner() {
             {/* Modal Header */}
             <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2.5">
-                <div className="h-10 w-10 rounded-xl bg-sky-500/20 border border-sky-400/30 flex items-center justify-center text-sky-400 shrink-0">
-                  <Bell className="h-5 w-5 animate-bounce" />
+                <div className="h-10 w-10 rounded-xl bg-rose-500/20 border border-rose-400/30 flex items-center justify-center text-rose-400 shrink-0">
+                  <Volume2 className="h-5 w-5 animate-bounce" />
                 </div>
                 <div>
                   <h3 className="font-bold text-base text-white flex items-center gap-2">
                     45-Minute Progress Check-In
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 font-semibold border border-sky-500/40">
-                      Active Cadence
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 font-semibold border border-rose-500/40 animate-pulse">
+                      Alarm Ringing
                     </span>
                   </h3>
                   <p className="text-xs text-slate-400">
-                    Stay on track! Update your current percentage and accomplishments.
+                    Chiming every 10s until progress is updated and saved.
                   </p>
                 </div>
               </div>
               <button
-                onClick={() => setProgressReminderOpen(false)}
+                onClick={handleDismiss}
+                title="Mute for 2 minutes"
                 className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition"
               >
                 ✕
+              </button>
+            </div>
+
+            {/* Sound Alarm Active Banner */}
+            <div className="flex items-center justify-between p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-200">
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-2.5 w-2.5 shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
+                </span>
+                <div className="text-xs">
+                  <p className="font-bold text-rose-200 flex items-center gap-1.5">
+                    🔊 Sound Alarm Active
+                  </p>
+                  <p className="text-[11px] text-rose-300/80">
+                    Audio chime triggers continuously every 10 seconds until task progress is saved.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleSnooze}
+                className="px-2.5 py-1 text-[11px] font-semibold bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 border border-rose-500/40 rounded-lg transition shrink-0 ml-2"
+                title="Snooze sound for 5 minutes"
+              >
+                Mute 5m
               </button>
             </div>
 
@@ -620,7 +696,7 @@ export default function ActiveTimerBanner() {
                   type="button"
                   onClick={handleSnooze}
                   className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-amber-300 flex items-center gap-1.5 transition cursor-pointer"
-                  title="Postpone reminder by 5 minutes"
+                  title="Postpone reminder and mute alarm by 5 minutes"
                 >
                   <Clock className="h-3.5 w-3.5" />
                   Snooze (5 Mins)
@@ -629,10 +705,11 @@ export default function ActiveTimerBanner() {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setProgressReminderOpen(false)}
+                    onClick={handleDismiss}
                     className="px-3 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-slate-300 border border-slate-700 text-xs font-semibold transition cursor-pointer"
+                    title="Mute for 2 minutes"
                   >
-                    Dismiss
+                    Mute (2 Mins)
                   </button>
 
                   <button
@@ -645,7 +722,7 @@ export default function ActiveTimerBanner() {
                     ) : (
                       <>
                         <Check className="h-4 w-4" />
-                        Save Progress & Continue
+                        Save Progress & Stop Alarm
                       </>
                     )}
                   </button>
