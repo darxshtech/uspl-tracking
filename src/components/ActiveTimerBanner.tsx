@@ -59,6 +59,8 @@ export default function ActiveTimerBanner() {
   const [checkinSuccessToast, setCheckinSuccessToast] = useState(false);
   const [secsUntilNextCheckin, setSecsUntilNextCheckin] = useState<number>(2700); // 45 mins default
 
+  const [hasSnoozedCurrentCycle, setHasSnoozedCurrentCycle] = useState(false);
+  const hasSnoozedRef = useRef<boolean>(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const lastCheckinSecsRef = useRef<number>(0);
   const snoozeUntilTimestampRef = useRef<number>(0);
@@ -97,6 +99,12 @@ export default function ActiveTimerBanner() {
       } else {
         lastCheckinSecsRef.current = 0;
       }
+
+      // Check if one-time snooze was already used in this 45-minute cycle
+      const snoozeStorageKey = `unitglo_task_45m_snoozed_${activeTimer.task_id}`;
+      const savedSnoozed = localStorage.getItem(snoozeStorageKey) === "true";
+      hasSnoozedRef.current = savedSnoozed;
+      setHasSnoozedCurrentCycle(savedSnoozed);
     }
   }, [activeTimer]);
 
@@ -307,20 +315,18 @@ export default function ActiveTimerBanner() {
     }
   };
 
-  // Handle Snooze (5 Minutes)
+  // Handle Snooze (5 Minutes - Strictly Once per 45-Minute Cadence)
   const handleSnooze = () => {
+    if (hasSnoozedRef.current) return; // Only allowed once per cycle!
+    hasSnoozedRef.current = true;
+    setHasSnoozedCurrentCycle(true);
+    if (activeTimer) {
+      localStorage.setItem(`unitglo_task_45m_snoozed_${activeTimer.task_id}`, "true");
+    }
     snoozeUntilTimestampRef.current = Date.now() + 5 * 60 * 1000; // 5 minutes snooze
     setProgressReminderOpen(false);
-    setSnoozeNotice("Reminder snoozed for 5 minutes. Sound muted.");
-    setTimeout(() => setSnoozeNotice(null), 4000);
-  };
-
-  // Handle Temporary Dismiss (2 Minutes)
-  const handleDismiss = () => {
-    snoozeUntilTimestampRef.current = Date.now() + 2 * 60 * 1000; // 2 minutes snooze
-    setProgressReminderOpen(false);
-    setSnoozeNotice("Reminder muted for 2 minutes. Please submit progress update shortly!");
-    setTimeout(() => setSnoozeNotice(null), 4000);
+    setSnoozeNotice("Reminder snoozed for 5 minutes (One-time snooze used). Progress update required on re-alert!");
+    setTimeout(() => setSnoozeNotice(null), 5000);
   };
 
   // Handle 45-Minute Progress Check-In Save
@@ -350,6 +356,11 @@ export default function ActiveTimerBanner() {
         const storageKey = `unitglo_task_45m_checkin_${activeTimer.task_id}`;
         localStorage.setItem(storageKey, String(currentTotalElapsed));
         snoozeUntilTimestampRef.current = 0;
+
+        // Reset one-time snooze state for the next 45-minute cycle
+        hasSnoozedRef.current = false;
+        setHasSnoozedCurrentCycle(false);
+        localStorage.removeItem(`unitglo_task_45m_snoozed_${activeTimer.task_id}`);
 
         // Update local activeTimer representation
         setActiveTimer((prev) => prev ? {
@@ -548,7 +559,7 @@ export default function ActiveTimerBanner() {
       {progressReminderOpen && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="w-full max-w-lg bg-slate-900 border border-sky-500/40 rounded-2xl shadow-2xl p-5 sm:p-6 text-white space-y-4">
-            {/* Modal Header */}
+            {/* Modal Header (No dismiss/close button - must take action) */}
             <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2.5">
                 <div className="h-10 w-10 rounded-xl bg-rose-500/20 border border-rose-400/30 flex items-center justify-center text-rose-400 shrink-0">
@@ -562,17 +573,10 @@ export default function ActiveTimerBanner() {
                     </span>
                   </h3>
                   <p className="text-xs text-slate-400">
-                    Chiming every 10s until progress is updated and saved.
+                    Chiming continuously until progress is updated and saved.
                   </p>
                 </div>
               </div>
-              <button
-                onClick={handleDismiss}
-                title="Mute for 2 minutes"
-                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition"
-              >
-                ✕
-              </button>
             </div>
 
             {/* Sound Alarm Active Banner */}
@@ -587,18 +591,10 @@ export default function ActiveTimerBanner() {
                     🔊 Sound Alarm Active
                   </p>
                   <p className="text-[11px] text-rose-300/80">
-                    Audio chime triggers continuously every 10 seconds until task progress is saved.
+                    Audio chime sounds continuously every 10 seconds until task progress is saved.
                   </p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={handleSnooze}
-                className="px-2.5 py-1 text-[11px] font-semibold bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 border border-rose-500/40 rounded-lg transition shrink-0 ml-2"
-                title="Snooze sound for 5 minutes"
-              >
-                Mute 5m
-              </button>
             </div>
 
             {/* Task Info Pill */}
@@ -690,32 +686,31 @@ export default function ActiveTimerBanner() {
                 />
               </div>
 
-              {/* Actions: Snooze 5 Min, Cancel, and Save Progress */}
+              {/* Actions: Snooze 5 Min (Strictly Once) and Save Progress */}
               <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={handleSnooze}
-                  className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-amber-300 flex items-center gap-1.5 transition cursor-pointer"
-                  title="Postpone reminder and mute alarm by 5 minutes"
-                >
-                  <Clock className="h-3.5 w-3.5" />
-                  Snooze (5 Mins)
-                </button>
+                <div>
+                  {!hasSnoozedCurrentCycle ? (
+                    <button
+                      type="button"
+                      onClick={handleSnooze}
+                      className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-amber-300 flex items-center gap-1.5 transition cursor-pointer"
+                      title="Snooze reminder for 5 minutes (One-time use only)"
+                    >
+                      <Clock className="h-3.5 w-3.5" />
+                      Snooze (5 Mins - Once Only)
+                    </button>
+                  ) : (
+                    <div className="text-[11px] text-amber-300/90 font-medium flex items-center gap-1.5 bg-amber-500/10 px-3 py-2 rounded-xl border border-amber-500/25">
+                      <span>⚠️ 5-Min Snooze already used. You must submit progress!</span>
+                    </div>
+                  )}
+                </div>
 
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleDismiss}
-                    className="px-3 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-slate-300 border border-slate-700 text-xs font-semibold transition cursor-pointer"
-                    title="Mute for 2 minutes"
-                  >
-                    Mute (2 Mins)
-                  </button>
-
+                <div className="flex items-center gap-2 ml-auto">
                   <button
                     type="submit"
                     disabled={savingProgress}
-                    className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-lg shadow-sky-600/30 transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                    className="px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-lg shadow-sky-600/30 transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
                   >
                     {savingProgress ? (
                       <>Saving...</>
