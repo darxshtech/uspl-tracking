@@ -2,7 +2,34 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import pool from "@/lib/db";
-import { formatHoursAndMinutes } from "@/lib/timeUtils";
+import { formatHoursAndMinutes, getCurrentISTDate } from "@/lib/timeUtils";
+
+function parseISTTimeToDate(timeStr: string, dateStr: string): Date | null {
+  if (!timeStr || !dateStr) return null;
+  const is12Hour = /am|pm/i.test(timeStr);
+  let hours = 0;
+  let minutes = 0;
+  let seconds = 0;
+  if (is12Hour) {
+    const parts = timeStr.trim().split(/[:\s]/);
+    hours = parseInt(parts[0], 10) || 0;
+    minutes = parseInt(parts[1], 10) || 0;
+    seconds = parseInt(parts[2], 10) || 0;
+    const meridian = (parts[parts.length - 1] || "").toUpperCase();
+    if (meridian === "PM" && hours < 12) hours += 12;
+    if (meridian === "AM" && hours === 12) hours = 0;
+  } else {
+    const [h, m, s] = timeStr.split(":").map(Number);
+    hours = h || 0;
+    minutes = m || 0;
+    seconds = s || 0;
+  }
+
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  const isoStr = `${dateStr}T${pad(hours)}:${pad(minutes)}:${pad(seconds)}+05:30`;
+  const d = new Date(isoStr);
+  return isNaN(d.getTime()) ? null : d;
+}
 
 function formatToMySQLDateTime(d: Date): string {
   const pad = (n: number) => n.toString().padStart(2, "0");
@@ -52,6 +79,7 @@ export async function GET(req: Request) {
         return NextResponse.json({ error: "Unauthorized: Management access required" }, { status: 403 });
       }
 
+      const todayIST = getCurrentISTDate();
       const [rows]: any = await pool.query(
         `SELECT ttl.*, 
                 u.id as user_id, u.name as user_name, u.email as user_email, u.role as user_role,
@@ -62,14 +90,52 @@ export async function GET(req: Request) {
                   SELECT IFNULL(SUM(duration_minutes), 0) * 60 
                   FROM task_time_logs 
                   WHERE task_id = ttl.task_id AND user_id = ttl.user_id AND is_active = 0
-                ) as previous_duration_seconds
+                ) as previous_duration_seconds,
+                DATE_FORMAT(att.date, '%Y-%m-%d') as attendance_date,
+                att.login_time as todays_intime,
+                att.logout_time as todays_outtime,
+                att.total_hours as todays_attendance_hours,
+                att.status as attendance_status
          FROM task_time_logs ttl
          JOIN users u ON ttl.user_id = u.id
          JOIN tasks t ON ttl.task_id = t.id
          LEFT JOIN projects p ON t.project_id = p.id
+         LEFT JOIN attendance att ON att.id = (
+           SELECT a2.id FROM attendance a2 
+           WHERE a2.user_id = ttl.user_id 
+             AND a2.login_time IS NOT NULL 
+             AND (a2.date = ? OR (a2.date = DATE_SUB(?, INTERVAL 1 DAY) AND a2.logout_time IS NULL))
+           ORDER BY a2.date DESC, a2.id DESC 
+           LIMIT 1
+         )
          WHERE ttl.is_active = 1
-         ORDER BY ttl.started_at DESC`
+         ORDER BY ttl.started_at DESC`,
+        [todayIST, todayIST]
       );
+
+      const nowMs = Date.now();
+      const enrichedRows = rows.map((r: any) => {
+        let officeElapsedSeconds = 0;
+        if (r.todays_intime && r.attendance_date) {
+          const loginDate = parseISTTimeToDate(r.todays_intime, r.attendance_date);
+          if (loginDate) {
+            if (r.todays_outtime) {
+              const logoutDate = parseISTTimeToDate(r.todays_outtime, r.attendance_date);
+              if (logoutDate) {
+                officeElapsedSeconds = Math.max(0, Math.floor((logoutDate.getTime() - loginDate.getTime()) / 1000));
+              } else if (Number(r.todays_attendance_hours) > 0) {
+                officeElapsedSeconds = Math.floor(Number(r.todays_attendance_hours) * 3600);
+              }
+            } else {
+              officeElapsedSeconds = Math.max(0, Math.floor((nowMs - loginDate.getTime()) / 1000));
+            }
+          }
+        }
+        return {
+          ...r,
+          office_elapsed_seconds: officeElapsedSeconds
+        };
+      });
 
       // Also get total active count & total hours today
       const todayStr = new Date().toISOString().split("T")[0];
@@ -83,9 +149,9 @@ export async function GET(req: Request) {
 
       return NextResponse.json({ 
         success: true, 
-        active_timers: rows,
+        active_timers: enrichedRows,
         stats: {
-          active_now: rows.length,
+          active_now: enrichedRows.length,
           active_users_today: todayStats[0]?.active_users_count || 0,
           total_hours_today: (parseFloat(todayStats[0]?.total_minutes_today || 0) / 60).toFixed(1)
         }

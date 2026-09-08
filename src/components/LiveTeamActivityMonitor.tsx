@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback, useRef } from "react";
-import { Play, Clock, RefreshCw, Users, Briefcase, Activity, CheckCircle2, ArrowDown } from "lucide-react";
+import { Play, Clock, RefreshCw, Users, Briefcase, Activity, CheckCircle2, ArrowDown, LogIn, Building2, Calendar } from "lucide-react";
 import Link from "next/link";
 import EmployeeProductivityTag from "@/components/EmployeeProductivityTag";
 
@@ -20,6 +20,11 @@ interface ActiveTeamTimer {
   started_at: string;
   previous_duration_seconds?: number;
   current_session_seconds?: number;
+  todays_intime?: string | null;
+  todays_outtime?: string | null;
+  attendance_status?: string | null;
+  office_elapsed_seconds?: number;
+  total_office_hours?: number | string | null;
 }
 
 interface TeamTimerStats {
@@ -121,6 +126,38 @@ export default function LiveTeamActivityMonitor({
     return `${mins}m ${secs.toString().padStart(2, "0")}s`;
   };
 
+  const formatInTime = (timeStr?: string | null) => {
+    if (!timeStr) return "Not Punched In";
+    return timeStr.replace(/(:\d{2})(:\d{2})\s*(AM|PM)/i, "$1 $3").trim();
+  };
+
+  const calculateOfficeDuration = (timer: ActiveTeamTimer) => {
+    if (!timer.todays_intime) return "--";
+
+    if (timer.todays_outtime && Number(timer.total_office_hours) > 0) {
+      const totalMins = Math.round(Number(timer.total_office_hours) * 60);
+      const hrs = Math.floor(totalMins / 60);
+      const mins = totalMins % 60;
+      return `${hrs}h ${mins.toString().padStart(2, "0")}m (Out)`;
+    }
+
+    const baseOfficeSecs = Number(timer.office_elapsed_seconds) || 0;
+    const elapsedSinceFetch = Math.max(0, Math.floor((currentTimeMs - lastRefreshed.getTime()) / 1000));
+    const totalOfficeSecs = baseOfficeSecs + elapsedSinceFetch;
+    const hrs = Math.floor(totalOfficeSecs / 3600);
+    const mins = Math.floor((totalOfficeSecs % 3600) / 60);
+    return `${hrs}h ${mins.toString().padStart(2, "0")}m`;
+  };
+
+  const formatTaskStartTime = (dateStr: string) => {
+    if (!dateStr) return "--";
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return "--";
+    const dateFormatted = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const timeFormatted = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true });
+    return `${dateFormatted}, ${timeFormatted}`;
+  };
+
   return (
     <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs transition-all hover:shadow-md space-y-4">
       {/* Header */}
@@ -196,24 +233,25 @@ export default function LiveTeamActivityMonitor({
           <p className="text-[11px] text-slate-400 mt-0.5">When developers or PMs start task timers, their progress will appear here live.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 pt-1">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5 pt-1">
           {activeTimers.map((timer) => {
             const isSelected = selectedTaskId === timer.task_id;
             return (
               <div
                 key={timer.id}
                 onClick={() => onSelectTask?.(timer.task_id, timer.user_name)}
-                className={`p-3.5 rounded-xl border bg-white transition-all shadow-2xs space-y-2.5 flex flex-col justify-between cursor-pointer group ${
+                className={`p-4 rounded-xl border bg-white transition-all shadow-2xs space-y-3 flex flex-col justify-between cursor-pointer group ${
                   isSelected
                     ? "border-emerald-500 ring-2 ring-emerald-400 bg-emerald-50/40 shadow-md scale-[1.01]"
                     : "border-slate-200 hover:border-emerald-400 hover:shadow-md hover:-translate-y-0.5"
                 }`}
                 title={`Click to jump to and highlight ongoing task #${timer.task_id} (${timer.task_title})`}
               >
-                <div className="space-y-1.5">
+                <div className="space-y-2.5">
+                  {/* Member & Role Header */}
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
-                      <div className="h-7 w-7 rounded-full bg-indigo-100 text-indigo-800 font-bold text-xs flex items-center justify-center shrink-0">
+                      <div className="h-8 w-8 rounded-full bg-indigo-100 text-indigo-800 font-bold text-xs flex items-center justify-center shrink-0">
                         {timer.user_name ? timer.user_name.charAt(0).toUpperCase() : "U"}
                       </div>
                       <div className="min-w-0">
@@ -240,33 +278,71 @@ export default function LiveTeamActivityMonitor({
                     )}
                   </div>
 
-                  <div className="bg-slate-50 group-hover:bg-emerald-50/50 p-2 rounded-lg border border-slate-100 group-hover:border-emerald-200 transition-colors text-xs">
+                  {/* Attendance & Office Hours Info Strip */}
+                  <div className="grid grid-cols-2 gap-2 p-2 rounded-lg bg-slate-50 border border-slate-100/90 text-xs">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <LogIn className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                      <div className="min-w-0">
+                        <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">In-Time</div>
+                        <div className="font-bold text-slate-800 truncate" title={timer.todays_intime || "Not Punched In"}>
+                          {formatInTime(timer.todays_intime)}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <Building2 className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
+                      <div className="min-w-0">
+                        <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">In Office</div>
+                        <div className="font-bold text-indigo-700 truncate" title="Office duration today">
+                          {calculateOfficeDuration(timer)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Task Scope & Project */}
+                  <div className="bg-slate-50 group-hover:bg-emerald-50/50 p-2.5 rounded-lg border border-slate-100 group-hover:border-emerald-200 transition-colors text-xs space-y-1">
                     <div className="font-semibold text-slate-800 line-clamp-1 group-hover:text-emerald-950" title={timer.task_title}>
                       {timer.task_title}
                     </div>
                     {timer.project_name && (
-                      <div className="text-[10px] text-slate-500 line-clamp-1 mt-0.5">
+                      <div className="text-[10px] text-slate-500 line-clamp-1">
                         📁 {timer.project_name}
                       </div>
                     )}
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-xs">
-                  <div className="flex items-center gap-1.5">
-                    <Clock className="h-3.5 w-3.5 text-emerald-600 animate-pulse" />
-                    <span className="font-mono font-bold text-emerald-700">
-                      {calculateDuration(timer)}
-                    </span>
-                  </div>
+                {/* Footer: Live Task Stopwatch & Start Date-Time & Jump */}
+                <div className="space-y-2 pt-2 border-t border-slate-100">
+                  <div className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-1.5" title={Number(timer.previous_duration_seconds) > 0 ? "Task duration (Includes prior sessions on this task)" : "Task duration"}>
+                      <Clock className="h-3.5 w-3.5 text-emerald-600 animate-pulse shrink-0" />
+                      <span className="font-mono font-bold text-emerald-700">
+                        {calculateDuration(timer)}
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-medium">task time</span>
+                    </div>
 
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-slate-400">
-                      Since {new Date(timer.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 group-hover:bg-emerald-600 group-hover:text-white border border-emerald-200 group-hover:border-emerald-600 px-2 py-0.5 rounded-md transition-all flex items-center gap-0.5">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelectTask?.(timer.task_id, timer.user_name);
+                      }}
+                      className="text-[10px] font-bold text-emerald-700 bg-emerald-50 group-hover:bg-emerald-600 group-hover:text-white border border-emerald-200 group-hover:border-emerald-600 px-2.5 py-0.5 rounded-md transition-all flex items-center gap-0.5 shrink-0 cursor-pointer shadow-2xs"
+                    >
                       <span>Jump</span>
                       <ArrowDown className="h-2.5 w-2.5" />
+                    </button>
+                  </div>
+
+                  {/* Task Start Date and Time */}
+                  <div className="flex items-center gap-1.5 text-[10px] text-slate-500 bg-slate-50 px-2 py-1 rounded border border-slate-100">
+                    <Calendar className="h-3 w-3 text-emerald-600 shrink-0" />
+                    <span className="text-slate-400">Task Started:</span>
+                    <span className="font-bold text-slate-700 truncate">
+                      {formatTaskStartTime(timer.started_at)}
                     </span>
                   </div>
                 </div>
