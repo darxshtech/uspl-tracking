@@ -136,7 +136,20 @@ export async function GET(req: Request) {
                 att.login_time as todays_intime,
                 att.logout_time as todays_outtime,
                 att.total_hours as todays_attendance_hours,
-                att.status as attendance_status
+                att.status as attendance_status,
+                (
+                  SELECT COUNT(*) FROM attendance_breaks ab 
+                  WHERE ab.attendance_id = att.id AND ab.break_end IS NULL
+                ) > 0 as is_on_break,
+                (
+                  SELECT ab.break_start FROM attendance_breaks ab 
+                  WHERE ab.attendance_id = att.id AND ab.break_end IS NULL 
+                  ORDER BY ab.break_start DESC LIMIT 1
+                ) as active_break_start,
+                (
+                  SELECT IFNULL(SUM(ab.duration_minutes), 0) FROM attendance_breaks ab 
+                  WHERE ab.attendance_id = att.id AND ab.break_end IS NOT NULL
+                ) as today_break_minutes
          FROM task_time_logs ttl
          INNER JOIN (
            SELECT user_id, MAX(id) as max_id 

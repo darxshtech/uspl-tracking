@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback, useRef } from "react";
-import { Play, Clock, RefreshCw, Users, Briefcase, Activity, CheckCircle2, ArrowDown, LogIn, Building2, Calendar, AlertTriangle, MessageSquare } from "lucide-react";
+import { Coffee, Clock, RefreshCw, Users, Briefcase, Activity, CheckCircle2, ArrowDown, LogIn, Building2, Calendar, AlertTriangle, MessageSquare } from "lucide-react";
 import Link from "next/link";
 import EmployeeProductivityTag from "@/components/EmployeeProductivityTag";
 
@@ -33,6 +33,9 @@ interface ActiveTeamTimer {
   attendance_status?: string | null;
   office_elapsed_seconds?: number;
   total_office_hours?: number | string | null;
+  is_on_break?: boolean;
+  active_break_start?: string | null;
+  today_break_minutes?: number;
 }
 
 interface TeamTimerStats {
@@ -349,6 +352,29 @@ export default function LiveTeamActivityMonitor({
                       </div>
                     </div>
                   </div>
+
+                  {/* Break Status Strip */}
+                  {(timer.is_on_break || (timer.today_break_minutes && timer.today_break_minutes > 0)) && (
+                    <div className={`flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg border text-xs ${
+                      timer.is_on_break
+                        ? "bg-amber-50 border-amber-300"
+                        : "bg-slate-50 border-slate-200"
+                    }`}>
+                      <div className="flex items-center gap-1.5">
+                        <Coffee className={`h-3.5 w-3.5 shrink-0 ${timer.is_on_break ? "text-amber-600 animate-pulse" : "text-slate-400"}`} />
+                        <span className={`font-bold text-[11px] ${timer.is_on_break ? "text-amber-900" : "text-slate-600"}`}>
+                          {timer.is_on_break ? "On Break Now" : "Break Today"}
+                        </span>
+                      </div>
+                      <span className={`font-mono font-bold text-[11px] ${
+                        timer.is_on_break ? "text-amber-700" : "text-slate-500"
+                      }`}>
+                        {(timer.today_break_minutes || 0) >= 60
+                          ? `${Math.floor((timer.today_break_minutes || 0) / 60)}h ${((timer.today_break_minutes || 0) % 60).toString().padStart(2, "0")}m`
+                          : `${timer.today_break_minutes || 0}m`}
+                      </span>
+                    </div>
+                  )}
 
                   {/* Task Scope & Project */}
                   <div className="bg-slate-50 group-hover:bg-emerald-50/50 p-2.5 rounded-lg border border-slate-100 group-hover:border-emerald-200 transition-colors text-xs space-y-1">

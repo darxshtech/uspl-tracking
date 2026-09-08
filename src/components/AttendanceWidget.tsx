@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -17,7 +17,9 @@ import {
   Calendar, 
   Moon, 
   Info,
-  Sparkles
+  Sparkles,
+  Coffee,
+  Play
 } from "lucide-react";
 
 export default function AttendanceWidget() {
@@ -40,11 +42,17 @@ export default function AttendanceWidget() {
   const [manualCheckInTime, setManualCheckInTime] = useState("");
   const [checkinError, setCheckinError] = useState<string | null>(null);
 
-  // Check Out Modal State
   const [checkOutModalOpen, setCheckOutModalOpen] = useState(false);
   const [manualCheckOutTime, setManualCheckOutTime] = useState("");
   const [isOvernight, setIsOvernight] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
+
+  // Break State
+  const [isOnBreak, setIsOnBreak] = useState(false);
+  const [breakStart, setBreakStart] = useState<Date | null>(null);
+  const [breakElapsedSecs, setBreakElapsedSecs] = useState(0);
+  const [todayBreakMinutes, setTodayBreakMinutes] = useState(0);
+  const breakIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const getShiftKey = () => `unitglo_shift_state_${userId || "default"}`;
   const getQueueKey = () => `unitglo_offline_queue_${userId || "default"}`;
@@ -137,6 +145,18 @@ export default function AttendanceWidget() {
             localStorage.removeItem(getShiftKey());
           }
         }
+
+        // Break state sync
+        if (data.isOnBreak) {
+          setIsOnBreak(true);
+          setBreakStart(data.breakStartTime ? new Date(data.breakStartTime) : new Date());
+        } else {
+          setIsOnBreak(false);
+          setBreakStart(null);
+        }
+        if (typeof data.todayBreakMinutes === "number") {
+          setTodayBreakMinutes(data.todayBreakMinutes);
+        }
       }
 
       syncOfflineQueue();
@@ -176,6 +196,32 @@ export default function AttendanceWidget() {
       window.removeEventListener("offline", handleOffline);
     };
   }, [role, userId, syncOfflineQueue]);
+
+  // Live break timer ticker
+  useEffect(() => {
+    if (isOnBreak && breakStart) {
+      breakIntervalRef.current = setInterval(() => {
+        setBreakElapsedSecs(Math.floor((Date.now() - breakStart.getTime()) / 1000));
+      }, 1000);
+    } else {
+      setBreakElapsedSecs(0);
+      if (breakIntervalRef.current) clearInterval(breakIntervalRef.current);
+    }
+    return () => {
+      if (breakIntervalRef.current) clearInterval(breakIntervalRef.current);
+    };
+  }, [isOnBreak, breakStart]);
+
+  const formatBreakDuration = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    if (m >= 60) {
+      const h = Math.floor(m / 60);
+      const rm = m % 60;
+      return `${h}h ${rm.toString().padStart(2, "0")}m`;
+    }
+    return `${m}m ${s.toString().padStart(2, "0")}s`;
+  };
 
   const openCheckInDialog = () => {
     if (todayHoliday && !isManagement) {
@@ -349,6 +395,54 @@ export default function AttendanceWidget() {
   if (role === "CEO" || role === "Admin") {
     return null;
   }
+
+  const handleBreakStart = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/attendance/active", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "break-start" }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setWarningModal(data.error || "Could not start break.");
+        return;
+      }
+      const now = new Date();
+      setIsOnBreak(true);
+      setBreakStart(now);
+    } catch {
+      setWarningModal("Failed to start break. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBreakEnd = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/attendance/active", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "break-end" }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setWarningModal(data.error || "Could not end break.");
+        return;
+      }
+      setIsOnBreak(false);
+      setBreakStart(null);
+      if (data.break_duration_minutes) {
+        setTodayBreakMinutes(prev => prev + data.break_duration_minutes);
+      }
+    } catch {
+      setWarningModal("Failed to end break. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const isCheckedIn = record && record.login_time && !record.logout_time;
   const isCheckedOut = record && record.logout_time;
@@ -603,7 +697,7 @@ export default function AttendanceWidget() {
       )}
 
       {/* Check Out Button */}
-      {isCheckedIn && (
+      {isCheckedIn && !isOnBreak && (
         <Button
           size="sm"
           onClick={openCheckOutDialog}
@@ -612,6 +706,41 @@ export default function AttendanceWidget() {
         >
           <LogOut className="h-3.5 w-3.5" /> <span className="hidden xs:inline">Check </span>Out
         </Button>
+      )}
+
+      {/* Break Time Button */}
+      {isCheckedIn && !isOnBreak && (
+        <Button
+          size="sm"
+          onClick={handleBreakStart}
+          disabled={loading}
+          className="bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs gap-1 sm:gap-1.5 shadow-sm px-2.5 sm:px-3"
+          title="Start a break — working time will be paused"
+        >
+          <Coffee className="h-3.5 w-3.5" /> <span className="hidden xs:inline">Break </span>Time
+        </Button>
+      )}
+
+      {/* ON BREAK — live timer badge + Break Over button */}
+      {isCheckedIn && isOnBreak && (
+        <>
+          <Badge
+            className="font-bold text-[11px] sm:text-xs py-1 px-2 sm:px-2.5 shadow-2xs gap-1 sm:gap-1.5 bg-amber-50 text-amber-900 border-amber-400 animate-pulse"
+            title={`Break started at ${breakStart?.toLocaleTimeString()}`}
+          >
+            <Coffee className="h-3.5 w-3.5 text-amber-600" />
+            <span>On Break ({formatBreakDuration(breakElapsedSecs)})</span>
+          </Badge>
+          <Button
+            size="sm"
+            onClick={handleBreakEnd}
+            disabled={loading}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-1 sm:gap-1.5 shadow-sm px-2.5 sm:px-3"
+            title="End break and resume working time"
+          >
+            <Play className="h-3.5 w-3.5" /> Break Over
+          </Button>
+        </>
       )}
 
       {/* Shift Completed Indicator */}

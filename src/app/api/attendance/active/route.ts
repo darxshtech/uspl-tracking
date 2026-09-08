@@ -11,6 +11,23 @@ import {
 } from "@/lib/timeUtils";
 import { getFullDayHours } from "@/lib/settings";
 
+// Ensure attendance_breaks table exists (idempotent)
+async function ensureBreaksTable() {
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS attendance_breaks (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      attendance_id INT NOT NULL,
+      user_id INT NOT NULL,
+      break_start DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      break_end DATETIME NULL,
+      duration_minutes INT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_ab_user (user_id),
+      INDEX idx_ab_attendance (attendance_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
+  );
+}
+
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
@@ -32,6 +49,7 @@ export async function GET() {
     }
 
     const todayIST = getCurrentISTDate();
+    await ensureBreaksTable();
 
     // Check if today is a scheduled company holiday
     const [holidayRows]: any = await pool.query(
@@ -73,9 +91,30 @@ export async function GET() {
       [userId]
     );
 
+    // Helper: get break info for an attendance record
+    const getBreakInfo = async (attendanceId: number) => {
+      // Active break (no break_end)
+      const [activeBreak]: any = await pool.query(
+        `SELECT * FROM attendance_breaks WHERE attendance_id = ? AND break_end IS NULL ORDER BY break_start DESC LIMIT 1`,
+        [attendanceId]
+      );
+      // Total break minutes today (completed breaks)
+      const [totalBreak]: any = await pool.query(
+        `SELECT IFNULL(SUM(duration_minutes), 0) as total_break_minutes FROM attendance_breaks WHERE attendance_id = ? AND break_end IS NOT NULL`,
+        [attendanceId]
+      );
+      return {
+        isOnBreak: activeBreak.length > 0,
+        breakStartTime: activeBreak[0]?.break_start || null,
+        activeBreakId: activeBreak[0]?.id || null,
+        todayBreakMinutes: parseInt(totalBreak[0]?.total_break_minutes || 0),
+      };
+    };
+
     if (openRows.length > 0) {
       const activeShift = openRows[0];
       const isShiftFromPreviousDay = activeShift.date < todayIST;
+      const breakInfo = await getBreakInfo(activeShift.id);
 
       return NextResponse.json({
         isCeo: false,
@@ -88,6 +127,7 @@ export async function GET() {
         yesterdayHalfDay,
         currentDate: todayIST,
         currentTime: getCurrentISTTime12(),
+        ...breakInfo,
       });
     }
 
@@ -100,6 +140,16 @@ export async function GET() {
     );
 
     const todayRecord = todayRows[0] || null;
+    let breakInfo = { isOnBreak: false, breakStartTime: null, activeBreakId: null, todayBreakMinutes: 0 };
+    if (todayRecord?.id) {
+      breakInfo = await (async () => {
+        const [tb]: any = await pool.query(
+          `SELECT IFNULL(SUM(duration_minutes), 0) as total_break_minutes FROM attendance_breaks WHERE attendance_id = ? AND break_end IS NOT NULL`,
+          [todayRecord.id]
+        );
+        return { isOnBreak: false, breakStartTime: null, activeBreakId: null, todayBreakMinutes: parseInt(tb[0]?.total_break_minutes || 0) };
+      })();
+    }
 
     return NextResponse.json({
       isCeo: false,
@@ -109,6 +159,7 @@ export async function GET() {
       yesterdayHalfDay,
       currentDate: todayIST,
       currentTime: getCurrentISTTime12(),
+      ...breakInfo,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -137,6 +188,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { action, targetDate, offline_time, manual_time, is_overnight } = body;
     const todayIST = getCurrentISTDate();
+    await ensureBreaksTable();
     const currentISTTime = getCurrentISTTime12();
     const nowTime12 = manual_time || offline_time || currentISTTime;
 
@@ -397,6 +449,79 @@ export async function POST(req: Request) {
         login_time: activeShift.login_time,
         logout_time: nowTime12,
         message: `Checked OUT successfully at ${nowTime12}. Total: ${formatHoursAndMinutes(totalHours)} (${status}).`,
+      });
+    }
+
+    // BREAK-START ACTION
+    if (action === "break-start") {
+      // Must be checked in
+      const [openRows]: any = await pool.query(
+        `SELECT id FROM attendance 
+         WHERE user_id = ? AND login_time IS NOT NULL AND logout_time IS NULL 
+           AND (status IS NULL OR (status NOT LIKE '%Leave%' AND status != 'Holiday'))
+         ORDER BY date DESC, id DESC LIMIT 1`,
+        [userId]
+      );
+      if (!openRows[0]) {
+        return NextResponse.json({ error: "No active shift found. Please check in first." }, { status: 400 });
+      }
+      const attendanceId = openRows[0].id;
+
+      // End any stale open break before starting a new one (safety)
+      await pool.query(
+        `UPDATE attendance_breaks 
+         SET break_end = CURRENT_TIMESTAMP, 
+             duration_minutes = GREATEST(1, TIMESTAMPDIFF(MINUTE, break_start, CURRENT_TIMESTAMP))
+         WHERE attendance_id = ? AND break_end IS NULL`,
+        [attendanceId]
+      );
+
+      await pool.query(
+        `INSERT INTO attendance_breaks (attendance_id, user_id, break_start) VALUES (?, ?, CURRENT_TIMESTAMP)`,
+        [attendanceId, userId]
+      );
+
+      return NextResponse.json({ success: true, message: "Break started. Enjoy your break!" });
+    }
+
+    // BREAK-END ACTION
+    if (action === "break-end") {
+      const [openRows]: any = await pool.query(
+        `SELECT id FROM attendance 
+         WHERE user_id = ? AND login_time IS NOT NULL AND logout_time IS NULL 
+           AND (status IS NULL OR (status NOT LIKE '%Leave%' AND status != 'Holiday'))
+         ORDER BY date DESC, id DESC LIMIT 1`,
+        [userId]
+      );
+      if (!openRows[0]) {
+        return NextResponse.json({ error: "No active shift found." }, { status: 400 });
+      }
+      const attendanceId = openRows[0].id;
+
+      const [activeBreak]: any = await pool.query(
+        `SELECT id, break_start FROM attendance_breaks WHERE attendance_id = ? AND break_end IS NULL ORDER BY break_start DESC LIMIT 1`,
+        [attendanceId]
+      );
+
+      if (!activeBreak[0]) {
+        return NextResponse.json({ error: "No active break found." }, { status: 400 });
+      }
+
+      const durationMins = Math.max(1, Math.round(
+        (Date.now() - new Date(activeBreak[0].break_start).getTime()) / 60000
+      ));
+
+      await pool.query(
+        `UPDATE attendance_breaks 
+         SET break_end = CURRENT_TIMESTAMP, duration_minutes = ? 
+         WHERE id = ?`,
+        [durationMins, activeBreak[0].id]
+      );
+
+      return NextResponse.json({
+        success: true,
+        break_duration_minutes: durationMins,
+        message: `Break ended. Duration: ${durationMins} minute${durationMins !== 1 ? "s" : ""}. Welcome back!`,
       });
     }
 
