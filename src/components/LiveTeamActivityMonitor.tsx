@@ -66,8 +66,20 @@ export default function LiveTeamActivityMonitor({
       if (timerRes.ok) {
         const data = await timerRes.json();
         if (data.success) {
-          setActiveTimers(data.active_timers || []);
-          if (data.stats) setStats(data.stats);
+          // Deduplicate by user_id as a client-side safeguard
+          const seenUsers = new Set<number>();
+          const uniqueTimers = (data.active_timers || []).filter((t: ActiveTeamTimer) => {
+            if (seenUsers.has(t.user_id)) return false;
+            seenUsers.add(t.user_id);
+            return true;
+          });
+          setActiveTimers(uniqueTimers);
+          if (data.stats) {
+            setStats({
+              ...data.stats,
+              active_now: uniqueTimers.length,
+            });
+          }
           setLastRefreshed(new Date());
         }
       }

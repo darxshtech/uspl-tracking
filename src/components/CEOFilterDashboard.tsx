@@ -36,7 +36,10 @@ import {
   CheckSquare,
   Hourglass,
   Layers,
-  Target
+  Target,
+  RotateCcw,
+  Repeat,
+  Copy
 } from "lucide-react";
 import { showToast, showError, showSuccess, showWarning } from "@/lib/swal";
 import { formatHoursAndMinutes } from "@/lib/timeUtils";
@@ -138,11 +141,11 @@ export default function CEOFilterDashboard() {
   const [selectedProject, setSelectedProject] = useState("ALL");
   const [selectedStatus, setSelectedStatus] = useState("ALL");
   const [selectedAssignee, setSelectedAssignee] = useState("ALL");
-  const [activeWorkloadTab, setActiveWorkloadTab] = useState<"all" | "active" | "has_incomplete" | "has_pending" | "idle">("all");
+  const [activeWorkloadTab, setActiveWorkloadTab] = useState<"all" | "active" | "has_incomplete" | "has_pending" | "has_repeated" | "idle">("all");
 
   // Staff Work Modal State
   const [selectedStaffForModal, setSelectedStaffForModal] = useState<any | null>(null);
-  const [staffModalFilter, setStaffModalFilter] = useState<"all" | "incomplete" | "pending" | "in_progress" | "testing" | "completed">("all");
+  const [staffModalFilter, setStaffModalFilter] = useState<"all" | "incomplete" | "pending" | "in_progress" | "testing" | "completed" | "repeated">("all");
   const [staffModalSearch, setStaffModalSearch] = useState<string>("");
 
   useEffect(() => {
@@ -398,6 +401,40 @@ export default function CEOFilterDashboard() {
       const isActiveShift = prod?.metrics?.active_shift_today ?? false;
       const loginTime = prod?.metrics?.login_time_today ?? null;
 
+      // Detect Repeated Tasks for this employee
+      const titleMap = new Map<string, any[]>();
+      for (const t of empTasks) {
+        const norm = (t.title || "").trim().toLowerCase().replace(/\s+/g, " ");
+        if (!norm) continue;
+        if (!titleMap.has(norm)) {
+          titleMap.set(norm, []);
+        }
+        titleMap.get(norm)!.push(t);
+      }
+
+      const repeatedGroups: any[] = [];
+      let totalRepeatedInstances = 0;
+      let totalRepeatedHours = 0;
+
+      for (const [normTitle, group] of titleMap.entries()) {
+        if (group.length > 1) {
+          const groupHours = group.reduce((sum: number, t: any) => sum + (parseFloat(t.hours_spent) || 0), 0);
+          totalRepeatedInstances += group.length;
+          totalRepeatedHours += groupHours;
+          repeatedGroups.push({
+            title: group[0].title.trim(),
+            normalizedTitle: normTitle,
+            count: group.length,
+            totalHours: Math.round(groupHours * 10) / 10,
+            statuses: Array.from(new Set(group.map((t: any) => t.status))),
+            projects: Array.from(new Set(group.map((t: any) => t.project_name || "Standalone"))),
+            tasks: group,
+          });
+        }
+      }
+
+      const hasRepeatedTasks = repeatedGroups.length > 0;
+
       return {
         ...emp,
         totalTasks: empTasks.length,
@@ -418,6 +455,11 @@ export default function CEOFilterDashboard() {
         loginTime,
         completionRate: empRate,
         hasNoActiveTasks,
+        hasRepeatedTasks,
+        repeatedGroups,
+        repeatedTasksCount: repeatedGroups.length,
+        repeatedInstancesCount: totalRepeatedInstances,
+        repeatedHours: Math.round(totalRepeatedHours * 10) / 10,
         lastTask,
         tasks: empTasks,
       };
@@ -451,6 +493,9 @@ export default function CEOFilterDashboard() {
       }
       if (activeWorkloadTab === "has_pending") {
         return emp.pendingCount > 0;
+      }
+      if (activeWorkloadTab === "has_repeated") {
+        return emp.hasRepeatedTasks;
       }
       if (activeWorkloadTab === "idle") {
         return emp.hasNoActiveTasks;
@@ -1105,6 +1150,37 @@ export default function CEOFilterDashboard() {
         )}
       </div>
 
+      {/* 4.8 Repeated Tasks & Redundancy Alert Banner */}
+      {employeeProgressList.some((e) => e.hasRepeatedTasks) && (
+        <div className="rounded-2xl border-2 border-amber-300 bg-gradient-to-r from-amber-50 via-orange-50/40 to-amber-50 p-4 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 rounded-xl bg-amber-500 text-white shadow-xs shrink-0 mt-0.5 sm:mt-0">
+              <RotateCcw className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h4 className="text-sm font-extrabold text-amber-950">
+                  Repeated Tasks & Redundancy Detection
+                </h4>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-200 text-amber-900 border border-amber-300">
+                  {employeeProgressList.filter((e) => e.hasRepeatedTasks).length} Employees with Repeated Tasks
+                </span>
+              </div>
+              <p className="text-xs text-amber-800 mt-0.5">
+                Multiple task entries sharing identical titles assigned to the same employee. Review duplicate tasks to avoid redundant work, clarify scope, or consolidate hours.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActiveWorkloadTab("has_repeated")}
+            className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-sm shrink-0 cursor-pointer flex items-center gap-1.5 transition"
+          >
+            <Eye className="h-3.5 w-3.5" /> View Staff with Repeated Tasks ({employeeProgressList.filter((e) => e.hasRepeatedTasks).length})
+          </button>
+        </div>
+      )}
+
       {/* 5. Employee Progress Breakdown Matrix with Workload Tabs & Pending/Incomplete Audit */}
       <div className="space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1114,7 +1190,7 @@ export default function CEOFilterDashboard() {
               Live Employee Deliverables & Workload Matrix
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Auditing staff work: <strong>Pending</strong>, <strong>In Progress</strong>, <strong>In QA</strong>, <strong>Incomplete</strong>, and completed ratios.
+              Auditing staff work: <strong>Pending</strong>, <strong>In Progress</strong>, <strong>In QA</strong>, <strong>Incomplete</strong>, <strong>Repeated</strong>, and completed ratios.
             </p>
           </div>
 
@@ -1158,6 +1234,15 @@ export default function CEOFilterDashboard() {
             </button>
             <button
               type="button"
+              onClick={() => setActiveWorkloadTab("has_repeated")}
+              className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                activeWorkloadTab === "has_repeated" ? "bg-amber-600 text-white shadow-2xs" : "text-amber-800 hover:bg-amber-50"
+              }`}
+            >
+              <RotateCcw className="h-3 w-3" /> Has Repeated ({employeeProgressList.filter(e => e.hasRepeatedTasks).length})
+            </button>
+            <button
+              type="button"
               onClick={() => setActiveWorkloadTab("idle")}
               className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
                 activeWorkloadTab === "idle" ? "bg-amber-500 text-white shadow-2xs" : "text-amber-700 hover:bg-amber-50"
@@ -1169,7 +1254,7 @@ export default function CEOFilterDashboard() {
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden overflow-x-auto">
-          <Table className="min-w-[1100px]">
+          <Table className="min-w-[1150px]">
             <TableHeader className="bg-slate-50">
               <TableRow>
                 <TableHead className="font-bold min-w-[200px]">Team Member</TableHead>
@@ -1202,6 +1287,11 @@ export default function CEOFilterDashboard() {
                     <CheckCircle className="h-3 w-3" /> Done
                   </span>
                 </TableHead>
+                <TableHead className="font-bold text-center min-w-[95px]">
+                  <span className="flex items-center justify-center gap-1 text-amber-800">
+                    <RotateCcw className="h-3 w-3" /> Repeated
+                  </span>
+                </TableHead>
                 <TableHead className="font-bold text-center min-w-[130px]">
                   <div className="flex flex-col items-center leading-tight">
                     <span className="flex items-center gap-1 text-slate-800">
@@ -1224,9 +1314,9 @@ export default function CEOFilterDashboard() {
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={14} className="text-center py-8">Calculating live team metrics...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={15} className="text-center py-8">Calculating live team metrics...</TableCell></TableRow>
               ) : filteredEmployeeMatrix.length === 0 ? (
-                <TableRow><TableCell colSpan={14} className="text-center text-slate-500 py-10">No employees match the selected workload filter.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={15} className="text-center text-slate-500 py-10">No employees match the selected workload filter.</TableCell></TableRow>
               ) : (
                 filteredEmployeeMatrix.map((emp) => (
                   <TableRow key={emp.id} className={`transition-colors ${emp.hasNoActiveTasks ? "bg-amber-50/30 hover:bg-amber-50/60" : "hover:bg-slate-50/80"}`}>
@@ -1320,6 +1410,29 @@ export default function CEOFilterDashboard() {
                       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
                         {emp.completedCount}
                       </span>
+                    </TableCell>
+
+                    {/* Repeated Tasks Audit */}
+                    <TableCell className="text-center">
+                      {emp.hasRepeatedTasks ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedStaffForModal(emp);
+                            setStaffModalFilter("repeated");
+                          }}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-extrabold bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200 transition cursor-pointer shadow-2xs group"
+                          title={`${emp.repeatedTasksCount} repeated task title(s) across ${emp.repeatedInstancesCount} instances (${emp.repeatedHours}h total)`}
+                        >
+                          <RotateCcw className="h-3 w-3 text-amber-700 group-hover:rotate-180 transition-transform duration-300" />
+                          <span>{emp.repeatedTasksCount} Rep</span>
+                          <span className="text-[9px] px-1 rounded bg-amber-200 font-mono font-bold text-amber-950">
+                            {emp.repeatedInstancesCount}x
+                          </span>
+                        </button>
+                      ) : (
+                        <span className="text-slate-300 text-xs font-semibold">0</span>
+                      )}
                     </TableCell>
                     
                     {/* Shift Hours Cell */}
@@ -1434,7 +1547,7 @@ export default function CEOFilterDashboard() {
           {selectedStaffForModal && (
             <div className="space-y-4 pt-2">
               {/* Summary Metric Ribbon */}
-              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
                 <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-center">
                   <div className="text-[10px] font-bold text-slate-500 uppercase">Total</div>
                   <div className="text-lg font-black text-slate-900 mt-0.5">{selectedStaffForModal.totalTasks}</div>
@@ -1458,6 +1571,12 @@ export default function CEOFilterDashboard() {
                 <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-center">
                   <div className="text-[10px] font-bold text-emerald-700 uppercase">Completed</div>
                   <div className="text-lg font-black text-emerald-900 mt-0.5">{selectedStaffForModal.completedCount}</div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-amber-100/70 border border-amber-300 text-center">
+                  <div className="text-[10px] font-extrabold text-amber-900 uppercase flex items-center justify-center gap-1">
+                    <RotateCcw className="h-3 w-3 text-amber-700" /> Repeated
+                  </div>
+                  <div className="text-lg font-black text-amber-950 mt-0.5">{selectedStaffForModal.repeatedTasksCount || 0}</div>
                 </div>
               </div>
 
@@ -1518,6 +1637,16 @@ export default function CEOFilterDashboard() {
                   >
                     Done ({selectedStaffForModal.completedCount})
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setStaffModalFilter("repeated")}
+                    className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                      staffModalFilter === "repeated" ? "bg-amber-600 text-white shadow-2xs" : "text-amber-800 hover:bg-amber-50"
+                    }`}
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                    Repeated ({selectedStaffForModal.repeatedTasksCount || 0})
+                  </button>
                 </div>
 
                 <div className="relative min-w-[200px]">
@@ -1535,6 +1664,98 @@ export default function CEOFilterDashboard() {
               {/* Tasks List */}
               <div className="space-y-2.5 max-h-[50vh] overflow-y-auto pr-1">
                 {(() => {
+                  // Dedicated Repeated Tasks View
+                  if (staffModalFilter === "repeated") {
+                    const repeatedGroups = selectedStaffForModal.repeatedGroups || [];
+                    const filteredGroups = repeatedGroups.filter((grp: any) => {
+                      if (!staffModalSearch.trim()) return true;
+                      const q = staffModalSearch.toLowerCase();
+                      return grp.title?.toLowerCase().includes(q) || grp.projects?.some((p: string) => p.toLowerCase().includes(q));
+                    });
+
+                    if (filteredGroups.length === 0) {
+                      return (
+                        <div className="p-8 text-center bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-500">
+                          🎉 No repeated task titles found for this employee. All assigned tasks have unique scopes.
+                        </div>
+                      );
+                    }
+
+                    return filteredGroups.map((grp: any, gIdx: number) => (
+                      <div key={gIdx} className="p-4 rounded-xl bg-amber-50/50 border-2 border-amber-300 space-y-3 shadow-xs">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-amber-200">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="p-2 rounded-xl bg-amber-500 text-white shadow-xs shrink-0">
+                              <RotateCcw className="h-4 w-4" />
+                            </div>
+                            <div>
+                              <h4 className="font-extrabold text-sm text-slate-900 leading-snug">
+                                "{grp.title}"
+                              </h4>
+                              <p className="text-[11px] text-amber-800 mt-0.5">
+                                Assigned <strong>{grp.count} times</strong> to {selectedStaffForModal.name} • Cumulative Work: <strong>{grp.totalHours} hrs</strong>
+                              </p>
+                            </div>
+                          </div>
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-amber-200 text-amber-950 border border-amber-400 self-start sm:self-auto shrink-0 shadow-2xs">
+                            <Repeat className="h-3.5 w-3.5" />
+                            {grp.count} Duplicate Task Entries
+                          </span>
+                        </div>
+
+                        {/* List individual task instances under this group */}
+                        <div className="grid grid-cols-1 gap-2">
+                          {grp.tasks.map((t: any) => {
+                            const proj = projectMap.get(t.project_id);
+                            return (
+                              <div key={t.id} className="p-3 bg-white rounded-xl border border-amber-200/90 shadow-2xs space-y-2">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="font-mono text-xs font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                                        Task #{t.id}
+                                      </span>
+                                      <span className="font-bold text-xs text-slate-900 truncate">
+                                        {t.title}
+                                      </span>
+                                    </div>
+                                    {t.description && (
+                                      <p className="text-[11px] text-slate-500 line-clamp-2 mt-1 bg-slate-50 p-2 rounded">
+                                        {t.description}
+                                      </p>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    {getStatusBadge(t.status)}
+                                    <Badge variant="outline" className="text-[9px] uppercase font-bold">
+                                      {t.priority || "Medium"}
+                                    </Badge>
+                                  </div>
+                                </div>
+
+                                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] pt-1.5 border-t border-slate-100">
+                                  <span className="text-slate-600 font-medium flex items-center gap-1">
+                                    <Briefcase className="h-3 w-3 text-sky-600" />
+                                    Project: <strong className="text-slate-900">{t.project_name || "Standalone"}</strong>
+                                  </span>
+                                  <span className="text-slate-600">
+                                    Hours Logged: <strong className="text-slate-900 font-bold">{formatHoursAndMinutes(t.hours_spent)}</strong>
+                                  </span>
+                                  <span className="text-slate-500">
+                                    Created: <strong>{t.created_at ? String(t.created_at).split("T")[0] : "—"}</strong>
+                                  </span>
+                                  <span className="text-sky-600 font-bold">
+                                    Progress: {t.progress_percentage || 0}%
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ));
+                  }
+
                   const empTasks = selectedStaffForModal.tasks || [];
                   const filtered = empTasks.filter((t: any) => {
                     if (staffModalFilter === "incomplete") {
@@ -1572,6 +1793,8 @@ export default function CEOFilterDashboard() {
                     const proj = projectMap.get(t.project_id);
                     const deadlineInfo = getDeadlineInfo(proj?.target_date, proj && proj.completedTasks && proj.completedTasks >= proj.totalTasks);
                     const taskDueInfo = t.due_date ? getDeadlineInfo(t.due_date, ["Completed", "Ready for Demo", "Tested (PASS)"].includes(t.status)) : null;
+                    const normTitle = (t.title || "").trim().toLowerCase().replace(/\s+/g, " ");
+                    const isRepeatedTask = (selectedStaffForModal.repeatedGroups || []).some((g: any) => g.normalizedTitle === normTitle);
 
                     return (
                       <div
@@ -1580,8 +1803,13 @@ export default function CEOFilterDashboard() {
                       >
                         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
                           <div className="space-y-1 min-w-0">
-                            <div className="font-bold text-sm text-slate-900 leading-snug">
-                              {t.title}
+                            <div className="font-bold text-sm text-slate-900 leading-snug flex items-center gap-2 flex-wrap">
+                              <span>{t.title}</span>
+                              {isRepeatedTask && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-900 border border-amber-300">
+                                  <RotateCcw className="h-2.5 w-2.5 text-amber-700" /> Repeated Task
+                                </span>
+                              )}
                             </div>
                             {t.description && (
                               <p className="text-xs text-slate-500 whitespace-pre-wrap break-words leading-relaxed bg-slate-50/70 p-2 rounded border border-slate-150">

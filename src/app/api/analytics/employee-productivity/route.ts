@@ -128,6 +128,19 @@ export async function GET(req: Request) {
       [employeeIds, employeeIds, startDate, endDate, employeeIds, startDate, endDate]
     );
 
+    // 5b. Batch Query: All assigned tasks for redundancy & repeated task detection
+    const [allAssignedTasks]: any = await pool.query(
+      `SELECT DISTINCT t.id, t.title, t.status, t.project_id, t.assigned_to, t.hours_spent, t.priority,
+              DATE_FORMAT(t.created_at, '%Y-%m-%d') as created_date,
+              p.name as project_name,
+              ta.user_id as co_assignee_id
+       FROM tasks t
+       LEFT JOIN projects p ON t.project_id = p.id
+       LEFT JOIN task_assignees ta ON t.id = ta.task_id
+       WHERE t.assigned_to IN (?) OR ta.user_id IN (?)`,
+      [employeeIds, employeeIds]
+    );
+
     // 6. Batch Query: Subtask checklists for the relevant tasks
     const relevantTaskIds = Array.from(new Set(taskRows.map((t: any) => t.id)));
     let checklistRows: any[] = [];
@@ -393,6 +406,53 @@ export async function GET(req: Request) {
 
       const compositeScore = Math.min(100, timeScore + taskScore + priorityScore + subtaskScore + projectScore);
 
+      // --- Repeated Tasks Analysis ---
+      const empAllAssigned = allAssignedTasks.filter(
+        (t: any) => t.assigned_to === String(empId) || t.co_assignee_id === empId
+      );
+      const uniqueAllTasks: any[] = Array.from(new Map(empAllAssigned.map((t: any) => [t.id, t])).values());
+
+      const titleGroupMap = new Map<string, any[]>();
+      for (const t of uniqueAllTasks) {
+        const norm = (t.title || "").trim().toLowerCase().replace(/\s+/g, " ");
+        if (!norm) continue;
+        if (!titleGroupMap.has(norm)) {
+          titleGroupMap.set(norm, []);
+        }
+        titleGroupMap.get(norm)!.push(t);
+      }
+
+      const repeatedTaskGroups: any[] = [];
+      let totalRepeatedInstances = 0;
+      let totalRepeatedHours = 0;
+
+      for (const [normTitle, grp] of titleGroupMap.entries()) {
+        if (grp.length > 1) {
+          const grpHours = grp.reduce((sum: number, t: any) => sum + (parseFloat(t.hours_spent) || 0), 0);
+          totalRepeatedInstances += grp.length;
+          totalRepeatedHours += grpHours;
+          repeatedTaskGroups.push({
+            title: grp[0].title.trim(),
+            normalized_title: normTitle,
+            count: grp.length,
+            task_ids: grp.map((t: any) => t.id),
+            statuses: Array.from(new Set(grp.map((t: any) => t.status))),
+            projects: Array.from(new Set(grp.map((t: any) => t.project_name).filter(Boolean))),
+            total_hours: Math.round(grpHours * 10) / 10,
+            tasks: grp.map((t: any) => ({
+              id: t.id,
+              title: t.title,
+              status: t.status,
+              project_name: t.project_name || "Standalone",
+              hours_spent: parseFloat(t.hours_spent) || 0,
+              created_date: t.created_date,
+            })),
+          });
+        }
+      }
+
+      const hasRepeatedTasks = repeatedTaskGroups.length > 0;
+
       // --- H. Determine Performance Tag ---
       // Requirement: 2 tags when employee is working:
       // 1. "ideal" - when employee has completed/done tasks (completedTasks > 0)
@@ -448,6 +508,11 @@ export async function GET(req: Request) {
           total_projects: totalProjects,
           active_projects: activeProjects,
           project_rate: projectRate,
+          repeated_tasks_count: repeatedTaskGroups.length,
+          repeated_instances_count: totalRepeatedInstances,
+          repeated_hours_total: Math.round(totalRepeatedHours * 10) / 10,
+          repeated_tasks: repeatedTaskGroups,
+          has_repeated_tasks: hasRepeatedTasks,
         }
       };
     });
@@ -462,6 +527,8 @@ export async function GET(req: Request) {
         active_count: engagedCount, // Alias for backward compatibility
         idle_count: 0,
         off_count: offCount,
+        total_employees_with_repeated_tasks: evaluatedEmployees.filter((e: any) => e.metrics.has_repeated_tasks).length,
+        total_repeated_task_groups: evaluatedEmployees.reduce((sum: number, e: any) => sum + e.metrics.repeated_tasks_count, 0),
       },
       employees: evaluatedEmployees,
     });

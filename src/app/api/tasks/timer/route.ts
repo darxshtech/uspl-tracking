@@ -79,6 +79,27 @@ export async function GET(req: Request) {
         return NextResponse.json({ error: "Unauthorized: Management access required" }, { status: 403 });
       }
 
+      // Auto-heal: If any employee has multiple active timer rows, keep only the latest one and close the rest
+      try {
+        await pool.query(
+          `UPDATE task_time_logs ttl
+           JOIN (
+             SELECT user_id, MAX(id) as keep_id
+             FROM task_time_logs
+             WHERE is_active = 1
+             GROUP BY user_id
+             HAVING COUNT(*) > 1
+           ) dup ON ttl.user_id = dup.user_id
+           SET ttl.is_active = 0,
+               ttl.ended_at = ttl.started_at,
+               ttl.duration_minutes = 0,
+               ttl.session_summary = 'Auto-closed duplicate concurrent session'
+           WHERE ttl.is_active = 1 AND ttl.id != dup.keep_id`
+        );
+      } catch (healErr) {
+        console.warn("Auto-heal duplicate active timers warning:", healErr);
+      }
+
       const todayIST = getCurrentISTDate();
       const [rows]: any = await pool.query(
         `SELECT ttl.*, 
@@ -111,6 +132,12 @@ export async function GET(req: Request) {
                 att.total_hours as todays_attendance_hours,
                 att.status as attendance_status
          FROM task_time_logs ttl
+         INNER JOIN (
+           SELECT user_id, MAX(id) as max_id 
+           FROM task_time_logs 
+           WHERE is_active = 1 
+           GROUP BY user_id
+         ) latest ON ttl.id = latest.max_id
          JOIN users u ON ttl.user_id = u.id
          JOIN tasks t ON ttl.task_id = t.id
          LEFT JOIN projects p ON t.project_id = p.id
@@ -320,7 +347,18 @@ export async function POST(req: Request) {
         }
       }
 
-      // 3. Insert new active timer using MySQL CURRENT_TIMESTAMP to avoid TZ discrepancies
+      // 3. Atomic exclusivity safeguard: Ensure any lingering active timer for this user is closed
+      await pool.query(
+        `UPDATE task_time_logs 
+         SET is_active = 0, 
+             ended_at = CURRENT_TIMESTAMP, 
+             duration_minutes = GREATEST(1, ROUND(TIMESTAMPDIFF(SECOND, started_at, CURRENT_TIMESTAMP) / 60)),
+             session_summary = IFNULL(session_summary, 'Auto-closed on new task start')
+         WHERE user_id = ? AND is_active = 1`,
+        [currentUserId]
+      );
+
+      // Insert new active timer using MySQL CURRENT_TIMESTAMP to avoid TZ discrepancies
       let insertQuery = `INSERT INTO task_time_logs (task_id, user_id, started_at, is_active) VALUES (?, ?, CURRENT_TIMESTAMP, 1)`;
       let insertParams: any[] = [task_id, currentUserId];
 
