@@ -174,6 +174,30 @@ export async function GET(req: Request) {
 
     let activeTimer = activeRows.length > 0 ? activeRows[0] : null;
     if (activeTimer) {
+      // Auto-heal: If task is in a terminal or verification state, deactivate any lingering timer
+      const LOCKED_STATUSES = [
+        "Completed",
+        "Ready for Demo",
+        "Ready for Testing",
+        "Testing",
+        "Tested (PASS)"
+      ];
+      if (LOCKED_STATUSES.includes(activeTimer.task_status)) {
+        await pool.query(
+          `UPDATE task_time_logs 
+           SET ended_at = CURRENT_TIMESTAMP, 
+               duration_minutes = GREATEST(1, ROUND(TIMESTAMPDIFF(SECOND, started_at, CURRENT_TIMESTAMP) / 60)), 
+               session_summary = CONCAT('Auto-stopped on task state: ', ?), 
+               is_active = 0 
+           WHERE id = ?`,
+          [activeTimer.task_status, activeTimer.id]
+        );
+        await syncTaskHours(activeTimer.task_id);
+        activeTimer = null;
+      }
+    }
+
+    if (activeTimer) {
       // Calculate accumulated seconds from previous finished sessions on this task
       const [prevSum]: any = await pool.query(
         `SELECT IFNULL(SUM(duration_minutes), 0) * 60 as prev_seconds
@@ -226,11 +250,26 @@ export async function POST(req: Request) {
       }
       const task = tasks[0];
 
-      // Validation: Once task is logged as completed, it cannot be started again
-      if (task.status === "Completed") {
-        return NextResponse.json({
-          error: `Task "${task.title}" is already completed and logged (${formatHoursAndMinutes(task.hours_spent)}). Once logged, you cannot start this task again.`
-        }, { status: 400 });
+      // Validation: Once task is logged as completed, submitted for demo, or in QA testing, timer cannot be started or resumed
+      const NON_STARTABLE_STATUSES = [
+        "Completed",
+        "Ready for Demo",
+        "Ready for Testing",
+        "Testing",
+        "Tested (PASS)"
+      ];
+      if (NON_STARTABLE_STATUSES.includes(task.status)) {
+        let reason = `Task "${task.title}" is in "${task.status}" state.`;
+        if (task.status === "Completed") {
+          reason = `Task "${task.title}" is already completed and logged (${formatHoursAndMinutes(task.hours_spent)}). Once logged, you cannot start or resume this task again.`;
+        } else if (task.status === "Ready for Demo") {
+          reason = `Task "${task.title}" has been submitted for Demo. Once submitted for Demo, timer cannot be started or resumed.`;
+        } else if (task.status === "Ready for Testing" || task.status === "Testing") {
+          reason = `Task "${task.title}" is currently in QA testing ("${task.status}"). Timer cannot be started or resumed while under QA review.`;
+        } else if (task.status === "Tested (PASS)") {
+          reason = `Task "${task.title}" has passed QA verification ("Tested (PASS)"). Timer is locked unless changes are requested.`;
+        }
+        return NextResponse.json({ error: reason }, { status: 400 });
       }
 
       // Check-In Validation: Verify employee has an active open shift

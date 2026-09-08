@@ -329,12 +329,26 @@ export default function DailyTasksPage() {
 
   // Direct Start / Resume Timer without custom time selection modal
   const handleStartTimerDirect = async (task: any) => {
-    // 1. Validation: Once logged/completed, cannot start the same task again
-    if (task.status === "Completed") {
-      showWarning(
-        "Task Already Logged",
-        `Task "${task.title}" is already completed and logged (${formatHoursAndMinutes(task.hours_spent)}). Once logged, you cannot start this task again.`
-      );
+    // 1. Validation: Locked statuses where timer cannot be started or resumed
+    const LOCKED_TIMER_STATUSES = [
+      "Completed",
+      "Ready for Demo",
+      "Ready for Testing",
+      "Testing",
+      "Tested (PASS)"
+    ];
+    if (LOCKED_TIMER_STATUSES.includes(task.status)) {
+      let desc = `Task "${task.title}" is in "${task.status}" state and timer cannot be started or resumed.`;
+      if (task.status === "Completed") {
+        desc = `Task "${task.title}" is already completed and logged (${formatHoursAndMinutes(task.hours_spent)}). Once logged, you cannot start or resume this task again.`;
+      } else if (task.status === "Ready for Demo") {
+        desc = `Task "${task.title}" has been submitted for Demo. Timer cannot be started or resumed on demo-ready tasks.`;
+      } else if (task.status === "Ready for Testing" || task.status === "Testing") {
+        desc = `Task "${task.title}" is currently in QA testing ("${task.status}"). Timer cannot be started or resumed while under QA review.`;
+      } else if (task.status === "Tested (PASS)") {
+        desc = `Task "${task.title}" has passed QA verification ("Tested (PASS)"). Timer is locked unless changes are requested.`;
+      }
+      showWarning("Timer Locked", desc);
       return;
     }
 
@@ -1112,6 +1126,25 @@ export default function DailyTasksPage() {
 
     setSubmittingTesting(true);
     try {
+      // Auto-stop active timer if currently running on this task
+      if (activeUserTimer && activeUserTimer.task_id === selectedTaskForTesting.id) {
+        try {
+          await fetch("/api/tasks/timer", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "stop",
+              task_id: selectedTaskForTesting.id,
+              session_summary: `Work finished and sent to QA testing`,
+              task_status: "Ready for Testing"
+            }),
+          });
+          window.dispatchEvent(new Event("task-timer-updated"));
+        } catch (timerErr) {
+          console.error("Auto-stop timer error on send to testing:", timerErr);
+        }
+      }
+
       const res = await fetch("/api/tasks", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -1126,6 +1159,7 @@ export default function DailyTasksPage() {
       if (res.ok) {
         setTestingModalOpen(false);
         setSelectedTaskForTesting(null);
+        fetchActiveUserTimer();
         fetchTasks();
         showSuccess("Submitted for QA", "Task moved to QA Testing queue.");
       } else {
@@ -1163,6 +1197,25 @@ export default function DailyTasksPage() {
 
     setSubmittingDirectSubmit(true);
     try {
+      // Auto-stop active timer if currently running on this task
+      if (activeUserTimer && activeUserTimer.task_id === selectedTaskForDirectSubmit.id) {
+        try {
+          await fetch("/api/tasks/timer", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "stop",
+              task_id: selectedTaskForDirectSubmit.id,
+              session_summary: `Work finished and fast-tracked directly to Demo`,
+              task_status: "Ready for Demo"
+            }),
+          });
+          window.dispatchEvent(new Event("task-timer-updated"));
+        } catch (timerErr) {
+          console.error("Auto-stop timer error on direct submit:", timerErr);
+        }
+      }
+
       const res = await fetch("/api/tasks", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -1177,6 +1230,7 @@ export default function DailyTasksPage() {
       if (res.ok) {
         setDirectSubmitModalOpen(false);
         setSelectedTaskForDirectSubmit(null);
+        fetchActiveUserTimer();
         fetchTasks();
         showSuccess("Submitted for Demo", "Task fast-tracked and marked Ready for Demo! Management notified.");
       } else {
@@ -1193,12 +1247,32 @@ export default function DailyTasksPage() {
 
   const updateStatus = async (taskId: number, newStatus: string) => {
     try {
+      const LOCKED_TIMER_STATUSES = ["Completed", "Ready for Demo", "Ready for Testing", "Testing", "Tested (PASS)"];
+      if (activeUserTimer && activeUserTimer.task_id === taskId && LOCKED_TIMER_STATUSES.includes(newStatus)) {
+        try {
+          await fetch("/api/tasks/timer", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "stop",
+              task_id: taskId,
+              session_summary: `Timer ended on status change to ${newStatus}`,
+              task_status: newStatus
+            }),
+          });
+          window.dispatchEvent(new Event("task-timer-updated"));
+        } catch (tErr) {
+          console.error("Error auto-stopping timer on status change:", tErr);
+        }
+      }
+
       const res = await fetch("/api/tasks", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: taskId, status: newStatus }),
       });
       if (res.ok) {
+        fetchActiveUserTimer();
         fetchTasks();
       } else {
         showError("Failed to update status.");
@@ -3566,6 +3640,27 @@ export default function DailyTasksPage() {
                           title="Task completed and logged. Once logged, this task cannot be started again."
                         >
                           <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> Logged ({formatHoursAndMinutes(task.hours_spent)})
+                        </div>
+                      ) : task.status === "Ready for Demo" ? (
+                        <div 
+                          className="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-bold w-full select-none cursor-not-allowed"
+                          title="Task submitted and ready for Demo. Timer is locked."
+                        >
+                          <Sparkles className="h-3.5 w-3.5 text-indigo-600" /> Demo Ready ({formatHoursAndMinutes(task.hours_spent)})
+                        </div>
+                      ) : task.status === "Ready for Testing" || task.status === "Testing" ? (
+                        <div 
+                          className="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 text-xs font-bold w-full select-none cursor-not-allowed"
+                          title="Task submitted to QA for testing. Timer is locked."
+                        >
+                          <Clock className="h-3.5 w-3.5 text-amber-600" /> In QA ({formatHoursAndMinutes(task.hours_spent)})
+                        </div>
+                      ) : task.status === "Tested (PASS)" ? (
+                        <div 
+                          className="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold w-full select-none cursor-not-allowed"
+                          title="Task passed QA testing. Timer is locked."
+                        >
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> QA Passed ({formatHoursAndMinutes(task.hours_spent)})
                         </div>
                       ) : parseFloat(task.hours_spent) > 0 ? (
                         <Button

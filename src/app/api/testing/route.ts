@@ -137,6 +137,18 @@ export async function POST(req: Request) {
       [newStatus, remarks || "", task_id]
     );
 
+    if (["Tested (PASS)", "Ready for Demo"].includes(newStatus)) {
+      await pool.query(
+        `UPDATE task_time_logs 
+         SET ended_at = CURRENT_TIMESTAMP, 
+             duration_minutes = GREATEST(1, ROUND(TIMESTAMPDIFF(SECOND, started_at, CURRENT_TIMESTAMP) / 60)), 
+             session_summary = IFNULL(session_summary, CONCAT('QA verified: ', ?)), 
+             is_active = 0 
+         WHERE task_id = ? AND is_active = 1`,
+        [newStatus, task_id]
+      );
+    }
+
     // Get task details for notification
     const [taskRows]: any = await pool.query(
       `SELECT t.title, t.assigned_to, p.name as project_name 

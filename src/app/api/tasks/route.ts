@@ -688,15 +688,34 @@ export async function PATCH(req: Request) {
       const primaryLink = linksCleaned[0];
       const linksJson = JSON.stringify(linksCleaned);
 
+      // Auto-stop any active running timer for this task
+      await pool.query(
+        `UPDATE task_time_logs 
+         SET ended_at = CURRENT_TIMESTAMP, 
+             duration_minutes = GREATEST(1, ROUND(TIMESTAMPDIFF(SECOND, started_at, CURRENT_TIMESTAMP) / 60)), 
+             session_summary = IFNULL(session_summary, 'Task submitted for QA testing'), 
+             is_active = 0 
+         WHERE task_id = ? AND is_active = 1`,
+        [id]
+      );
+      // Recalculate task hours_spent from time logs
+      const [timerSumTesting]: any = await pool.query(
+        "SELECT IFNULL(SUM(duration_minutes), 0) as total_mins FROM task_time_logs WHERE task_id = ? AND is_active = 0",
+        [id]
+      );
+      const totalTestingMins = parseFloat(timerSumTesting[0]?.total_mins || 0);
+      const updatedTestingHours = totalTestingMins > 0 ? parseFloat((totalTestingMins / 60).toFixed(2)) : null;
+
       await pool.query(
         `UPDATE tasks 
          SET status = 'Ready for Testing', 
              task_link = ?, 
              task_links = ?, 
              remarks = IFNULL(?, remarks),
+             hours_spent = IFNULL(?, hours_spent),
              progress_percentage = 100 
          WHERE id = ?`,
-        [primaryLink, linksJson, remarks || null, id]
+        [primaryLink, linksJson, remarks || null, updatedTestingHours, id]
       );
 
       // Alert QA testers
@@ -723,15 +742,34 @@ export async function PATCH(req: Request) {
       const primaryLink = linksCleaned[0];
       const linksJson = JSON.stringify(linksCleaned);
 
+      // Auto-stop any active running timer for this task
+      await pool.query(
+        `UPDATE task_time_logs 
+         SET ended_at = CURRENT_TIMESTAMP, 
+             duration_minutes = GREATEST(1, ROUND(TIMESTAMPDIFF(SECOND, started_at, CURRENT_TIMESTAMP) / 60)), 
+             session_summary = IFNULL(session_summary, 'Task fast-tracked directly to Demo'), 
+             is_active = 0 
+         WHERE task_id = ? AND is_active = 1`,
+        [id]
+      );
+      // Recalculate task hours_spent from time logs
+      const [timerSumDemo]: any = await pool.query(
+        "SELECT IFNULL(SUM(duration_minutes), 0) as total_mins FROM task_time_logs WHERE task_id = ? AND is_active = 0",
+        [id]
+      );
+      const totalDemoMins = parseFloat(timerSumDemo[0]?.total_mins || 0);
+      const updatedDemoHours = totalDemoMins > 0 ? parseFloat((totalDemoMins / 60).toFixed(2)) : null;
+
       await pool.query(
         `UPDATE tasks 
          SET status = 'Ready for Demo', 
              task_link = ?, 
              task_links = ?, 
              remarks = IFNULL(?, remarks),
+             hours_spent = IFNULL(?, hours_spent),
              progress_percentage = 100 
          WHERE id = ?`,
-        [primaryLink, linksJson, remarks || null, id]
+        [primaryLink, linksJson, remarks || null, updatedDemoHours, id]
       );
 
       // Alert PMs/CEOs
@@ -750,6 +788,20 @@ export async function PATCH(req: Request) {
 
     // 6. Standard Progress / Lifecycle Status Update
     const newStatus = status || currentTask.status;
+
+    // Auto-stop timer if transitioning to terminal or locked state
+    const LOCKED_STATUSES = ["Completed", "Ready for Demo", "Ready for Testing", "Testing", "Tested (PASS)"];
+    if (LOCKED_STATUSES.includes(newStatus)) {
+      await pool.query(
+        `UPDATE task_time_logs 
+         SET ended_at = CURRENT_TIMESTAMP, 
+             duration_minutes = GREATEST(1, ROUND(TIMESTAMPDIFF(SECOND, started_at, CURRENT_TIMESTAMP) / 60)), 
+             session_summary = IFNULL(session_summary, CONCAT('Task transitioned to ', ?)), 
+             is_active = 0 
+         WHERE task_id = ? AND is_active = 1`,
+        [newStatus, id]
+      );
+    }
 
     let linksJson = undefined;
     if (task_links && Array.isArray(task_links)) {
