@@ -429,9 +429,12 @@ export default function DailyTasksPage() {
 
   const handleDirectFinishTask = async (task: any) => {
     setFinishChoiceModalOpen(false);
+    const isTaskFastTrack = Boolean(task.project_is_fast_track || projectFastTrackMap[task.project_id]);
     const confirmed = await showConfirm(
       "Finish & Complete Task Directly?",
-      `Are you sure you want to finish "${task.title}" directly without QA testing? This will stop your timer, mark the task as 100% Completed, and permanently record your hours spent today as locked.`,
+      isTaskFastTrack
+        ? `Are you sure you want to finish "${task.title}" directly? This will stop your timer, mark the task as 100% Completed, and permanently record your hours spent today as locked.`
+        : `Are you sure you want to finish "${task.title}" directly without QA testing? This will stop your timer, mark the task as 100% Completed, and permanently record your hours spent today as locked.`,
       "Yes, Finish Directly",
       "Keep Working"
     );
@@ -1106,8 +1109,13 @@ export default function DailyTasksPage() {
     }
   };
 
-  // Open Dedicated Send to Testing Modal
+  // Open Dedicated Send to Testing Modal (Standard QA only; Fast-track routes to Demo)
   const openSendToTestingModal = (task: any) => {
+    const isTaskFastTrack = Boolean(task.project_is_fast_track || projectFastTrackMap[task.project_id]);
+    if (isTaskFastTrack) {
+      openDirectSubmitModal(task);
+      return;
+    }
     setSelectedTaskForTesting(task);
     const existingLinks = Array.isArray(task.task_links) && task.task_links.length > 0
       ? task.task_links
@@ -2556,60 +2564,86 @@ export default function DailyTasksPage() {
             </DialogTitle>
           </DialogHeader>
 
-          {taskToFinishChoice && (
-            <div className="space-y-4 pt-1">
-              <div className="rounded-xl bg-slate-50 p-3.5 border border-slate-200 text-xs space-y-1">
-                <div className="font-bold text-slate-900 text-sm">{taskToFinishChoice.title}</div>
-                <div className="text-slate-500">Project: <strong>{taskToFinishChoice.project_name || "General"}</strong></div>
-                <div className="text-emerald-700 font-semibold pt-1">
-                  ⏱️ Recorded Work Today: {formatHoursAndMinutes(taskToFinishChoice.hours_spent)}
+          {taskToFinishChoice && (() => {
+            const isTaskFastTrack = Boolean(taskToFinishChoice.project_is_fast_track || projectFastTrackMap[taskToFinishChoice.project_id]);
+            return (
+              <div className="space-y-4 pt-1">
+                <div className="rounded-xl bg-slate-50 p-3.5 border border-slate-200 text-xs space-y-1">
+                  <div className="font-bold text-slate-900 text-sm">{taskToFinishChoice.title}</div>
+                  <div className="text-slate-500">Project: <strong>{taskToFinishChoice.project_name || "General"}</strong></div>
+                  {isTaskFastTrack && (
+                    <div className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded">
+                      ⚡ Fastest Development Mode (Direct Demo to Admin, CEO, PM)
+                    </div>
+                  )}
+                  <div className="text-emerald-700 font-semibold pt-1">
+                    ⏱️ Recorded Work Today: {formatHoursAndMinutes(taskToFinishChoice.hours_spent)}
+                  </div>
+                </div>
+
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  {isTaskFastTrack
+                    ? "This project is in Fastest Development mode. You can submit your demo directly to Admin, CEO, and PM for review, or mark it 100% completed directly."
+                    : "How would you like to conclude this task? You can submit it to the QA Testing Station for tester verification, or mark it 100% completed directly."}
+                </p>
+
+                <div className="space-y-2 pt-1">
+                  {isTaskFastTrack ? (
+                    <Button
+                      type="button"
+                      onClick={() => {
+                        const task = taskToFinishChoice;
+                        setFinishChoiceModalOpen(false);
+                        setTaskToFinishChoice(null);
+                        openDirectSubmitModal(task);
+                      }}
+                      className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 shadow-md flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <Rocket className="h-4 w-4 text-indigo-200" />
+                      🚀 Finish & Submit Demo (Admin, CEO, PM)
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      onClick={() => {
+                        const task = taskToFinishChoice;
+                        setFinishChoiceModalOpen(false);
+                        setTaskToFinishChoice(null);
+                        openSendToTestingModal(task);
+                      }}
+                      className="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-2.5 shadow-md flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <Send className="h-4 w-4" />
+                      🧪 Finish & Submit for QA Testing
+                    </Button>
+                  )}
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => handleDirectFinishTask(taskToFinishChoice)}
+                    className="w-full border-slate-300 text-slate-700 hover:bg-slate-100 font-bold py-2.5 flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                    ✅ Mark 100% Completed (Direct)
+                  </Button>
+                </div>
+
+                <div className="text-center pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFinishChoiceModalOpen(false);
+                      setTaskToFinishChoice(null);
+                    }}
+                    className="text-xs text-slate-400 hover:text-slate-600 font-semibold cursor-pointer"
+                  >
+                    Cancel / Keep Working
+                  </button>
                 </div>
               </div>
-
-              <p className="text-xs text-slate-600 leading-relaxed">
-                How would you like to conclude this task? You can submit it to the QA Testing Station for tester verification, or mark it 100% completed directly.
-              </p>
-
-              <div className="space-y-2 pt-1">
-                <Button
-                  type="button"
-                  onClick={() => {
-                    const task = taskToFinishChoice;
-                    setFinishChoiceModalOpen(false);
-                    setTaskToFinishChoice(null);
-                    openSendToTestingModal(task);
-                  }}
-                  className="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-2.5 shadow-md flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <Send className="h-4 w-4" />
-                  🧪 Finish & Submit for QA Testing
-                </Button>
-
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => handleDirectFinishTask(taskToFinishChoice)}
-                  className="w-full border-slate-300 text-slate-700 hover:bg-slate-100 font-bold py-2.5 flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                  ✅ Mark 100% Completed (Direct)
-                </Button>
-              </div>
-
-              <div className="text-center pt-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFinishChoiceModalOpen(false);
-                    setTaskToFinishChoice(null);
-                  }}
-                  className="text-xs text-slate-400 hover:text-slate-600 font-semibold cursor-pointer"
-                >
-                  Cancel / Keep Working
-                </button>
-              </div>
-            </div>
-          )}
+            );
+          })()}
         </DialogContent>
       </Dialog>
 
@@ -2707,7 +2741,7 @@ export default function DailyTasksPage() {
               <div>Task: <span className="font-bold text-slate-900">{selectedTaskForDirectSubmit?.title}</span></div>
               <div className="text-slate-600">Project: {selectedTaskForDirectSubmit?.project_name || "N/A"}</div>
               <div className="text-indigo-700 font-semibold pt-1">
-                🚀 This task will be flagged as <strong>Ready for Demo</strong> directly for PM and CEO review.
+                🚀 This task will be flagged as <strong>Ready for Demo</strong> directly for Admin, CEO, and PM review.
               </div>
             </div>
 
@@ -3939,8 +3973,8 @@ export default function DailyTasksPage() {
                         </Button>
                       )}
 
-                      {/* SUBMIT FOR TESTING: Always accessible for developers when task is finished or in progress */}
-                      {(task.status === "In Progress" || task.status === "Changes Required" || task.status === "Completed") && (
+                      {/* SUBMIT FOR TESTING: Only for standard QA projects (Fastest development submits demo directly to Admin, CEO, PM) */}
+                      {!isFastTrack && (task.status === "In Progress" || task.status === "Changes Required" || task.status === "Completed") && (
                         <Button
                           size="sm"
                           onClick={() => openSendToTestingModal(task)}
@@ -3951,12 +3985,13 @@ export default function DailyTasksPage() {
                         </Button>
                       )}
 
-                      {/* FAST-TRACK DEMO SUBMISSION (If project has fast track mode) */}
+                      {/* FAST-TRACK DEMO SUBMISSION (If project has fast track mode: submit demo directly to Admin, CEO, PM) */}
                       {isFastTrack && (task.status === "In Progress" || task.status === "Changes Required" || task.status === "Completed" || task.status === "Planning") && (
                         <Button
                           size="sm"
                           onClick={() => openDirectSubmitModal(task)}
                           className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs gap-1.5 shadow-xs w-full justify-center"
+                          title="Submit demo directly to Admin, CEO, and PM"
                         >
                           <Rocket className="h-3.5 w-3.5 text-indigo-200" /> Send for Demo
                         </Button>

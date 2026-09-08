@@ -821,14 +821,16 @@ export async function PATCH(req: Request) {
         [primaryLink, linksJson, remarks || null, updatedDemoHours, id]
       );
 
-      // Alert PMs/CEOs
+      // Alert Admin, CEO, and PM
       await pool.query(
-        `INSERT INTO notifications (target_role, title, message, type) VALUES ('PM', ?, ?, 'success'), ('CEO', ?, ?, 'success')`,
+        `INSERT INTO notifications (target_role, title, message, type) VALUES ('Admin', ?, ?, 'demo_ready'), ('PM', ?, ?, 'demo_ready'), ('CEO', ?, ?, 'demo_ready')`,
         [
-          `Direct Submit: ${currentTask.title || "Task"}`,
-          `${currentTask.assignee_name || "Developer"} fast-tracked "${currentTask.title}" directly to Demo.`,
-          `Direct Submit: ${currentTask.title || "Task"}`,
-          `${currentTask.assignee_name || "Developer"} fast-tracked "${currentTask.title}" directly to Demo.`
+          `🚀 Fast-Track Demo Ready: ${currentTask.title || "Task"}`,
+          `${currentTask.assignee_name || "Developer"} fast-tracked "${currentTask.title}" directly to Demo review.`,
+          `🚀 Fast-Track Demo Ready: ${currentTask.title || "Task"}`,
+          `${currentTask.assignee_name || "Developer"} fast-tracked "${currentTask.title}" directly to Demo review.`,
+          `🚀 Fast-Track Demo Ready: ${currentTask.title || "Task"}`,
+          `${currentTask.assignee_name || "Developer"} fast-tracked "${currentTask.title}" directly to Demo review.`
         ]
       );
 
@@ -939,12 +941,14 @@ export async function PATCH(req: Request) {
       }
     }
 
-    // Submit to Demo (Only allowed if QA passed / Tested (PASS)) -> Notify CEO & PM
+    // Submit to Demo (Only allowed if QA passed / Tested (PASS)) -> Notify Admin, CEO & PM
     if (newStatus === "Ready for Demo" && currentTask.status !== "Ready for Demo") {
       const demoMsg = `Task "${currentTask.title}" in project "${currentTask.project_name}" (Dev: ${currentTask.assignee_name}) has PASSED QA testing and is now submitted for client/executive DEMO!`;
       await pool.query(
-        `INSERT INTO notifications (target_role, title, message, type) VALUES ('CEO', ?, ?, 'demo_ready'), ('PM', ?, ?, 'demo_ready')`,
+        `INSERT INTO notifications (target_role, title, message, type) VALUES ('Admin', ?, ?, 'demo_ready'), ('CEO', ?, ?, 'demo_ready'), ('PM', ?, ?, 'demo_ready')`,
         [
+          `🚀 Demo Ready: ${currentTask.title || "Feature"}`,
+          demoMsg,
           `🚀 Demo Ready: ${currentTask.title || "Feature"}`,
           demoMsg,
           `🚀 Demo Ready: ${currentTask.title || "Feature"}`,

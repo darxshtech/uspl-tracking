@@ -26,6 +26,7 @@ interface ActiveTimerData {
   task_id: number;
   task_title: string;
   project_name?: string;
+  project_is_fast_track?: number | boolean | null;
   priority?: string;
   started_at: string;
   is_active: number;
@@ -288,7 +289,7 @@ export default function ActiveTimerBanner() {
     setModalOpen(true);
   };
 
-  const handleModalSubmit = async (e?: React.FormEvent, customStatus?: "Completed" | "Ready for Testing") => {
+  const handleModalSubmit = async (e?: React.FormEvent, customStatus?: "Completed" | "Ready for Testing" | "Ready for Demo") => {
     if (e) e.preventDefault();
     if (!activeTimer) return;
 
@@ -300,7 +301,7 @@ export default function ActiveTimerBanner() {
       const payload: any = {
         action,
         task_id: activeTimer.task_id,
-        session_summary: sessionSummary.trim() || (chosenStatus === "Ready for Testing" ? "Finished work & submitted for QA" : undefined),
+        session_summary: sessionSummary.trim() || (chosenStatus === "Ready for Demo" ? "Finished work & submitted for Demo review" : chosenStatus === "Ready for Testing" ? "Finished work & submitted for QA" : undefined),
         blockers: blockers.trim(),
       };
 
@@ -837,7 +838,7 @@ export default function ActiveTimerBanner() {
               {modalMode === "finish" && (
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Deliverable / Preview Link (Optional for direct complete, Required for QA)
+                    Deliverable / Preview Link (Optional for direct complete, Required for {activeTimer?.project_is_fast_track ? "Demo" : "QA Testing"})
                   </label>
                   <input
                     type="url"
@@ -847,7 +848,9 @@ export default function ActiveTimerBanner() {
                     className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-sky-500 text-slate-800"
                   />
                   <p className="text-[10px] text-slate-400 mt-0.5">
-                    Provide a preview URL or PR link if submitting this task to QA Testing.
+                    {activeTimer?.project_is_fast_track
+                      ? "Fastest Development: This link will be submitted directly to Admin, CEO, and PM for demo review."
+                      : "Provide a preview URL or PR link if submitting this task to QA Testing."}
                   </p>
                 </div>
               )}
@@ -871,15 +874,27 @@ export default function ActiveTimerBanner() {
                   </button>
                 ) : (
                   <>
-                    <button
-                      type="button"
-                      disabled={submitting}
-                      onClick={() => handleModalSubmit(undefined, "Ready for Testing")}
-                      className="px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-sm cursor-pointer disabled:opacity-50 flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white"
-                      title="Finish task and send to QA Testing Queue"
-                    >
-                      {submitting ? "Submitting..." : "🧪 Finish & Submit for Testing"}
-                    </button>
+                    {activeTimer?.project_is_fast_track ? (
+                      <button
+                        type="button"
+                        disabled={submitting}
+                        onClick={() => handleModalSubmit(undefined, "Ready for Demo")}
+                        className="px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-sm cursor-pointer disabled:opacity-50 flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white"
+                        title="Submit demo directly to Admin, CEO, and PM (Fastest Development)"
+                      >
+                        {submitting ? "Submitting..." : "🚀 Finish & Submit Demo"}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={submitting}
+                        onClick={() => handleModalSubmit(undefined, "Ready for Testing")}
+                        className="px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-sm cursor-pointer disabled:opacity-50 flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white"
+                        title="Finish task and send to QA Testing Queue"
+                      >
+                        {submitting ? "Submitting..." : "🧪 Finish & Submit for Testing"}
+                      </button>
+                    )}
 
                     <button
                       type="button"

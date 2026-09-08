@@ -265,6 +265,7 @@ export async function GET(req: Request) {
               t.id as task_id, t.title as task_title, t.priority, t.status as task_status,
               t.progress_percentage, t.daily_summary, t.blockers,
               p.name as project_name,
+              p.is_fast_track as project_is_fast_track,
               TIMESTAMPDIFF(SECOND, ttl.started_at, CURRENT_TIMESTAMP) as current_session_seconds
        FROM task_time_logs ttl
        JOIN tasks t ON ttl.task_id = t.id
@@ -671,6 +672,34 @@ export async function POST(req: Request) {
           }
         } catch (notifErr) {
           console.error("Error creating QA notification on timer stop:", notifErr);
+        }
+      }
+
+      // Alert Admin, CEO, and PM if submitted for demo (Fastest Development)
+      if (finalStatus === "Ready for Demo") {
+        try {
+          const [tInfo]: any = await pool.query(
+            `SELECT t.title, p.name as project_name, u.name as assignee_name 
+             FROM tasks t 
+             LEFT JOIN projects p ON t.project_id = p.id 
+             LEFT JOIN users u ON t.assigned_to = u.id 
+             WHERE t.id = ?`,
+            [targetTaskId]
+          );
+          if (tInfo.length > 0) {
+            for (const targetRole of ["Admin", "CEO", "PM"]) {
+              await pool.query(
+                `INSERT INTO notifications (target_role, title, message, type) VALUES (?, ?, ?, 'demo_ready')`,
+                [
+                  targetRole,
+                  `🚀 Fast-Track Demo Ready: ${tInfo[0].title || "Task"}`,
+                  `${tInfo[0].assignee_name || "Developer"} completed task in project "${tInfo[0].project_name || "General"}" and submitted directly for Demo review.`
+                ]
+              );
+            }
+          }
+        } catch (notifErr) {
+          console.error("Error creating Demo notification on timer stop:", notifErr);
         }
       }
 
