@@ -28,7 +28,13 @@ import {
   ArrowRight,
   Sparkles,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  Calendar,
+  CalendarDays,
+  Hourglass,
+  Layers,
+  ChevronRight,
+  ListTodo
 } from "lucide-react";
 import { showToast, showError, showSuccess, showWarning } from "@/lib/swal";
 import { formatHoursAndMinutes } from "@/lib/timeUtils";
@@ -60,7 +66,7 @@ export default function CEOFilterDashboard() {
   const [selectedProject, setSelectedProject] = useState("ALL");
   const [selectedStatus, setSelectedStatus] = useState("ALL");
   const [selectedAssignee, setSelectedAssignee] = useState("ALL");
-  const [activeWorkloadTab, setActiveWorkloadTab] = useState<"all" | "active" | "idle">("all");
+  const [activeWorkloadTab, setActiveWorkloadTab] = useState<"all" | "active" | "incomplete" | "overdue" | "idle">("all");
 
   useEffect(() => {
     fetchPolicy();
@@ -230,6 +236,123 @@ export default function CEOFilterDashboard() {
     };
   }, [fetchData, fetchProductivity, productivityPeriod]);
 
+  // India Standard Time today string 'YYYY-MM-DD'
+  const todayIST = useMemo(() => {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(new Date());
+  }, []);
+
+  // Helpers for task statuses
+  const isTaskCompleted = (status: string) => {
+    return ["Completed", "Ready for Demo", "Tested (PASS)"].includes(status);
+  };
+
+  const isTaskPending = (status: string) => {
+    return ["Planning", "Ready for Testing"].includes(status);
+  };
+
+  const isTaskInProgress = (status: string) => {
+    return ["In Progress", "Testing", "Changes Required"].includes(status);
+  };
+
+  const isTaskOverdue = (task: any) => {
+    if (!task?.target_date || isTaskCompleted(task.status)) return false;
+    const cleanTarget = String(task.target_date).split("T")[0];
+    return cleanTarget < todayIST;
+  };
+
+  const getDaysDifference = (targetDateStr: string | null | undefined, baseDateStr: string = todayIST): number => {
+    if (!targetDateStr) return 0;
+    const d1 = new Date(targetDateStr.split('T')[0] + "T00:00:00");
+    const d2 = new Date(baseDateStr.split('T')[0] + "T00:00:00");
+    if (isNaN(d1.getTime()) || isNaN(d2.getTime())) return 0;
+    const diffTime = d1.getTime() - d2.getTime();
+    return Math.round(diffTime / (1000 * 60 * 60 * 24));
+  };
+
+  const formatDateReadable = (dateStr: string | null | undefined): string => {
+    if (!dateStr) return "N/A";
+    try {
+      const clean = dateStr.split("T")[0];
+      const d = new Date(clean + "T00:00:00");
+      if (isNaN(d.getTime())) return clean;
+      return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    } catch (_) {
+      return dateStr;
+    }
+  };
+
+  // Render deadline badge with countdown or overdue indicator
+  const renderDeadlineBadge = (dateStr: string | null | undefined, isFinished: boolean = false) => {
+    if (!dateStr) {
+      return <span className="text-slate-400 text-xs italic">No deadline set</span>;
+    }
+    const cleanDate = dateStr.split("T")[0];
+    const diff = getDaysDifference(cleanDate, todayIST);
+    const formatted = formatDateReadable(cleanDate);
+
+    if (isFinished) {
+      return (
+        <div className="flex flex-col items-start gap-0.5">
+          <span className="text-xs font-semibold text-slate-700">{formatted}</span>
+          <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-emerald-50 text-emerald-700 border-emerald-200">
+            ✓ Finished
+          </Badge>
+        </div>
+      );
+    }
+
+    if (diff < 0) {
+      return (
+        <div className="flex flex-col items-start gap-0.5">
+          <span className="text-xs font-bold text-red-600 flex items-center gap-1">
+            <AlertTriangle className="h-3 w-3 text-red-500 shrink-0" />
+            {formatted}
+          </span>
+          <Badge className="bg-red-600 hover:bg-red-700 text-white text-[10px] px-1.5 py-0 font-bold whitespace-nowrap animate-pulse">
+            🚨 Overdue by {Math.abs(diff)}d
+          </Badge>
+        </div>
+      );
+    }
+
+    if (diff === 0) {
+      return (
+        <div className="flex flex-col items-start gap-0.5">
+          <span className="text-xs font-bold text-amber-700 flex items-center gap-1">
+            <Clock className="h-3 w-3 text-amber-500 shrink-0" />
+            {formatted}
+          </span>
+          <Badge className="bg-amber-500 hover:bg-amber-600 text-white text-[10px] px-1.5 py-0 font-bold whitespace-nowrap">
+            ⚠️ Due Today
+          </Badge>
+        </div>
+      );
+    }
+
+    if (diff <= 3) {
+      return (
+        <div className="flex flex-col items-start gap-0.5">
+          <span className="text-xs font-bold text-amber-900">{formatted}</span>
+          <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-300 text-[10px] px-1.5 py-0 font-bold whitespace-nowrap">
+            ⏳ {diff} {diff === 1 ? "day" : "days"} left
+          </Badge>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex flex-col items-start gap-0.5">
+        <span className="text-xs font-semibold text-slate-800">{formatted}</span>
+        <span className="text-[10px] text-slate-500 font-medium">in {diff} days</span>
+      </div>
+    );
+  };
+
   // Helper to check if task is assigned to employee (single or multi-assignee)
   const isTaskAssignedToEmployee = (task: any, empId: number) => {
     if (String(task.assigned_to) === String(empId)) return true;
@@ -244,23 +367,27 @@ export default function CEOFilterDashboard() {
     return ["In Progress", "Planning", "Ready for Testing", "Testing", "Changes Required"].includes(status);
   };
 
-  // Calculate progress stats for each employee
+  // Calculate progress stats for each employee (with pending, incomplete, and overdue metrics)
   const employeeProgressList = useMemo(() => {
     return employees.map((emp) => {
-      const empTasks = tasks.filter((t) => isTaskAssignedToEmployee(t, emp.id));
+      const allEmpTasks = tasks.filter((t) => isTaskAssignedToEmployee(t, emp.id));
+      const empTasks = selectedProject === "ALL" 
+        ? allEmpTasks 
+        : allEmpTasks.filter((t) => String(t.project_id) === String(selectedProject));
+
       const empProjectsCount = projects.filter((p) => {
         const isMember = Array.isArray(p.members) && p.members.some((m: any) => String(m.id) === String(emp.id));
-        const hasTask = empTasks.some((t) => String(t.project_id) === String(p.id));
+        const hasTask = allEmpTasks.some((t) => String(t.project_id) === String(p.id));
         return isMember || hasTask;
       }).length;
       
-      const empCompleted = empTasks.filter((t) => 
-        ["Completed", "Ready for Demo", "Tested (PASS)"].includes(t.status)
-      ).length;
-      
+      const empCompleted = empTasks.filter((t) => isTaskCompleted(t.status)).length;
       const empActiveTasks = empTasks.filter((t) => isActiveTask(t.status));
-      const empInProgress = empTasks.filter((t) => t.status === "In Progress" || t.status === "Planning").length;
-      const empBlocked = empTasks.filter((t) => t.blockers && t.status !== "Completed" && t.status !== "Ready for Demo").length;
+      const empInProgress = empTasks.filter((t) => isTaskInProgress(t.status)).length;
+      const empPending = empTasks.filter((t) => isTaskPending(t.status)).length;
+      const empIncomplete = empTasks.length - empCompleted;
+      const empOverdue = empTasks.filter((t) => isTaskOverdue(t)).length;
+      const empBlocked = empTasks.filter((t) => t.blockers && !isTaskCompleted(t.status)).length;
       const empTotalHours = empTasks.reduce((sum, t) => sum + (parseFloat(t.hours_spent) || 0), 0);
       const empRate = empTasks.length > 0 ? Math.round((empCompleted / empTasks.length) * 100) : 0;
       
@@ -280,10 +407,14 @@ export default function CEOFilterDashboard() {
       return {
         ...emp,
         totalTasks: empTasks.length,
+        allTotalTasks: allEmpTasks.length,
         assignedProjectsCount: empProjectsCount,
         completedCount: empCompleted,
         activeTasksCount: empActiveTasks.length,
         inProgressCount: empInProgress,
+        pendingCount: empPending,
+        incompleteCount: empIncomplete,
+        overdueCount: empOverdue,
         blockedCount: empBlocked,
         totalHours: empTotalHours,
         shiftHours,
@@ -297,7 +428,12 @@ export default function CEOFilterDashboard() {
         lastTask,
       };
     });
-  }, [employees, tasks, projects, productivityMap]);
+  }, [employees, tasks, projects, productivityMap, selectedProject, todayIST]);
+
+  // Counts for workload tabs
+  const activeStaffCount = useMemo(() => employeeProgressList.filter((e) => e.activeTasksCount > 0).length, [employeeProgressList]);
+  const incompleteStaffCount = useMemo(() => employeeProgressList.filter((e) => e.incompleteCount > 0).length, [employeeProgressList]);
+  const overdueStaffCount = useMemo(() => employeeProgressList.filter((e) => e.overdueCount > 0).length, [employeeProgressList]);
 
   // List of Developers & Testers with NO active tasks
   const idleEmployees = useMemo(() => {
@@ -321,6 +457,12 @@ export default function CEOFilterDashboard() {
       if (activeWorkloadTab === "active") {
         return emp.activeTasksCount > 0;
       }
+      if (activeWorkloadTab === "incomplete") {
+        return emp.incompleteCount > 0;
+      }
+      if (activeWorkloadTab === "overdue") {
+        return emp.overdueCount > 0;
+      }
       if (activeWorkloadTab === "idle") {
         return emp.hasNoActiveTasks;
       }
@@ -328,13 +470,56 @@ export default function CEOFilterDashboard() {
     });
   }, [employeeProgressList, selectedAssignee, activeWorkloadTab, selectedTagFilter, productivityMap]);
 
-  // Filter tasks based on selections
-  const filteredTasks = tasks.filter((t) => {
-    const matchProject = selectedProject === "ALL" || String(t.project_id) === String(selectedProject);
-    const matchStatus = selectedStatus === "ALL" || t.status === selectedStatus;
-    const matchAssignee = selectedAssignee === "ALL" || isTaskAssignedToEmployee(t, parseInt(selectedAssignee, 10));
-    return matchProject && matchStatus && matchAssignee;
-  });
+  // Selected active project details & metrics
+  const activeProject = useMemo(() => {
+    if (selectedProject === "ALL") return null;
+    return projects.find((p) => String(p.id) === String(selectedProject)) || null;
+  }, [selectedProject, projects]);
+
+  const projectTaskStats = useMemo(() => {
+    if (!activeProject) return null;
+    const pTasks = tasks.filter((t) => String(t.project_id) === String(activeProject.id));
+    const completed = pTasks.filter((t) => isTaskCompleted(t.status)).length;
+    const inProgress = pTasks.filter((t) => isTaskInProgress(t.status)).length;
+    const pending = pTasks.filter((t) => isTaskPending(t.status)).length;
+    const incomplete = pTasks.length - completed;
+    const overdue = pTasks.filter((t) => isTaskOverdue(t)).length;
+    const rate = pTasks.length > 0 ? Math.round((completed / pTasks.length) * 100) : 0;
+    return {
+      total: pTasks.length,
+      completed,
+      inProgress,
+      pending,
+      incomplete,
+      overdue,
+      completionRate: rate,
+    };
+  }, [activeProject, tasks, todayIST]);
+
+  // Filter tasks based on selections (including pending, incomplete, and overdue)
+  const filteredTasks = useMemo(() => {
+    return tasks.filter((t) => {
+      const matchProject = selectedProject === "ALL" || String(t.project_id) === String(selectedProject);
+      const matchAssignee = selectedAssignee === "ALL" || isTaskAssignedToEmployee(t, parseInt(selectedAssignee, 10));
+      
+      let matchStatus = true;
+      if (selectedStatus === "ALL") {
+        matchStatus = true;
+      } else if (selectedStatus === "INCOMPLETE") {
+        matchStatus = !isTaskCompleted(t.status);
+      } else if (selectedStatus === "PENDING") {
+        matchStatus = isTaskPending(t.status);
+      } else if (selectedStatus === "OVERDUE") {
+        matchStatus = isTaskOverdue(t);
+      } else if (selectedStatus === "COMPLETED") {
+        matchStatus = isTaskCompleted(t.status);
+      } else {
+        matchStatus = t.status === selectedStatus;
+      }
+
+      return matchProject && matchStatus && matchAssignee;
+    });
+  }, [tasks, selectedProject, selectedAssignee, selectedStatus, todayIST]);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -344,6 +529,8 @@ export default function CEOFilterDashboard() {
         return <Badge className="bg-sky-500 text-white font-bold whitespace-nowrap">In Progress</Badge>;
       case "Ready for Testing":
         return <Badge className="bg-amber-500 text-white font-bold animate-pulse whitespace-nowrap">Ready for Testing</Badge>;
+      case "Testing":
+        return <Badge className="bg-blue-600 text-white font-bold whitespace-nowrap">Testing</Badge>;
       case "Tested (PASS)":
         return <Badge className="bg-emerald-600 text-white font-bold whitespace-nowrap">Tested (PASS)</Badge>;
       case "Ready for Demo":
@@ -598,9 +785,14 @@ export default function CEOFilterDashboard() {
               <SelectTrigger><SelectValue placeholder="All Projects" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="ALL">All Projects</SelectItem>
-                {projects.map((p) => (
-                  <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
-                ))}
+                {projects.map((p) => {
+                  const deadlineStr = p.target_date ? `(Due: ${p.target_date.split("T")[0]})` : "";
+                  return (
+                    <SelectItem key={p.id} value={p.id.toString()}>
+                      {p.name} {deadlineStr}
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
           </div>
@@ -619,11 +811,15 @@ export default function CEOFilterDashboard() {
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-600 uppercase">Task Status</label>
+            <label className="text-xs font-bold text-slate-600 uppercase">Task Status Filter</label>
             <Select value={selectedStatus} onValueChange={(val) => setSelectedStatus(val || "ALL")}>
               <SelectTrigger><SelectValue placeholder="All Statuses" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="ALL">All Statuses</SelectItem>
+                <SelectItem value="INCOMPLETE">⏳ Incomplete (Active & Pending)</SelectItem>
+                <SelectItem value="PENDING">🕒 Pending (Planning & Ready for QA)</SelectItem>
+                <SelectItem value="OVERDUE">🚨 Overdue Tasks</SelectItem>
+                <SelectItem value="COMPLETED">✅ Completed & Verified</SelectItem>
                 <SelectItem value="Planning">Planning</SelectItem>
                 <SelectItem value="In Progress">In Progress</SelectItem>
                 <SelectItem value="Ready for Testing">Ready for Testing</SelectItem>
@@ -637,6 +833,182 @@ export default function CEOFilterDashboard() {
           </div>
         </div>
       </div>
+
+      {/* 4.1 Selected Project Spotlight & Target Deadline Banner */}
+      {activeProject && projectTaskStats && (
+        <div className="rounded-2xl border-2 border-indigo-300 bg-gradient-to-r from-indigo-50/90 via-sky-50/70 to-indigo-50/90 p-5 shadow-md space-y-4 animate-fade-in relative overflow-hidden">
+          <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+            <div className="space-y-1.5 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge className="bg-indigo-600 text-white font-bold text-[11px] px-2.5 py-0.5 shadow-xs">
+                  🎯 Project Delivery Spotlight
+                </Badge>
+                <span className="text-xs font-bold text-slate-700 bg-white/90 px-2.5 py-0.5 rounded-full border border-indigo-200">
+                  Status: {activeProject.status || "Active"}
+                </span>
+                {activeProject.is_fast_track === 1 && (
+                  <Badge className="bg-amber-500 text-white text-[10px] font-bold">
+                    ⚡ Fast Track
+                  </Badge>
+                )}
+              </div>
+              <h3 className="text-xl font-black text-slate-900 flex items-center gap-2">
+                <Briefcase className="h-5 w-5 text-indigo-600 shrink-0" />
+                <span className="truncate">{activeProject.name}</span>
+              </h3>
+              {activeProject.description && (
+                <p className="text-xs text-slate-600 max-w-3xl line-clamp-2">
+                  {activeProject.description}
+                </p>
+              )}
+            </div>
+
+            {/* Project Target Deadline Callout */}
+            <div className="flex items-center gap-3 bg-white p-3.5 rounded-2xl border border-indigo-200 shadow-xs shrink-0 self-stretch sm:self-auto">
+              <div className="p-2.5 rounded-xl bg-indigo-100 text-indigo-700">
+                <CalendarDays className="h-6 w-6" />
+              </div>
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                  Project Target Deadline
+                </span>
+                <div className="mt-0.5">
+                  {renderDeadlineBadge(activeProject.target_date, activeProject.status === "Completed")}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Project Tasks & Workload Breakdown Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 pt-2 border-t border-indigo-200/80">
+            <div className="p-2.5 rounded-xl bg-white border border-indigo-100 shadow-2xs">
+              <span className="text-[11px] font-bold text-slate-500 block">Total Tasks</span>
+              <span className="text-base font-black text-slate-900">{projectTaskStats.total}</span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-emerald-50/80 border border-emerald-200 shadow-2xs">
+              <span className="text-[11px] font-bold text-emerald-700 block">Completed</span>
+              <span className="text-base font-black text-emerald-900">{projectTaskStats.completed}</span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-amber-50/80 border border-amber-200 shadow-2xs">
+              <span className="text-[11px] font-bold text-amber-700 block">Incomplete</span>
+              <div className="flex items-baseline gap-1">
+                <span className="text-base font-black text-amber-900">{projectTaskStats.incomplete}</span>
+                <span className="text-[10px] font-semibold text-amber-700">
+                  ({projectTaskStats.inProgress} working)
+                </span>
+              </div>
+            </div>
+            <div className="p-2.5 rounded-xl bg-purple-50/80 border border-purple-200 shadow-2xs">
+              <span className="text-[11px] font-bold text-purple-700 block">Pending / QA</span>
+              <span className="text-base font-black text-purple-900">{projectTaskStats.pending}</span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-red-50/80 border border-red-200 shadow-2xs col-span-2 sm:col-span-1">
+              <span className="text-[11px] font-bold text-red-700 block">Overdue Tasks</span>
+              <span className="text-base font-black text-red-900">{projectTaskStats.overdue}</span>
+            </div>
+          </div>
+
+          {/* Progress Bar & Actions */}
+          <div className="space-y-1.5 pt-1">
+            <div className="flex items-center justify-between text-xs font-bold">
+              <span className="text-slate-700">Overall Project Completion</span>
+              <span className="text-indigo-700 font-extrabold">{projectTaskStats.completionRate}%</span>
+            </div>
+            <div className="w-full bg-indigo-100 rounded-full h-2.5 overflow-hidden">
+              <div
+                className="bg-gradient-to-r from-indigo-500 to-sky-500 h-full transition-all duration-500"
+                style={{ width: `${projectTaskStats.completionRate}%` }}
+              />
+            </div>
+            <div className="flex items-center justify-between pt-1">
+              <span className="text-[11px] text-slate-500">
+                Viewing filtered workload for <strong>{activeProject.name}</strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedProject("ALL")}
+                className="text-xs font-bold text-indigo-700 hover:text-indigo-900 hover:underline flex items-center gap-1"
+              >
+                Clear Project Filter (View All)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4.2 All Company Projects Deadlines & Work In Progress Overview Strip */}
+      {selectedProject === "ALL" && projects.length > 0 && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-3.5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <CalendarDays className="h-5 w-5 text-indigo-600" />
+              <h3 className="text-sm font-bold text-slate-900">
+                Company Projects Deadlines & Delivery Overview
+              </h3>
+            </div>
+            <span className="text-xs text-slate-500 font-medium">
+              Click any project card to filter team deliverables
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {projects.map((p) => {
+              const pTasks = tasks.filter((t) => String(t.project_id) === String(p.id));
+              const pCompleted = pTasks.filter((t) => isTaskCompleted(t.status)).length;
+              const pPending = pTasks.filter((t) => isTaskPending(t.status)).length;
+              const pIncomplete = pTasks.length - pCompleted;
+              const pOverdue = pTasks.filter((t) => isTaskOverdue(t)).length;
+              const pRate = pTasks.length > 0 ? Math.round((pCompleted / pTasks.length) * 100) : 0;
+
+              return (
+                <div
+                  key={p.id}
+                  onClick={() => setSelectedProject(String(p.id))}
+                  className="p-3.5 rounded-xl border border-slate-200 hover:border-indigo-400 bg-slate-50/50 hover:bg-indigo-50/30 transition-all cursor-pointer shadow-2xs space-y-2.5 group"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-xs font-bold text-slate-900 group-hover:text-indigo-700 truncate block">
+                      {p.name}
+                    </span>
+                    {pOverdue > 0 && (
+                      <span className="text-[10px] font-black text-red-600 bg-red-100 px-1.5 py-0.5 rounded shrink-0">
+                        {pOverdue} overdue
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Target Deadline */}
+                  <div className="text-xs">
+                    <span className="text-[10px] font-semibold text-slate-500 block">Project Deadline:</span>
+                    <div className="mt-0.5">
+                      {renderDeadlineBadge(p.target_date, p.status === "Completed")}
+                    </div>
+                  </div>
+
+                  {/* Task stats and progress */}
+                  <div className="pt-2 border-t border-slate-200/80 space-y-1.5">
+                    <div className="flex items-center justify-between text-[11px] text-slate-600 font-semibold">
+                      <span>{pCompleted}/{pTasks.length} Done</span>
+                      {pPending > 0 && (
+                        <span className="text-purple-700 text-[10px] font-bold">
+                          {pPending} pending
+                        </span>
+                      )}
+                      <span className="text-indigo-600 font-bold">{pRate}%</span>
+                    </div>
+                    <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                      <div
+                        className="bg-indigo-600 h-full rounded-full transition-all"
+                        style={{ width: `${pRate}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* 4.5 Workforce Productivity & Utilization Analytics */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
@@ -818,11 +1190,11 @@ export default function CEOFilterDashboard() {
           </div>
 
           {/* Workload Status Quick Filter Tabs */}
-          <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 self-start sm:self-auto">
+          <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 self-start sm:self-auto">
             <button
               type="button"
               onClick={() => setActiveWorkloadTab("all")}
-              className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors ${
+              className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
                 activeWorkloadTab === "all" ? "bg-white text-slate-900 shadow-2xs" : "text-slate-600 hover:text-slate-900"
               }`}
             >
@@ -831,36 +1203,56 @@ export default function CEOFilterDashboard() {
             <button
               type="button"
               onClick={() => setActiveWorkloadTab("active")}
-              className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors flex items-center gap-1 ${
+              className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors flex items-center gap-1 cursor-pointer ${
                 activeWorkloadTab === "active" ? "bg-emerald-600 text-white shadow-2xs" : "text-emerald-700 hover:bg-emerald-50"
               }`}
             >
-              <CheckCircle className="h-3 w-3" /> Active ({employeeProgressList.filter(e => e.activeTasksCount > 0).length})
+              <CheckCircle className="h-3 w-3" /> Active ({activeStaffCount})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveWorkloadTab("incomplete")}
+              className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors flex items-center gap-1 cursor-pointer ${
+                activeWorkloadTab === "incomplete" ? "bg-amber-500 text-white shadow-2xs" : "text-amber-800 hover:bg-amber-50"
+              }`}
+            >
+              <Hourglass className="h-3 w-3" /> Incomplete / Pending ({incompleteStaffCount})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveWorkloadTab("overdue")}
+              className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors flex items-center gap-1 cursor-pointer ${
+                activeWorkloadTab === "overdue" ? "bg-red-600 text-white shadow-2xs" : "text-red-700 hover:bg-red-50"
+              }`}
+            >
+              <AlertTriangle className="h-3 w-3" /> Overdue Tasks ({overdueStaffCount})
             </button>
             <button
               type="button"
               onClick={() => setActiveWorkloadTab("idle")}
-              className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors flex items-center gap-1 ${
-                activeWorkloadTab === "idle" ? "bg-amber-500 text-white shadow-2xs" : "text-amber-700 hover:bg-amber-50"
+              className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors flex items-center gap-1 cursor-pointer ${
+                activeWorkloadTab === "idle" ? "bg-slate-800 text-white shadow-2xs" : "text-slate-600 hover:bg-slate-200/60"
               }`}
             >
-              <AlertCircle className="h-3 w-3" /> No Active Tasks ({idleEmployees.length})
+              <AlertCircle className="h-3 w-3" /> Bench / Idle ({idleEmployees.length})
             </button>
           </div>
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden overflow-x-auto">
-          <Table className="min-w-[1000px]">
+          <Table className="min-w-[1100px]">
             <TableHeader className="bg-slate-50">
               <TableRow>
-                <TableHead className="font-bold min-w-[220px]">Team Member</TableHead>
+                <TableHead className="font-bold min-w-[210px]">Team Member</TableHead>
                 <TableHead className="font-bold min-w-[90px]">Role</TableHead>
-                <TableHead className="font-bold text-center min-w-[140px]">Workload Status</TableHead>
-                <TableHead className="font-bold text-center min-w-[80px]">Projects</TableHead>
-                <TableHead className="font-bold text-center min-w-[80px]">Total Tasks</TableHead>
+                <TableHead className="font-bold text-center min-w-[130px]">Workload Status</TableHead>
+                <TableHead className="font-bold text-center min-w-[70px]">Projects</TableHead>
+                <TableHead className="font-bold text-center min-w-[75px]">Total Tasks</TableHead>
                 <TableHead className="font-bold text-center min-w-[80px]">Completed</TableHead>
-                <TableHead className="font-bold text-center min-w-[80px]">In Progress</TableHead>
-                <TableHead className="font-bold text-center min-w-[140px]">
+                <TableHead className="font-bold text-center min-w-[95px]">Incomplete</TableHead>
+                <TableHead className="font-bold text-center min-w-[80px]">Pending</TableHead>
+                <TableHead className="font-bold text-center min-w-[80px]">Overdue</TableHead>
+                <TableHead className="font-bold text-center min-w-[130px]">
                   <div className="flex flex-col items-center leading-tight">
                     <span className="flex items-center gap-1 text-slate-800">
                       <Clock className="h-3 w-3 text-sky-500" /> Shift Hours
@@ -870,20 +1262,20 @@ export default function CEOFilterDashboard() {
                     </span>
                   </div>
                 </TableHead>
-                <TableHead className="font-bold text-center min-w-[130px]">
+                <TableHead className="font-bold text-center min-w-[125px]">
                   <div className="flex flex-col items-center leading-tight">
-                    <span className="text-slate-800">Task Work Logged</span>
-                    <span className="text-[10px] text-slate-500 font-normal">Active & Deliverables</span>
+                    <span className="text-slate-800">Task Logged</span>
+                    <span className="text-[10px] text-slate-500 font-normal">Active & Done</span>
                   </div>
                 </TableHead>
-                <TableHead className="font-bold text-right min-w-[110px]">Completion Rate</TableHead>
+                <TableHead className="font-bold text-right min-w-[110px]">Completion</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={10} className="text-center py-8">Calculating live team metrics...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={12} className="text-center py-8">Calculating live team metrics...</TableCell></TableRow>
               ) : filteredEmployeeMatrix.length === 0 ? (
-                <TableRow><TableCell colSpan={10} className="text-center text-slate-500 py-10">No employees match the selected workload filter.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={12} className="text-center text-slate-500 py-10">No employees match the selected workload filter.</TableCell></TableRow>
               ) : (
                 filteredEmployeeMatrix.map((emp) => (
                   <TableRow key={emp.id} className={`transition-colors ${emp.hasNoActiveTasks ? "bg-amber-50/30 hover:bg-amber-50/60" : "hover:bg-slate-50/80"}`}>
@@ -925,15 +1317,55 @@ export default function CEOFilterDashboard() {
 
                     <TableCell className="text-center font-bold text-slate-800">{emp.assignedProjectsCount}</TableCell>
                     <TableCell className="text-center font-bold text-slate-900">{emp.totalTasks}</TableCell>
+                    
+                    {/* Completed */}
                     <TableCell className="text-center">
                       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
                         {emp.completedCount}
                       </span>
                     </TableCell>
+
+                    {/* Incomplete */}
                     <TableCell className="text-center">
-                      {emp.inProgressCount > 0 ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-sky-100 text-sky-800">
-                          {emp.inProgressCount}
+                      {emp.incompleteCount > 0 ? (
+                        <div className="inline-flex flex-col items-center">
+                          <span
+                            className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800"
+                            title={`${emp.inProgressCount} in progress / testing, ${emp.pendingCount} pending`}
+                          >
+                            {emp.incompleteCount}
+                          </span>
+                          <span className="text-[9px] text-amber-700 font-semibold mt-0.5">
+                            ({emp.inProgressCount} active)
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-slate-400 text-xs">0</span>
+                      )}
+                    </TableCell>
+
+                    {/* Pending */}
+                    <TableCell className="text-center">
+                      {emp.pendingCount > 0 ? (
+                        <span
+                          className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-800"
+                          title="Planning & Ready for QA"
+                        >
+                          {emp.pendingCount}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 text-xs">0</span>
+                      )}
+                    </TableCell>
+
+                    {/* Overdue */}
+                    <TableCell className="text-center">
+                      {emp.overdueCount > 0 ? (
+                        <span
+                          className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700 animate-pulse"
+                          title="Tasks past target deadline"
+                        >
+                          🚨 {emp.overdueCount}
                         </span>
                       ) : (
                         <span className="text-slate-400 text-xs">0</span>
@@ -1011,23 +1443,24 @@ export default function CEOFilterDashboard() {
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden overflow-x-auto">
-          <Table className="min-w-[1000px]">
+          <Table className="min-w-[1050px]">
             <TableHeader className="bg-slate-50">
               <TableRow>
-                <TableHead className="font-bold w-[34%] min-w-[300px]">Task Details</TableHead>
-                <TableHead className="font-bold w-[16%] min-w-[160px]">Project</TableHead>
-                <TableHead className="font-bold w-[12%] min-w-[130px]">Assignee</TableHead>
-                <TableHead className="font-bold w-[12%] min-w-[130px]">Status</TableHead>
-                <TableHead className="font-bold w-[10%] min-w-[110px]">Progress</TableHead>
-                <TableHead className="font-bold w-[6%] min-w-[80px]">Hours</TableHead>
-                <TableHead className="font-bold w-[10%] min-w-[140px]">Blockers / Notes</TableHead>
+                <TableHead className="font-bold w-[28%] min-w-[260px]">Task Details</TableHead>
+                <TableHead className="font-bold w-[16%] min-w-[150px]">Project & Deadline</TableHead>
+                <TableHead className="font-bold w-[14%] min-w-[130px]">Task Target Deadline</TableHead>
+                <TableHead className="font-bold w-[12%] min-w-[120px]">Assignee</TableHead>
+                <TableHead className="font-bold w-[10%] min-w-[110px]">Status</TableHead>
+                <TableHead className="font-bold w-[8%] min-w-[85px]">Progress</TableHead>
+                <TableHead className="font-bold w-[5%] min-w-[65px]">Hours</TableHead>
+                <TableHead className="font-bold w-[11%] min-w-[130px]">Blockers / Notes</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={7} className="text-center py-8">Loading tasks...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={8} className="text-center py-8">Loading tasks...</TableCell></TableRow>
               ) : filteredTasks.length === 0 ? (
-                <TableRow><TableCell colSpan={7} className="text-center text-slate-500 py-10">No tasks match criteria.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={8} className="text-center text-slate-500 py-10">No tasks match criteria.</TableCell></TableRow>
               ) : (
                 filteredTasks.map((t) => (
                   <TableRow key={t.id} className="hover:bg-slate-50/80 transition-colors">
@@ -1043,11 +1476,26 @@ export default function CEOFilterDashboard() {
                       )}
                     </TableCell>
 
-                    {/* Project Name */}
+                    {/* Project & Project Deadline */}
                     <TableCell className="align-top py-3.5 px-3">
-                      <div className="text-xs font-semibold text-slate-800 break-words whitespace-normal leading-relaxed">
+                      <div className="text-xs font-bold text-slate-900 break-words whitespace-normal leading-snug">
                         {t.project_name || "N/A"}
                       </div>
+                      {(() => {
+                        const taskProj = projects.find((p) => String(p.id) === String(t.project_id));
+                        if (!taskProj?.target_date) return null;
+                        return (
+                          <div className="text-[10px] text-indigo-700 font-semibold mt-1 flex items-center gap-1">
+                            <Calendar className="h-3 w-3 text-indigo-500 shrink-0" />
+                            <span>Proj Due: {formatDateReadable(taskProj.target_date)}</span>
+                          </div>
+                        );
+                      })()}
+                    </TableCell>
+
+                    {/* Task Target Deadline with Overdue / Due status */}
+                    <TableCell className="align-top py-3.5 px-3 whitespace-nowrap">
+                      {renderDeadlineBadge(t.target_date, isTaskCompleted(t.status))}
                     </TableCell>
 
                     {/* Assignee */}
