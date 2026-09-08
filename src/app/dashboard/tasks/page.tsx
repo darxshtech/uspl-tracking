@@ -69,13 +69,14 @@ export default function DailyTasksPage() {
   const [employees, setEmployees] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState<"today" | "tomorrow" | "assigned_pm" | "assigned_ceo" | "from_tester" | "self_created" | "all">("today");
+  const [activeTab, setActiveTab] = useState<"today" | "tomorrow" | "assigned_pm" | "assigned_ceo" | "from_tester" | "self_created" | "incomplete" | "overdue" | "all">("today");
 
   // Advanced Filters State
   const [filterProject, setFilterProject] = useState<string>("ALL");
   const [filterDateMode, setFilterDateMode] = useState<string>("ALL");
   const [filterCustomDate, setFilterCustomDate] = useState<string>("");
   const [filterEmployee, setFilterEmployee] = useState<string>("ALL");
+  const [filterStatus, setFilterStatus] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState<string>("");
 
   // Create Task Modal state
@@ -1291,21 +1292,34 @@ export default function DailyTasksPage() {
         matchTab = t.assigned_by_type === "Tester" || t.status === "Changes Required" || t.status === "Ready for Testing" || t.status === "Testing" || t.creator_role === "Tester";
       } else if (activeTab === "self_created") {
         matchTab = t.assigned_by_type === "Self Tested" || t.created_by === currentUserId;
+      } else if (activeTab === "incomplete") {
+        matchTab = !isCompleted;
+      } else if (activeTab === "overdue") {
+        matchTab = !isCompleted && taskExpDate < todayStr;
       }
 
       if (!matchTab) return false;
 
-      // 2. Project filter
+      // 2. Status filter dropdown (Incomplete, Overdue, or specific status)
+      if (filterStatus === "INCOMPLETE") {
+        if (isCompleted) return false;
+      } else if (filterStatus === "OVERDUE") {
+        if (isCompleted || taskExpDate >= todayStr) return false;
+      } else if (filterStatus !== "ALL" && t.status !== filterStatus) {
+        return false;
+      }
+
+      // 3. Project filter
       if (filterProject !== "ALL" && String(t.project_id) !== String(filterProject)) {
         return false;
       }
 
-      // 3. Employee / Developer Advance filter (for PM/CEO/Admin)
+      // 4. Employee / Developer Advance filter (for PM/CEO/Admin)
       if (filterEmployee !== "ALL" && String(t.assigned_to) !== String(filterEmployee)) {
         return false;
       }
 
-      // 4. Date filter (checks both expected date and start date)
+      // 5. Date filter (checks both expected date and start date)
       if (filterDateMode === "TODAY" && taskExpDate !== todayStr && taskStartDate !== todayStr) {
         return false;
       }
@@ -1316,7 +1330,7 @@ export default function DailyTasksPage() {
         return false;
       }
 
-      // 5. Search query filter (title, description, project name)
+      // 6. Search query filter (title, description, project name)
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const matchTitle = t.title?.toLowerCase().includes(q);
@@ -1330,7 +1344,7 @@ export default function DailyTasksPage() {
 
       return true;
     });
-  }, [tasks, activeTab, filterProject, filterEmployee, filterDateMode, filterCustomDate, searchQuery, todayStr, tomorrowStr, currentUserId]);
+  }, [tasks, activeTab, filterProject, filterEmployee, filterDateMode, filterCustomDate, filterStatus, searchQuery, todayStr, tomorrowStr, currentUserId]);
 
   const projectFastTrackMap = useMemo(() => {
     const map: Record<number, boolean> = {};
@@ -1387,6 +1401,15 @@ export default function DailyTasksPage() {
   const countCEO = tasks.filter((t) => t.assigned_by_type === "CEO" || t.creator_role === "CEO" || t.project_creator_role === "CEO").length;
   const countTester = tasks.filter((t) => t.assigned_by_type === "Tester" || t.status === "Changes Required" || t.status === "Ready for Testing" || t.status === "Testing" || t.creator_role === "Tester").length;
   const countSelf = tasks.filter((t) => t.assigned_by_type === "Self Tested" || t.created_by === currentUserId).length;
+  const countIncomplete = tasks.filter((t) => {
+    const isCompleted = t.status === "Completed" || t.status === "Ready for Demo";
+    return !isCompleted;
+  }).length;
+  const countOverdue = tasks.filter((t) => {
+    const taskExpDate = t.expected_date ? t.expected_date.split("T")[0] : (t.target_date ? t.target_date.split("T")[0] : todayStr);
+    const isCompleted = t.status === "Completed" || t.status === "Ready for Demo";
+    return !isCompleted && taskExpDate < todayStr;
+  }).length;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -1899,23 +1922,24 @@ export default function DailyTasksPage() {
           <div className="flex items-center gap-2 text-sm font-bold text-slate-800">
             <Filter className="h-4 w-4 text-sky-500" /> Filter & Search Tasks
           </div>
-          {(filterProject !== "ALL" || filterEmployee !== "ALL" || filterDateMode !== "ALL" || searchQuery) && (
+          {(filterProject !== "ALL" || filterEmployee !== "ALL" || filterDateMode !== "ALL" || filterStatus !== "ALL" || searchQuery) && (
             <button
               onClick={() => {
                 setFilterProject("ALL");
                 setFilterEmployee("ALL");
                 setFilterDateMode("ALL");
                 setFilterCustomDate("");
+                setFilterStatus("ALL");
                 setSearchQuery("");
               }}
-              className="text-xs font-bold text-sky-600 hover:text-sky-800 underline"
+              className="text-xs font-bold text-sky-600 hover:text-sky-800 underline cursor-pointer"
             >
               Reset Filters
             </button>
           )}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-1">
+        <div className={`grid grid-cols-1 sm:grid-cols-2 ${canManageAllTasks ? "md:grid-cols-3 xl:grid-cols-5" : "md:grid-cols-4"} gap-3 pt-1`}>
           {/* 1. Filter by Project */}
           <div className="space-y-1">
             <Label className="text-[11px] font-bold text-slate-600 uppercase">Project</Label>
@@ -1959,7 +1983,30 @@ export default function DailyTasksPage() {
             </div>
           )}
 
-          {/* 3. Filter by Date */}
+          {/* 3. Status Filter (Incomplete & Overdue for Management) */}
+          {canManageAllTasks && (
+            <div className="space-y-1">
+              <Label className="text-[11px] font-bold text-slate-600 uppercase">Status Filter</Label>
+              <Select value={filterStatus} onValueChange={(val) => setFilterStatus(val || "ALL")}>
+                <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="All Statuses" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All Statuses</SelectItem>
+                  <SelectItem value="INCOMPLETE" className="text-amber-700 font-bold">⚠️ Incomplete Tasks ({countIncomplete})</SelectItem>
+                  <SelectItem value="OVERDUE" className="text-red-600 font-bold">🚨 Overdue Tasks ({countOverdue})</SelectItem>
+                  <SelectItem value="In Progress">In Progress</SelectItem>
+                  <SelectItem value="Planning">Planning</SelectItem>
+                  <SelectItem value="Ready for Testing">Ready for Testing</SelectItem>
+                  <SelectItem value="Testing">Testing</SelectItem>
+                  <SelectItem value="Changes Required">Changes Required</SelectItem>
+                  <SelectItem value="Tested (PASS)">Tested (PASS)</SelectItem>
+                  <SelectItem value="Ready for Demo">Ready for Demo</SelectItem>
+                  <SelectItem value="Completed">Completed</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {/* 4. Filter by Date */}
           <div className="space-y-1">
             <Label className="text-[11px] font-bold text-slate-600 uppercase">Date Filter</Label>
             <Select 
@@ -1979,7 +2026,7 @@ export default function DailyTasksPage() {
             </Select>
           </div>
 
-          {/* 4. Custom Date Picker or Search */}
+          {/* 5. Custom Date Picker or Search */}
           {filterDateMode === "CUSTOM" ? (
             <div className="space-y-1 animate-fade-in">
               <Label className="text-[11px] font-bold text-slate-600 uppercase">Select Specific Date</Label>
@@ -2080,6 +2127,34 @@ export default function DailyTasksPage() {
           <User className="h-3.5 w-3.5 text-slate-600" />
           Self Created ({countSelf})
         </button>
+
+        {canManageAllTasks && (
+          <>
+            <button
+              onClick={() => setActiveTab("incomplete")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
+                activeTab === "incomplete"
+                  ? "bg-amber-500 text-white shadow-xs border border-amber-600"
+                  : "text-amber-800 bg-amber-50 hover:bg-amber-100/80 border border-amber-200"
+              }`}
+            >
+              <AlertCircle className={`h-3.5 w-3.5 ${activeTab === "incomplete" ? "text-white" : "text-amber-600"}`} />
+              Incomplete ({countIncomplete})
+            </button>
+
+            <button
+              onClick={() => setActiveTab("overdue")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
+                activeTab === "overdue"
+                  ? "bg-red-600 text-white shadow-xs border border-red-700 animate-pulse"
+                  : "text-red-700 bg-red-50 hover:bg-red-100/80 border border-red-200"
+              }`}
+            >
+              <AlertTriangle className={`h-3.5 w-3.5 ${activeTab === "overdue" ? "text-white" : "text-red-600"}`} />
+              Overdue ({countOverdue})
+            </button>
+          </>
+        )}
 
         <button
           onClick={() => setActiveTab("all")}
