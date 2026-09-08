@@ -3,6 +3,14 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcrypt";
 import pool from "./db";
 
+const FALLBACK_SECRET = "i5pabR3XuHISkWjZyMeaOQnuzlJh94i0sQKWzSa+7GQ=";
+if (!process.env.NEXTAUTH_SECRET) {
+  process.env.NEXTAUTH_SECRET = FALLBACK_SECRET;
+}
+if (!process.env.AUTH_SECRET) {
+  process.env.AUTH_SECRET = FALLBACK_SECRET;
+}
+
 export const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
@@ -92,5 +100,5 @@ export const authOptions: NextAuthOptions = {
       },
     },
   },
-  secret: process.env.NEXTAUTH_SECRET || "uspl-tracking-system-super-secure-secret-token-2026",
+  secret: process.env.NEXTAUTH_SECRET || FALLBACK_SECRET,
 };

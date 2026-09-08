@@ -1,6 +1,8 @@
 import { withAuth } from "next-auth/middleware";
 import { NextResponse } from "next/server";
 
+const FALLBACK_SECRET = "i5pabR3XuHISkWjZyMeaOQnuzlJh94i0sQKWzSa+7GQ=";
+
 export default withAuth(
   function middleware(req) {
     const token = req.nextauth.token;
@@ -11,6 +13,7 @@ export default withAuth(
     }
   },
   {
+    secret: process.env.NEXTAUTH_SECRET || FALLBACK_SECRET,
     pages: {
       signIn: "/login",
     },
