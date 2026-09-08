@@ -437,27 +437,10 @@ export default function ActiveTimerBanner() {
             <span className="font-mono font-bold text-xs text-emerald-400 tracking-wider">
               {formatStopwatch(elapsedSeconds)}
             </span>
-            
-            {/* Quick 45m check-in button even when minimized */}
-            <button
-              onClick={() => {
-                setIsMinimized(false);
-                setProgressReminderOpen(true);
-              }}
-              className={`px-2 py-1 rounded-md text-[10px] font-semibold flex items-center gap-1 transition cursor-pointer ${
-                secsUntilNextCheckin === 0
-                  ? "bg-rose-500/30 hover:bg-rose-500/40 text-rose-200 border border-rose-500/50 animate-pulse"
-                  : "bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40"
-              }`}
-              title="Update Progress (45m Check-in)"
-            >
-              <Bell className="h-3 w-3" />
-              {secsUntilNextCheckin === 0 ? "⏰ 45m Due!" : formatCountdown(secsUntilNextCheckin)}
-            </button>
 
             <button
               onClick={() => setIsMinimized(false)}
-              className="p-1 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 transition"
+              className="p-1 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 transition ml-1 cursor-pointer"
               title="Expand Timer"
             >
               <ChevronUp className="h-4 w-4" />
@@ -479,7 +462,7 @@ export default function ActiveTimerBanner() {
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => setIsMinimized(true)}
-                  className="p-1 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 transition"
+                  className="p-1 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
                   title="Minimize"
                 >
                   <ChevronDown className="h-4 w-4" />
@@ -504,62 +487,36 @@ export default function ActiveTimerBanner() {
               )}
             </div>
 
-            {/* Live Counter & 45-Min Reminder Badge */}
+            {/* Live Counter */}
             <div className="flex items-center justify-between gap-2 pt-0.5">
-              <div className="flex items-center gap-1.5 bg-slate-800/80 px-2.5 py-1.5 rounded-lg border border-slate-700/60">
+              <div className="flex items-center gap-2 bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700/60">
                 <Clock className="h-3.5 w-3.5 text-emerald-400" />
                 <span className="font-mono font-bold text-sm text-emerald-300 tracking-wider">
                   {formatStopwatch(elapsedSeconds)}
                 </span>
+                <span className="text-[10px] text-slate-400 font-medium">task time</span>
               </div>
-
-              {/* 45-Min Cadence Status Button */}
-              <button
-                type="button"
-                onClick={() => setProgressReminderOpen(true)}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition cursor-pointer ${
-                  secsUntilNextCheckin === 0
-                    ? "bg-amber-500/20 text-amber-300 border-amber-500/50 hover:bg-amber-500/30 animate-pulse"
-                    : "bg-sky-500/10 text-sky-300 border-sky-500/30 hover:bg-sky-500/20"
-                }`}
-                title="Click to update task progress manually anytime"
-              >
-                <Bell className="h-3.5 w-3.5" />
-                <span>
-                  {secsUntilNextCheckin === 0 ? "45m Check-in Due!" : `Next check-in: ${formatCountdown(secsUntilNextCheckin)}`}
-                </span>
-              </button>
             </div>
 
-            {/* Quick Action Buttons: Pause, Finish, & Check-In */}
-            <div className="grid grid-cols-3 gap-1.5 pt-1">
+            {/* Quick Action Buttons: Break & Finish */}
+            <div className="grid grid-cols-2 gap-2 pt-1">
               <button
                 type="button"
                 onClick={() => handleOpenModal("pause")}
-                className="px-2 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-medium flex items-center justify-center gap-1 transition"
+                className="px-2.5 py-2 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs"
                 title="Pause task to take a break"
               >
-                <Pause className="h-3 w-3" />
+                <Pause className="h-3.5 w-3.5" />
                 Break
               </button>
 
               <button
                 type="button"
-                onClick={() => setProgressReminderOpen(true)}
-                className="px-2 py-1.5 rounded-lg bg-sky-600/30 hover:bg-sky-600/40 text-sky-200 border border-sky-500/40 text-xs font-semibold flex items-center justify-center gap-1 transition"
-                title="Submit 45-min progress update"
-              >
-                <MessageSquare className="h-3 w-3 text-sky-400" />
-                Progress
-              </button>
-
-              <button
-                type="button"
                 onClick={() => handleOpenModal("finish")}
-                className="px-2 py-1.5 rounded-lg bg-emerald-600/30 hover:bg-emerald-600/40 text-emerald-200 border border-emerald-500/40 text-xs font-semibold flex items-center justify-center gap-1 transition"
+                className="px-2.5 py-2 rounded-lg bg-emerald-600/30 hover:bg-emerald-600/40 text-emerald-200 border border-emerald-500/40 text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs"
                 title="Finish and lock task hours"
               >
-                <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
                 Finish
               </button>
             </div>
