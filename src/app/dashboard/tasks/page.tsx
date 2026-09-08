@@ -53,7 +53,8 @@ import {
   EyeOff,
   Globe,
   Laptop,
-  ArrowDown
+  ArrowDown,
+  FlaskConical
 } from "lucide-react";
 import { formatHoursAndMinutes } from "@/lib/timeUtils";
 import LiveTeamActivityMonitor from "@/components/LiveTeamActivityMonitor";
@@ -69,7 +70,7 @@ export default function DailyTasksPage() {
   const [employees, setEmployees] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState<"today" | "tomorrow" | "assigned_pm" | "assigned_ceo" | "from_tester" | "self_created" | "incomplete" | "overdue" | "all">("today");
+  const [activeTab, setActiveTab] = useState<"today" | "tomorrow" | "assigned_pm" | "assigned_ceo" | "from_tester" | "submitted_testing" | "self_created" | "incomplete" | "overdue" | "all">("today");
 
   // Advanced Filters State
   const [filterProject, setFilterProject] = useState<string>("ALL");
@@ -132,6 +133,10 @@ export default function DailyTasksPage() {
   const [blockers, setBlockers] = useState<string>("");
   const [progressStatus, setProgressStatus] = useState<string>("In Progress");
   const [submittingProgress, setSubmittingProgress] = useState(false);
+
+  // Finish Task Choice Modal state (Submit for QA Testing vs Direct Complete)
+  const [finishChoiceModalOpen, setFinishChoiceModalOpen] = useState(false);
+  const [taskToFinishChoice, setTaskToFinishChoice] = useState<any | null>(null);
 
   // Dedicated Send to Testing Modal state
   const [testingModalOpen, setTestingModalOpen] = useState(false);
@@ -417,11 +422,17 @@ export default function DailyTasksPage() {
     }
   };
 
-  const handleQuickFinishTask = async (task: any) => {
+  const handleQuickFinishTask = (task: any) => {
+    setTaskToFinishChoice(task);
+    setFinishChoiceModalOpen(true);
+  };
+
+  const handleDirectFinishTask = async (task: any) => {
+    setFinishChoiceModalOpen(false);
     const confirmed = await showConfirm(
-      "Finish & Complete Task?",
-      `Are you sure you want to finish "${task.title}"? This will stop your timer, mark the task as 100% Completed, and permanently record your hours spent today as locked and unchangeable.`,
-      "Yes, Finish Task",
+      "Finish & Complete Task Directly?",
+      `Are you sure you want to finish "${task.title}" directly without QA testing? This will stop your timer, mark the task as 100% Completed, and permanently record your hours spent today as locked.`,
+      "Yes, Finish Directly",
       "Keep Working"
     );
     if (!confirmed) return;
@@ -433,7 +444,8 @@ export default function DailyTasksPage() {
         body: JSON.stringify({
           action: "stop",
           task_id: task.id,
-          session_summary: `Task finished and verified complete`,
+          task_status: "Completed",
+          session_summary: `Task finished and verified complete directly`,
         }),
       });
 
@@ -449,6 +461,8 @@ export default function DailyTasksPage() {
     } catch (err) {
       console.error(err);
       showError("Error", "Failed to finish task.");
+    } finally {
+      setTaskToFinishChoice(null);
     }
   };
 
@@ -1374,6 +1388,8 @@ export default function DailyTasksPage() {
         matchTab = t.assigned_by_type === "CEO" || t.creator_role === "CEO" || t.project_creator_role === "CEO";
       } else if (activeTab === "from_tester") {
         matchTab = t.assigned_by_type === "Tester" || t.status === "Changes Required" || t.status === "Ready for Testing" || t.status === "Testing" || t.creator_role === "Tester";
+      } else if (activeTab === "submitted_testing") {
+        matchTab = t.status === "Ready for Testing" || t.status === "Testing" || Boolean(t.sent_to_testing_at);
       } else if (activeTab === "self_created") {
         matchTab = t.assigned_by_type === "Self Tested" || t.created_by === currentUserId;
       } else if (activeTab === "incomplete") {
@@ -1501,6 +1517,16 @@ export default function DailyTasksPage() {
     const isCompleted = t.status === "Completed" || t.status === "Ready for Demo";
     return !isCompleted && taskExpDate < todayStr;
   }).length;
+
+  const tasksSubmittedForTesting = tasks.filter(
+    (t) => t.status === "Ready for Testing" || t.status === "Testing" || Boolean(t.sent_to_testing_at)
+  );
+  const projectsSubmittedSet = new Set<string>();
+  tasksSubmittedForTesting.forEach((t) => {
+    if (t.project_name) projectsSubmittedSet.add(t.project_name);
+  });
+  const countProjectsSubmittedTesting = projectsSubmittedSet.size;
+  const countTasksSubmittedTesting = tasksSubmittedForTesting.length;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -2208,6 +2234,18 @@ export default function DailyTasksPage() {
         </button>
 
         <button
+          onClick={() => setActiveTab("submitted_testing")}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
+            activeTab === "submitted_testing"
+              ? "bg-purple-600 text-white shadow-xs border border-purple-700"
+              : "text-purple-800 bg-purple-50 hover:bg-purple-100 border border-purple-200"
+          }`}
+        >
+          <FlaskConical className="h-3.5 w-3.5" />
+          Projects Submitted for Testing ({countProjectsSubmittedTesting})
+        </button>
+
+        <button
           onClick={() => setActiveTab("self_created")}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
             activeTab === "self_created"
@@ -2258,6 +2296,29 @@ export default function DailyTasksPage() {
           All ({tasks.length})
         </button>
       </div>
+
+      {/* Projects Submitted for Testing Executive Brief Banner */}
+      {activeTab === "submitted_testing" && (
+        <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-50 via-indigo-50 to-purple-50 border border-purple-200 text-xs space-y-2 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-purple-200/80 pb-2">
+            <div className="flex items-center gap-2">
+              <FlaskConical className="h-4 w-4 text-purple-600" />
+              <span className="font-extrabold text-sm text-purple-950">Projects Submitted for QA Testing Brief</span>
+            </div>
+            <div className="flex items-center gap-2 text-[11px] font-bold">
+              <span className="bg-purple-200 text-purple-950 px-2.5 py-0.5 rounded-md border border-purple-300">
+                📁 {countProjectsSubmittedTesting} Projects Submitted
+              </span>
+              <span className="bg-amber-100 text-amber-950 px-2.5 py-0.5 rounded-md border border-amber-300">
+                📋 {countTasksSubmittedTesting} Tasks Awaiting / In QA
+              </span>
+            </div>
+          </div>
+          <p className="text-slate-600 text-[11px] leading-relaxed">
+            All tasks that developers have finished and handed off to the QA Testing Station. Includes preview links, developer handoff notes, and timestamps.
+          </p>
+        </div>
+      )}
 
       {/* UPDATE TASK PROGRESS MODAL */}
       <Dialog open={progressModalOpen} onOpenChange={setProgressModalOpen}>
@@ -2482,6 +2543,73 @@ export default function DailyTasksPage() {
               )}
             </Button>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* FINISH TASK CHOICE MODAL (Submit to QA vs Direct Complete) */}
+      <Dialog open={finishChoiceModalOpen} onOpenChange={setFinishChoiceModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg font-bold text-slate-900">
+              <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+              Finish Task & Choose Next Step
+            </DialogTitle>
+          </DialogHeader>
+
+          {taskToFinishChoice && (
+            <div className="space-y-4 pt-1">
+              <div className="rounded-xl bg-slate-50 p-3.5 border border-slate-200 text-xs space-y-1">
+                <div className="font-bold text-slate-900 text-sm">{taskToFinishChoice.title}</div>
+                <div className="text-slate-500">Project: <strong>{taskToFinishChoice.project_name || "General"}</strong></div>
+                <div className="text-emerald-700 font-semibold pt-1">
+                  ⏱️ Recorded Work Today: {formatHoursAndMinutes(taskToFinishChoice.hours_spent)}
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-600 leading-relaxed">
+                How would you like to conclude this task? You can submit it to the QA Testing Station for tester verification, or mark it 100% completed directly.
+              </p>
+
+              <div className="space-y-2 pt-1">
+                <Button
+                  type="button"
+                  onClick={() => {
+                    const task = taskToFinishChoice;
+                    setFinishChoiceModalOpen(false);
+                    setTaskToFinishChoice(null);
+                    openSendToTestingModal(task);
+                  }}
+                  className="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-2.5 shadow-md flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Send className="h-4 w-4" />
+                  🧪 Finish & Submit for QA Testing
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => handleDirectFinishTask(taskToFinishChoice)}
+                  className="w-full border-slate-300 text-slate-700 hover:bg-slate-100 font-bold py-2.5 flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                  ✅ Mark 100% Completed (Direct)
+                </Button>
+              </div>
+
+              <div className="text-center pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFinishChoiceModalOpen(false);
+                    setTaskToFinishChoice(null);
+                  }}
+                  className="text-xs text-slate-400 hover:text-slate-600 font-semibold cursor-pointer"
+                >
+                  Cancel / Keep Working
+                </button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -3811,29 +3939,27 @@ export default function DailyTasksPage() {
                         </Button>
                       )}
 
-                      {/* Project-dependent action button: Send for Demo (Fastest Dev) vs Send to Testing (Standard QA) */}
-                      {isFastTrack ? (
-                        /* FASTEST DEVELOPMENT: Show Send for Demo instead of Send to Testing */
-                        (task.status === "In Progress" || task.status === "Changes Required" || task.status === "Completed" || task.status === "Planning") && (
-                          <Button
-                            size="sm"
-                            onClick={() => openDirectSubmitModal(task)}
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs gap-1.5 shadow-xs w-full justify-center"
-                          >
-                            <Rocket className="h-3.5 w-3.5 text-indigo-200" /> Send for Demo
-                          </Button>
-                        )
-                      ) : (
-                        /* STANDARD QA: Show Send to Testing */
-                        (task.status === "In Progress" || task.status === "Changes Required" || task.status === "Completed") && (
-                          <Button
-                            size="sm"
-                            onClick={() => openSendToTestingModal(task)}
-                            className="bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs gap-1.5 shadow-xs w-full justify-center"
-                          >
-                            <Send className="h-3.5 w-3.5" /> Send to Testing
-                          </Button>
-                        )
+                      {/* SUBMIT FOR TESTING: Always accessible for developers when task is finished or in progress */}
+                      {(task.status === "In Progress" || task.status === "Changes Required" || task.status === "Completed") && (
+                        <Button
+                          size="sm"
+                          onClick={() => openSendToTestingModal(task)}
+                          className="bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs gap-1.5 shadow-xs w-full justify-center"
+                          title="Submit this task to QA Testing Station for verification"
+                        >
+                          <Send className="h-3.5 w-3.5" /> Submit for Testing
+                        </Button>
+                      )}
+
+                      {/* FAST-TRACK DEMO SUBMISSION (If project has fast track mode) */}
+                      {isFastTrack && (task.status === "In Progress" || task.status === "Changes Required" || task.status === "Completed" || task.status === "Planning") && (
+                        <Button
+                          size="sm"
+                          onClick={() => openDirectSubmitModal(task)}
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs gap-1.5 shadow-xs w-full justify-center"
+                        >
+                          <Rocket className="h-3.5 w-3.5 text-indigo-200" /> Send for Demo
+                        </Button>
                       )}
 
                       {/* Tested (PASS) -> Ready for Demo */}

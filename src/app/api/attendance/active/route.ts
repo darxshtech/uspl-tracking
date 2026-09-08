@@ -13,24 +13,29 @@ import { getFullDayHours } from "@/lib/settings";
 
 // Ensure attendance_breaks table exists (idempotent)
 async function ensureBreaksTable() {
-  await pool.query(
-    `CREATE TABLE IF NOT EXISTS attendance_breaks (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      attendance_id INT NOT NULL,
-      user_id INT NOT NULL,
-      break_start DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      break_end DATETIME NULL,
-      duration_minutes INT NULL,
-      paused_task_id INT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      INDEX idx_ab_user (user_id),
-      INDEX idx_ab_attendance (attendance_id)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
-  );
-  // Idempotently add paused_task_id if table already existed without it
-  await pool.query(
-    `ALTER TABLE attendance_breaks ADD COLUMN IF NOT EXISTS paused_task_id INT NULL`
-  ).catch(() => {});
+  try {
+    await pool.query(
+      `CREATE TABLE IF NOT EXISTS attendance_breaks (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        attendance_id INT NOT NULL,
+        user_id INT NOT NULL,
+        break_start DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        break_end DATETIME NULL,
+        duration_minutes INT NULL,
+        paused_task_id INT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_ab_user (user_id),
+        INDEX idx_ab_attendance (attendance_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
+    );
+  } catch (_) {}
+
+  try {
+    const [cols]: any = await pool.query("SHOW COLUMNS FROM attendance_breaks LIKE 'paused_task_id'");
+    if (!cols || cols.length === 0) {
+      await pool.query("ALTER TABLE attendance_breaks ADD COLUMN paused_task_id INT NULL");
+    }
+  } catch (_) {}
 }
 
 export async function GET() {

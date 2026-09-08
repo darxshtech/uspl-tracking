@@ -39,7 +39,8 @@ import {
   HelpCircle,
   PlusCircle,
   RefreshCw,
-  TrendingUp
+  TrendingUp,
+  Coffee
 } from "lucide-react";
 import Link from "next/link";
 
@@ -1035,15 +1036,16 @@ export default function AttendancePage() {
                     <TableHead className="font-bold">Check-In (IST)</TableHead>
                     <TableHead className="font-bold">Check-Out (IST)</TableHead>
                     <TableHead className="font-bold">Total Shift Hours</TableHead>
+                    <TableHead className="font-bold">Break Time</TableHead>
                     <TableHead className="font-bold">Status</TableHead>
                     <TableHead className="font-bold text-right">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {loading ? (
-                    <TableRow><TableCell colSpan={8} className="text-center py-8">Loading records...</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={9} className="text-center py-8">Loading records...</TableCell></TableRow>
                   ) : attendance.length === 0 ? (
-                    <TableRow><TableCell colSpan={8} className="text-center text-slate-500 py-10">No attendance records logged.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={9} className="text-center text-slate-500 py-10">No attendance records logged.</TableCell></TableRow>
                   ) : (
                     attendance.map((rec) => {
                       const isActiveShift = Boolean(rec.login_time && !rec.logout_time);
@@ -1071,6 +1073,26 @@ export default function AttendancePage() {
                               </div>
                             ) : (
                               <span>{formatHoursAndMinutes(displayHours)}</span>
+                            )}
+                          </TableCell>
+                          {/* Break Time Column */}
+                          <TableCell className="text-xs">
+                            {rec.is_currently_on_break ? (
+                              <div className="flex items-center gap-1 text-amber-700">
+                                <Coffee className="h-3.5 w-3.5 animate-pulse" />
+                                <span className="font-bold">On Break</span>
+                              </div>
+                            ) : rec.total_break_minutes > 0 ? (
+                              <div className="flex items-center gap-1 text-slate-500">
+                                <Coffee className="h-3.5 w-3.5" />
+                                <span className="font-semibold">
+                                  {rec.total_break_minutes >= 60
+                                    ? `${Math.floor(rec.total_break_minutes / 60)}h ${(rec.total_break_minutes % 60).toString().padStart(2, "0")}m`
+                                    : `${rec.total_break_minutes}m`}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-slate-300">—</span>
                             )}
                           </TableCell>
                           <TableCell>

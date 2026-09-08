@@ -149,7 +149,27 @@ export async function GET(req: Request) {
                 (
                   SELECT IFNULL(SUM(ab.duration_minutes), 0) FROM attendance_breaks ab 
                   WHERE ab.attendance_id = att.id AND ab.break_end IS NOT NULL
-                ) as today_break_minutes
+                ) as today_break_minutes,
+                (
+                  SELECT COUNT(DISTINCT all_p.project_id)
+                  FROM (
+                    SELECT pm.project_id, pm.user_id FROM project_members pm
+                    UNION ALL
+                    SELECT t_sub.project_id, t_sub.assigned_to as user_id FROM tasks t_sub WHERE t_sub.project_id IS NOT NULL
+                  ) as all_p
+                  WHERE all_p.user_id = ttl.user_id
+                ) as projects_assigned_count,
+                (
+                  SELECT COUNT(DISTINCT t2.project_id) 
+                  FROM task_time_logs ttl2 
+                  JOIN tasks t2 ON ttl2.task_id = t2.id 
+                  WHERE ttl2.user_id = ttl.user_id AND DATE(ttl2.started_at) = ? AND t2.project_id IS NOT NULL
+                ) as projects_worked_today_count,
+                (
+                  SELECT COUNT(DISTINCT ttl2.task_id) 
+                  FROM task_time_logs ttl2 
+                  WHERE ttl2.user_id = ttl.user_id AND DATE(ttl2.started_at) = ?
+                ) as tasks_worked_today_count
          FROM task_time_logs ttl
          INNER JOIN (
            SELECT user_id, MAX(id) as max_id 
@@ -170,7 +190,7 @@ export async function GET(req: Request) {
          )
          WHERE ttl.is_active = 1
          ORDER BY ttl.started_at DESC`,
-        [todayIST, todayIST]
+        [todayIST, todayIST, todayIST, todayIST]
       );
 
       const nowMs = Date.now();
@@ -599,16 +619,60 @@ export async function POST(req: Request) {
       const totalHours = await syncTaskHours(targetTaskId);
 
       // Mark task completed / done with 100% progress
+      const { task_links, task_link } = body;
       const finalStatus = task_status || "Completed";
+      
+      let linkParams: any[] = [];
+      let extraSet = "";
+      if (task_links || task_link) {
+        const cleanedLinks = Array.isArray(task_links) 
+          ? task_links.filter((l: any) => l && String(l).trim()) 
+          : (task_link && String(task_link).trim() ? [String(task_link).trim()] : []);
+        if (cleanedLinks.length > 0) {
+          extraSet += ", task_link = ?, task_links = ?";
+          linkParams.push(cleanedLinks[0], JSON.stringify(cleanedLinks));
+        }
+      }
+
+      if (finalStatus === "Ready for Testing") {
+        extraSet += ", sent_to_testing_at = CURRENT_TIMESTAMP";
+      }
+
       await pool.query(
         `UPDATE tasks 
          SET status = ?, 
              progress_percentage = 100, 
              daily_summary = IFNULL(?, daily_summary),
-             blockers = IFNULL(?, blockers) 
+             blockers = IFNULL(?, blockers)
+             ${extraSet}
          WHERE id = ?`,
-        [finalStatus, session_summary || "Task completed via timer stop", blockers || null, targetTaskId]
+        [finalStatus, session_summary || "Task completed via timer stop", blockers || null, ...linkParams, targetTaskId]
       );
+
+      // Alert QA testers if submitted for testing
+      if (finalStatus === "Ready for Testing") {
+        try {
+          const [tInfo]: any = await pool.query(
+            `SELECT t.title, p.name as project_name, u.name as assignee_name 
+             FROM tasks t 
+             LEFT JOIN projects p ON t.project_id = p.id 
+             LEFT JOIN users u ON t.assigned_to = u.id 
+             WHERE t.id = ?`,
+            [targetTaskId]
+          );
+          if (tInfo.length > 0) {
+            await pool.query(
+              `INSERT INTO notifications (target_role, title, message, type) VALUES ('Tester', ?, ?, 'task_ready')`,
+              [
+                `QA Testing Required: ${tInfo[0].title || "Task"}`,
+                `${tInfo[0].assignee_name || "Developer"} finished task and submitted "${tInfo[0].title}" in project "${tInfo[0].project_name || "General"}" for QA verification.`
+              ]
+            );
+          }
+        } catch (notifErr) {
+          console.error("Error creating QA notification on timer stop:", notifErr);
+        }
+      }
 
       // Auto-sync final completion into daily_work
       try {

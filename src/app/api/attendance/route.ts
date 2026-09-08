@@ -116,9 +116,20 @@ export async function GET(req: Request) {
     await syncAutoAbsentRecords(todayIST);
 
     // 1. Fetch attendance records (excluding CEO & Admin exempt management roles)
+    //    Also pull total break minutes and live break status per record
     let query = `
-      SELECT a.*, u.name as employee_name, u.role as employee_role, u.email as employee_email 
-      FROM attendance a 
+      SELECT a.*,
+             u.name as employee_name, u.role as employee_role, u.email as employee_email,
+             IFNULL((
+               SELECT SUM(ab.duration_minutes)
+               FROM attendance_breaks ab
+               WHERE ab.attendance_id = a.id AND ab.break_end IS NOT NULL
+             ), 0) as total_break_minutes,
+             (
+               SELECT COUNT(*) FROM attendance_breaks ab
+               WHERE ab.attendance_id = a.id AND ab.break_end IS NULL
+             ) > 0 as is_currently_on_break
+      FROM attendance a
       JOIN users u ON a.user_id = u.id
       WHERE u.role NOT IN ('CEO', 'Admin') AND a.date >= ? AND (a.date <= ? OR a.status LIKE '%Leave%' OR a.status LIKE '%Pending%')
     `;

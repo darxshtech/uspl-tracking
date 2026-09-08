@@ -103,9 +103,11 @@ export async function GET(req: Request) {
     // 4. Batch Query: Task timer logs in date range
     const [timerRows]: any = await pool.query(
       `SELECT ttl.user_id, ttl.task_id, ttl.duration_minutes, ttl.is_active, ttl.started_at,
+              t.project_id,
               DATE_FORMAT(ttl.started_at, '%Y-%m-%d') as session_date,
               TIMESTAMPDIFF(SECOND, ttl.started_at, CURRENT_TIMESTAMP) as active_seconds
        FROM task_time_logs ttl
+       LEFT JOIN tasks t ON ttl.task_id = t.id
        WHERE ttl.user_id IN (?) AND DATE(ttl.started_at) >= ? AND DATE(ttl.started_at) <= ?`,
       [employeeIds, startDate, endDate]
     );
@@ -113,6 +115,9 @@ export async function GET(req: Request) {
     // 5. Batch Query: Tasks assigned to or worked on by employees in date range
     const [taskRows]: any = await pool.query(
       `SELECT DISTINCT t.id, t.title, t.status, t.project_id, t.assigned_to, t.hours_spent, t.priority,
+              DATE_FORMAT(t.target_date, '%Y-%m-%d') as target_date_str,
+              DATE_FORMAT(t.expected_date, '%Y-%m-%d') as expected_date_str,
+              DATE_FORMAT(t.due_date, '%Y-%m-%d') as due_date_str,
               DATE_FORMAT(t.created_at, '%Y-%m-%d') as created_date,
               ta.user_id as co_assignee_id
        FROM tasks t
@@ -373,6 +378,18 @@ export async function GET(req: Request) {
       }
       const totalProjects = assignedProjectIds.size;
 
+      // Projects and tasks worked on today by employee
+      const projectsWorkedTodaySet = new Set<number>();
+      const tasksWorkedTodaySet = new Set<number>();
+      for (const log of empLogs) {
+        if (log.session_date === todayIST) {
+          if (log.task_id) tasksWorkedTodaySet.add(log.task_id);
+          if (log.project_id) projectsWorkedTodaySet.add(log.project_id);
+        }
+      }
+      const projectsWorkedTodayCount = projectsWorkedTodaySet.size;
+      const tasksWorkedTodayCount = tasksWorkedTodaySet.size;
+
       const activeProjectIds = new Set<number>();
       for (const t of uniqueTasks) {
         if (t.project_id && (t.hours_spent > 0 || completedTasks > 0 || inProgressTasks > 0)) {
@@ -454,25 +471,46 @@ export async function GET(req: Request) {
       const hasRepeatedTasks = repeatedTaskGroups.length > 0;
 
       // --- H. Determine Performance Tag ---
-      // Requirement: 2 tags when employee is working:
-      // 1. "ideal" - when employee has completed/done tasks (completedTasks > 0)
-      // 2. "engaged" - when employee is working on task (in-progress/active)
-      // (Plus "off" when off shift / on leave)
-      let tag: "ideal" | "engaged" | "off" = "off";
-      let tagLabel = "⚪ Off / On Leave";
+      // User Requirement:
+      // 1. "engaged" - task timer is ON (running right now: hasActiveTimerRunning)
+      // 2. "ideal" - task is active AND WITHIN DUE DATE (not overdue!)
+      // 3. "none" - if overdue active tasks or no active task/timer, do not show ideal (show no tag)
+      const hasActiveTimerRunning = empLogs.some((l: any) => l.is_active === 1);
 
-      if (totalShiftHours === 0 && !hasActiveShiftToday) {
-        tag = "off";
-        tagLabel = "⚪ Off / On Leave";
-        offCount++;
-      } else if (completedTasks > 0) {
+      // Check if any active uncompleted task is overdue
+      const activeUncompletedTasks = uniqueTasks.filter((t: any) =>
+        !["Completed", "Ready for Demo", "Tested (PASS)"].includes(t.status)
+      );
+
+      const hasOverdueActiveTask = activeUncompletedTasks.some((t: any) => {
+        const deadlineStr = t.target_date_str || t.expected_date_str || t.due_date_str;
+        if (!deadlineStr) return false;
+        return deadlineStr < todayIST;
+      });
+
+      const hasValidActiveTasksWithinDueDate = (
+        (inProgressTasks > 0 || tasksTotal > 0 || completedTasks > 0) && !hasOverdueActiveTask
+      );
+
+      let tag: "engaged" | "ideal" | "overdue_work" | "none" = "none";
+      let tagLabel = "";
+
+      if (hasActiveTimerRunning) {
+        tag = "engaged";
+        tagLabel = "⚡ Engaged (Task Running)";
+        engagedCount++;
+      } else if (hasOverdueActiveTask) {
+        tag = "overdue_work";
+        tagLabel = "⚠️ Overdue Work";
+        idleCount++;
+      } else if (hasValidActiveTasksWithinDueDate) {
         tag = "ideal";
-        tagLabel = "🌟 Ideal (Tasks Done)";
+        tagLabel = "🌟 Ideal (Task Active)";
         idealCount++;
       } else {
-        tag = "engaged";
-        tagLabel = "⚡ Engaged (Working on Task)";
-        engagedCount++;
+        tag = "none";
+        tagLabel = "";
+        offCount++;
       }
 
       return {
@@ -506,6 +544,9 @@ export async function GET(req: Request) {
           subtasks_completed: subtasksCompleted,
           subtask_rate: subtaskRate,
           total_projects: totalProjects,
+          projects_assigned_count: totalProjects,
+          projects_worked_today_count: projectsWorkedTodayCount,
+          tasks_worked_today_count: tasksWorkedTodayCount,
           active_projects: activeProjects,
           project_rate: projectRate,
           repeated_tasks_count: repeatedTaskGroups.length,
@@ -527,6 +568,9 @@ export async function GET(req: Request) {
         active_count: engagedCount, // Alias for backward compatibility
         idle_count: 0,
         off_count: offCount,
+        total_projects_assigned: evaluatedEmployees.reduce((sum: number, e: any) => sum + e.metrics.projects_assigned_count, 0),
+        total_projects_worked_today: evaluatedEmployees.reduce((sum: number, e: any) => sum + e.metrics.projects_worked_today_count, 0),
+        total_tasks_worked_today: evaluatedEmployees.reduce((sum: number, e: any) => sum + e.metrics.tasks_worked_today_count, 0),
         total_employees_with_repeated_tasks: evaluatedEmployees.filter((e: any) => e.metrics.has_repeated_tasks).length,
         total_repeated_task_groups: evaluatedEmployees.reduce((sum: number, e: any) => sum + e.metrics.repeated_tasks_count, 0),
       },

@@ -77,18 +77,19 @@ export default function EmployeeProductivityTag({
   }, [isOpen]);
 
   // If not executive leadership, do not render anything
-  if (!isAuthorized) {
+  // If not executive leadership or if tag is none/off, do not render any tag
+  if (!isAuthorized || !tag || tag === "none" || tag === "off") {
     return null;
   }
 
   // Normalize legacy tags
   const normalizedTag = tag === "active" || tag === "idle" ? "engaged" : tag;
 
-  // Configuration per tag
-  // Only 2 tags when employee is working:
-  // 1. "ideal": when employee has completed/done tasks
-  // 2. "engaged": when employee is working on task
-  // Plus "off" for off shift / on leave
+  // Configuration per tag:
+  // 1. "engaged": when employee's task timer is ON (running right now)
+  // 2. "ideal": when employee's task is active (within due date)
+  // 3. "overdue_work": when employee's active task is overdue
+  // 4. "none" / "off": no tag displayed
   const config = {
     ideal: {
       label: "Ideal",
@@ -96,17 +97,26 @@ export default function EmployeeProductivityTag({
       dotClass: "bg-emerald-500",
       icon: <Sparkles className="h-3 w-3 text-emerald-600 fill-emerald-100 animate-pulse" />,
       accentColor: "emerald",
-      title: "🌟 Ideal (Tasks Done)",
-      desc: "Employee has completed tasks and successfully delivered work output.",
+      title: "🌟 Ideal (Task Active)",
+      desc: "Employee has active tasks assigned or delivered within due date, but task timer is not running right now.",
     },
     engaged: {
       label: "Engaged",
       badgeClass: "bg-sky-50 text-sky-800 border-sky-300 hover:bg-sky-100/90 shadow-xs",
       dotClass: "bg-sky-500",
-      icon: <CheckCircle2 className="h-3 w-3 text-sky-600" />,
+      icon: <CheckCircle2 className="h-3 w-3 text-sky-600 animate-pulse" />,
       accentColor: "sky",
-      title: "⚡ Engaged (Working on Task)",
-      desc: "Employee is active and currently working on assigned task progress.",
+      title: "⚡ Engaged (Task Running)",
+      desc: "Employee has an active task timer currently running right now.",
+    },
+    overdue_work: {
+      label: "Overdue Work",
+      badgeClass: "bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100/90 shadow-xs animate-pulse",
+      dotClass: "bg-amber-500",
+      icon: <AlertTriangle className="h-3 w-3 text-amber-600 shrink-0" />,
+      accentColor: "amber",
+      title: "⚠️ Overdue Work",
+      desc: "Employee is assigned to an active task whose target/due date is overdue.",
     },
     off: {
       label: "Off Shift",
@@ -117,15 +127,9 @@ export default function EmployeeProductivityTag({
       title: "⚪ Off Shift / Leave",
       desc: "No active attendance shift or scheduled leave during this evaluated timeframe.",
     },
-  }[normalizedTag as "ideal" | "engaged" | "off"] || {
-    label: tag,
-    badgeClass: "bg-slate-100 text-slate-700 border-slate-300",
-    dotClass: "bg-slate-500",
-    icon: null,
-    accentColor: "slate",
-    title: tag,
-    desc: "",
-  };
+  }[normalizedTag as "ideal" | "engaged" | "overdue_work" | "off"] || null;
+
+  if (!config) return null;
 
   const sizeClass = {
     xs: "text-[10px] px-1.5 py-0.5 gap-1",

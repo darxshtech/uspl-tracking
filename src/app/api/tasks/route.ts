@@ -537,6 +537,10 @@ export async function PATCH(req: Request) {
         );
       }
 
+      if (editStatus === "Ready for Testing") {
+        await pool.query("UPDATE tasks SET sent_to_testing_at = IFNULL(sent_to_testing_at, NOW()) WHERE id = ?", [id]);
+      }
+
       await pool.query(
         `UPDATE tasks 
          SET title = IFNULL(?, title),
@@ -753,6 +757,7 @@ export async function PATCH(req: Request) {
       await pool.query(
         `UPDATE tasks 
          SET status = 'Ready for Testing', 
+             sent_to_testing_at = CURRENT_TIMESTAMP,
              task_link = ?, 
              task_links = ?, 
              remarks = IFNULL(?, remarks),

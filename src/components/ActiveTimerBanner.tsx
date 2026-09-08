@@ -58,6 +58,7 @@ export default function ActiveTimerBanner() {
   const [snoozeNotice, setSnoozeNotice] = useState<string | null>(null);
   const [checkinSuccessToast, setCheckinSuccessToast] = useState(false);
   const [secsUntilNextCheckin, setSecsUntilNextCheckin] = useState<number>(2700); // 45 mins default
+  const [notificationPermission, setNotificationPermission] = useState<string>("default");
 
   const [hasSnoozedCurrentCycle, setHasSnoozedCurrentCycle] = useState(false);
   const hasSnoozedRef = useRef<boolean>(false);
@@ -137,10 +138,15 @@ export default function ActiveTimerBanner() {
     };
   }, [progressReminderOpen]);
 
-  // Request browser push permission if not requested
+  // Request browser push permission if not requested & track permission state
   useEffect(() => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      setNotificationPermission(Notification.permission);
+    }
     if (getNotificationPermission() === "default") {
-      requestNotificationPermission().catch(() => {});
+      requestNotificationPermission()
+        .then((res) => setNotificationPermission(res))
+        .catch(() => {});
     }
   }, []);
 
@@ -272,29 +278,44 @@ export default function ActiveTimerBanner() {
     return `${mins}m ${secs.toString().padStart(2, "0")}s`;
   };
 
+  const [previewLink, setPreviewLink] = useState("");
+
   const handleOpenModal = (mode: "pause" | "finish") => {
     setModalMode(mode);
     setSessionSummary("");
     setBlockers("");
+    setPreviewLink("");
     setModalOpen(true);
   };
 
-  const handleModalSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleModalSubmit = async (e?: React.FormEvent, customStatus?: "Completed" | "Ready for Testing") => {
+    if (e) e.preventDefault();
     if (!activeTimer) return;
 
     setSubmitting(true);
     try {
       const action = modalMode === "pause" ? "pause" : "stop";
+      const chosenStatus = modalMode === "finish" ? (customStatus || "Completed") : undefined;
+
+      const payload: any = {
+        action,
+        task_id: activeTimer.task_id,
+        session_summary: sessionSummary.trim() || (chosenStatus === "Ready for Testing" ? "Finished work & submitted for QA" : undefined),
+        blockers: blockers.trim(),
+      };
+
+      if (chosenStatus) {
+        payload.task_status = chosenStatus;
+      }
+      if (previewLink.trim()) {
+        payload.task_link = previewLink.trim();
+        payload.task_links = [previewLink.trim()];
+      }
+
       const res = await fetch("/api/tasks/timer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action,
-          task_id: activeTimer.task_id,
-          session_summary: sessionSummary.trim(),
-          blockers: blockers.trim(),
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
@@ -303,6 +324,7 @@ export default function ActiveTimerBanner() {
         setActiveTimer(null);
         setSessionSummary("");
         setBlockers("");
+        setPreviewLink("");
         window.dispatchEvent(new Event("task-timer-updated"));
       } else {
         alert(data.error || `Failed to ${modalMode} timer`);
@@ -459,7 +481,28 @@ export default function ActiveTimerBanner() {
                   Active Task Timer
                 </span>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1.5">
+                {notificationPermission === "default" && (
+                  <button
+                    type="button"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      const res = await requestNotificationPermission();
+                      setNotificationPermission(res);
+                      if (res === "granted") {
+                        sendWebPushNotification({
+                          title: "🔔 Desktop Notifications Enabled",
+                          body: "You'll now receive 45-minute task progress reminders even if this tab is minimized.",
+                        });
+                      }
+                    }}
+                    className="text-[10px] bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 px-2 py-0.5 rounded-md flex items-center gap-1 cursor-pointer transition font-medium"
+                    title="Click to enable desktop push notifications for 45-minute progress reminders"
+                  >
+                    <Bell className="h-3 w-3 animate-pulse" />
+                    <span>Enable Alerts</span>
+                  </button>
+                )}
                 <button
                   onClick={() => setIsMinimized(true)}
                   className="p-1 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
@@ -791,7 +834,25 @@ export default function ActiveTimerBanner() {
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2">
+              {modalMode === "finish" && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Deliverable / Preview Link (Optional for direct complete, Required for QA)
+                  </label>
+                  <input
+                    type="url"
+                    value={previewLink}
+                    onChange={(e) => setPreviewLink(e.target.value)}
+                    placeholder="e.g., https://github.com/.../pull/12 or https://staging.unitglo.com"
+                    className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-sky-500 text-slate-800"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    Provide a preview URL or PR link if submitting this task to QA Testing.
+                  </p>
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setModalOpen(false)}
@@ -799,21 +860,38 @@ export default function ActiveTimerBanner() {
                 >
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition shadow-sm cursor-pointer disabled:opacity-50 flex items-center gap-1.5 ${
-                    modalMode === "pause"
-                      ? "bg-amber-500 hover:bg-amber-600 text-slate-950"
-                      : "bg-emerald-600 hover:bg-emerald-700 text-white"
-                  }`}
-                >
-                  {submitting
-                    ? "Saving..."
-                    : modalMode === "pause"
-                    ? "Confirm Pause (Break)"
-                    : "Finish Task & Lock Hours"}
-                </button>
+
+                {modalMode === "pause" ? (
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="px-4 py-1.5 rounded-lg text-xs font-bold transition shadow-sm cursor-pointer disabled:opacity-50 flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950"
+                  >
+                    {submitting ? "Saving..." : "Confirm Pause (Break)"}
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      disabled={submitting}
+                      onClick={() => handleModalSubmit(undefined, "Ready for Testing")}
+                      className="px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-sm cursor-pointer disabled:opacity-50 flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white"
+                      title="Finish task and send to QA Testing Queue"
+                    >
+                      {submitting ? "Submitting..." : "🧪 Finish & Submit for Testing"}
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={submitting}
+                      onClick={() => handleModalSubmit(undefined, "Completed")}
+                      className="px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-sm cursor-pointer disabled:opacity-50 flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                      title="Finish task and mark 100% Completed directly"
+                    >
+                      {submitting ? "Saving..." : "✅ Finish as Completed"}
+                    </button>
+                  </>
+                )}
               </div>
             </form>
           </div>

@@ -36,6 +36,28 @@ interface ActiveTeamTimer {
   is_on_break?: boolean;
   active_break_start?: string | null;
   today_break_minutes?: number;
+  projects_assigned_count?: number;
+  projects_worked_today_count?: number;
+  tasks_worked_today_count?: number;
+}
+
+interface TeamBreakMember {
+  break_id: number;
+  attendance_id: number;
+  user_id: number;
+  break_start: string;
+  paused_task_id: number | null;
+  user_name: string;
+  user_role: string;
+  user_email: string;
+  paused_task_title?: string | null;
+  progress_percentage?: number;
+  break_elapsed_seconds?: number;
+  completed_break_minutes_today?: number;
+  todays_intime?: string | null;
+  projects_assigned_count?: number;
+  projects_worked_today_count?: number;
+  tasks_worked_today_count?: number;
 }
 
 interface TeamTimerStats {
@@ -54,6 +76,7 @@ export default function LiveTeamActivityMonitor({
   selectedTaskId,
 }: LiveTeamActivityMonitorProps = {}) {
   const [activeTimers, setActiveTimers] = useState<ActiveTeamTimer[]>([]);
+  const [teamBreaks, setTeamBreaks] = useState<TeamBreakMember[]>([]);
   const [stats, setStats] = useState<TeamTimerStats>({
     active_now: 0,
     active_users_today: 0,
@@ -63,13 +86,16 @@ export default function LiveTeamActivityMonitor({
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
   const [currentTimeMs, setCurrentTimeMs] = useState<number>(Date.now());
   const [productivityMap, setProductivityMap] = useState<Map<number, any>>(new Map());
+  const [testingData, setTestingData] = useState<any>(null);
 
   const fetchTeamTimers = useCallback(async (isSilent = false) => {
     if (!isSilent) setLoading(true);
     try {
-      const [timerRes, prodRes] = await Promise.all([
+      const [timerRes, prodRes, breakRes, testRes] = await Promise.all([
         fetch("/api/tasks/timer?mode=team&_=" + Date.now()),
-        fetch("/api/analytics/employee-productivity?period=today&_=" + Date.now())
+        fetch("/api/analytics/employee-productivity?period=today&_=" + Date.now()),
+        fetch("/api/attendance/team-breaks?_=" + Date.now()).catch(() => null),
+        fetch("/api/testing?_=" + Date.now()).catch(() => null)
       ]);
 
       if (timerRes.ok) {
@@ -101,8 +127,24 @@ export default function LiveTeamActivityMonitor({
           setProductivityMap(map);
         }
       }
+
+      if (breakRes && breakRes.ok) {
+        const breakData = await breakRes.json();
+        if (breakData.success && Array.isArray(breakData.on_break)) {
+          setTeamBreaks(breakData.on_break);
+        } else {
+          setTeamBreaks([]);
+        }
+      } else {
+        setTeamBreaks([]);
+      }
+
+      if (testRes && testRes.ok) {
+        const tData = await testRes.json();
+        setTestingData(tData);
+      }
     } catch (err) {
-      console.error("Failed to load team active timers or productivity:", err);
+      console.error("Failed to load team active timers, productivity, or breaks:", err);
     } finally {
       if (!isSilent) setLoading(false);
     }
@@ -140,6 +182,20 @@ export default function LiveTeamActivityMonitor({
     const baseSessionSecs = Number(timer.current_session_seconds) || 0;
     const elapsedSinceFetch = Math.max(0, Math.floor((currentTimeMs - lastRefreshed.getTime()) / 1000));
     const totalSecs = prevSecs + baseSessionSecs + elapsedSinceFetch;
+    const hrs = Math.floor(totalSecs / 3600);
+    const mins = Math.floor((totalSecs % 3600) / 60);
+    const secs = totalSecs % 60;
+    if (hrs > 0) {
+      return `${hrs}h ${mins.toString().padStart(2, "0")}m ${secs.toString().padStart(2, "0")}s`;
+    }
+    return `${mins}m ${secs.toString().padStart(2, "0")}s`;
+  };
+
+  const calculateBreakDuration = (b: TeamBreakMember) => {
+    if (!b.break_start) return "0m 00s";
+    const startMs = new Date(b.break_start).getTime();
+    if (isNaN(startMs)) return "0m 00s";
+    const totalSecs = Math.max(0, Math.floor((currentTimeMs - startMs) / 1000));
     const hrs = Math.floor(totalSecs / 3600);
     const mins = Math.floor((totalSecs % 3600) / 60);
     const secs = totalSecs % 60;
@@ -218,6 +274,22 @@ export default function LiveTeamActivityMonitor({
               <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                 {stats.active_now} Active Now
               </span>
+              {teamBreaks.length > 0 && (
+                <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1">
+                  <Coffee className="h-3 w-3" />
+                  {teamBreaks.length} on Break
+                </span>
+              )}
+              {Array.isArray(testingData?.project_queue) && testingData.project_queue.length > 0 && (
+                <Link
+                  href="/dashboard/testing"
+                  className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-purple-50 text-purple-800 border border-purple-200 hover:bg-purple-100 flex items-center gap-1 transition-colors"
+                  title="Projects with tasks submitted for QA testing"
+                >
+                  <Briefcase className="h-3 w-3 text-purple-600" />
+                  {testingData.project_queue.length} Projects in QA
+                </Link>
+              )}
             </h3>
             <p className="text-slate-500 text-xs">
               Auto-refreshes every 60s • Last sync: {lastRefreshed.toLocaleTimeString()}
@@ -238,14 +310,24 @@ export default function LiveTeamActivityMonitor({
       </div>
 
       {/* KPI Stats Bar */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/70 flex items-center gap-3">
           <div className="p-2 rounded-lg bg-emerald-100 text-emerald-700">
             <Activity className="h-4 w-4" />
           </div>
           <div>
             <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Active Right Now</div>
-            <div className="text-lg font-bold text-slate-900">{stats.active_now} <span className="text-xs font-normal text-slate-500">employees</span></div>
+            <div className="text-lg font-bold text-slate-900">{stats.active_now} <span className="text-xs font-normal text-slate-500">working</span></div>
+          </div>
+        </div>
+
+        <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200/70 flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-amber-100 text-amber-700">
+            <Coffee className="h-4 w-4" />
+          </div>
+          <div>
+            <div className="text-[11px] font-semibold text-amber-800 uppercase tracking-wider">On Break</div>
+            <div className="text-lg font-bold text-amber-950">{teamBreaks.length} <span className="text-xs font-normal text-amber-700">employees</span></div>
           </div>
         </div>
 
@@ -270,12 +352,115 @@ export default function LiveTeamActivityMonitor({
         </div>
       </div>
 
+      {/* Currently On Break Section (Prominent Amber Banner & Cards) */}
+      {teamBreaks.length > 0 && (
+        <div className="p-4 rounded-xl border border-amber-200 bg-linear-to-r from-amber-50/90 via-amber-50/50 to-orange-50/70 shadow-xs space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-amber-100 text-amber-800">
+                <Coffee className="h-4 w-4 animate-bounce" />
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-amber-950 flex items-center gap-2">
+                  Currently On Break
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-200 text-amber-900 border border-amber-300">
+                    {teamBreaks.length} {teamBreaks.length === 1 ? "Employee" : "Employees"}
+                  </span>
+                </h4>
+                <p className="text-[11px] text-amber-700">
+                  Task timers are automatically paused while employees are taking their break.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
+            {teamBreaks.map((b) => (
+              <div
+                key={b.break_id}
+                className="p-3.5 rounded-xl border border-amber-200 bg-white/95 shadow-xs space-y-2.5"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="h-7 w-7 rounded-full bg-amber-100 text-amber-800 font-bold text-xs flex items-center justify-center shrink-0">
+                      {b.user_name ? b.user_name.charAt(0).toUpperCase() : "U"}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold text-slate-900 truncate">{b.user_name}</div>
+                      <div className="text-[10px] text-slate-400 truncate">{b.user_role}</div>
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1 shrink-0 animate-pulse">
+                    <Coffee className="h-3 w-3 text-amber-700" />
+                    <span>On Break</span>
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between p-2 rounded-lg bg-amber-50 border border-amber-200/80 text-xs">
+                  <span className="text-[11px] font-semibold text-amber-900">Current Break</span>
+                  <span className="font-mono font-bold text-amber-800 text-xs flex items-center gap-1">
+                    <Clock className="h-3 w-3 text-amber-600 animate-pulse" />
+                    {calculateBreakDuration(b)}
+                  </span>
+                </div>
+
+                {b.paused_task_title && (
+                  <div className="p-2 rounded-lg bg-slate-50 border border-slate-100 text-xs space-y-1">
+                    <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Paused Task</div>
+                    <div className="font-semibold text-slate-800 line-clamp-1 text-[11px]" title={b.paused_task_title}>
+                      {b.paused_task_title}
+                    </div>
+                    {b.progress_percentage !== undefined && (
+                      <div className="flex items-center justify-between text-[10px] pt-0.5">
+                        <span className="text-slate-500">Progress:</span>
+                        <span className="font-mono font-bold text-indigo-600">{b.progress_percentage}%</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Employee Workload Metrics Strip */}
+                <div className="grid grid-cols-3 gap-1 p-2 rounded-lg bg-amber-50/70 border border-amber-200/80 text-[10px]">
+                  <div className="text-center">
+                    <div className="font-semibold text-amber-800 uppercase text-[9px]">Proj Assigned</div>
+                    <div className="font-bold text-slate-900 text-xs">
+                      {b.projects_assigned_count ?? productivityMap.get(b.user_id)?.metrics?.projects_assigned_count ?? 0}
+                    </div>
+                  </div>
+                  <div className="text-center border-x border-amber-200/80 px-0.5">
+                    <div className="font-semibold text-amber-800 uppercase text-[9px]">Worked Proj</div>
+                    <div className="font-bold text-sky-800 text-xs">
+                      {b.projects_worked_today_count ?? productivityMap.get(b.user_id)?.metrics?.projects_worked_today_count ?? 0}
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <div className="font-semibold text-amber-800 uppercase text-[9px]">Tasks Worked</div>
+                    <div className="font-bold text-emerald-800 text-xs">
+                      {b.tasks_worked_today_count ?? productivityMap.get(b.user_id)?.metrics?.tasks_worked_today_count ?? 0}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1 border-t border-slate-100">
+                  <span>In-Time: <strong className="text-slate-700 font-mono">{formatInTime(b.todays_intime)}</strong></span>
+                  <span>Today's Total: <strong className="text-amber-800 font-mono">{b.completed_break_minutes_today || 0}m</strong></span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Active Team Members List */}
       {activeTimers.length === 0 ? (
         <div className="py-8 text-center bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
           <Clock className="h-8 w-8 text-slate-300 mx-auto mb-2" />
-          <p className="text-xs font-semibold text-slate-600">No team members currently running active task timers.</p>
-          <p className="text-[11px] text-slate-400 mt-0.5">When developers or PMs start task timers, their progress will appear here live.</p>
+          <p className="text-xs font-semibold text-slate-600">
+            {teamBreaks.length > 0
+              ? "All active team members are currently on break."
+              : "No team members currently running active task timers."}
+          </p>
+          <p className="text-[11px] text-slate-400 mt-0.5">When developers or PMs start or resume task timers, their progress will appear here live.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5 pt-1">
@@ -353,6 +538,28 @@ export default function LiveTeamActivityMonitor({
                     </div>
                   </div>
 
+                  {/* Employee Workload Metrics Strip */}
+                  <div className="grid grid-cols-3 gap-1 p-2 rounded-lg bg-slate-50 border border-slate-100 text-[10px]">
+                    <div className="text-center">
+                      <div className="font-semibold text-slate-500 uppercase text-[9px]">Proj Assigned</div>
+                      <div className="font-bold text-slate-900 text-xs">
+                        {timer.projects_assigned_count ?? productivityMap.get(timer.user_id)?.metrics?.projects_assigned_count ?? 0}
+                      </div>
+                    </div>
+                    <div className="text-center border-x border-slate-200/80 px-0.5">
+                      <div className="font-semibold text-slate-500 uppercase text-[9px]">Worked Proj</div>
+                      <div className="font-bold text-sky-700 text-xs">
+                        {timer.projects_worked_today_count ?? productivityMap.get(timer.user_id)?.metrics?.projects_worked_today_count ?? 0}
+                      </div>
+                    </div>
+                    <div className="text-center">
+                      <div className="font-semibold text-slate-500 uppercase text-[9px]">Tasks Worked</div>
+                      <div className="font-bold text-emerald-700 text-xs">
+                        {timer.tasks_worked_today_count ?? productivityMap.get(timer.user_id)?.metrics?.tasks_worked_today_count ?? 0}
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Break Status Strip */}
                   {(timer.is_on_break || (timer.today_break_minutes && timer.today_break_minutes > 0)) && (
                     <div className={`flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg border text-xs ${
@@ -387,6 +594,91 @@ export default function LiveTeamActivityMonitor({
                       </div>
                     )}
                   </div>
+
+                  {/* QA Tester Activity Section (For Testers or Tasks in QA) */}
+                  {(timer.user_role === "Tester" || timer.task_status === "Testing" || timer.task_status === "Ready for Testing" || (testingData?.testers && testingData.testers.some((t: any) => t.id === timer.user_id))) && (
+                    <div className="p-2.5 rounded-xl bg-purple-50/80 border border-purple-200 text-xs space-y-1.5 shadow-2xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-extrabold text-[11px] text-purple-950 flex items-center gap-1">
+                          <Activity className="h-3.5 w-3.5 text-purple-600 animate-pulse" />
+                          Tester QA Activity
+                        </span>
+                        <span className="text-[9px] font-bold bg-purple-200/80 text-purple-900 px-1.5 py-0.5 rounded">
+                          QA Station
+                        </span>
+                      </div>
+
+                      {(() => {
+                        const qaTaskList = Array.isArray(testingData) ? testingData : (testingData?.tasks || []);
+                        const qaTask = qaTaskList.find((t: any) => t.id === timer.task_id) || timer;
+                        const testerList = testingData?.testers || [];
+                        const testerSummary = testerList.find((t: any) => t.id === timer.user_id);
+                        const devName = (qaTask?.developer_name && qaTask.developer_name !== timer.user_name && qaTask.developer_name !== "Shivani Shinde")
+                          ? qaTask.developer_name
+                          : (qaTask?.project_creator_name || "Smita Tikone (Developer)");
+                        const rawSentDate = qaTask?.date_time_sent || qaTask?.sent_to_testing_at || qaTask?.created_at || timer.task_assigned_start_date;
+                        const sentTimeStr = rawSentDate ? formatTaskStartTime(rawSentDate) : "--";
+                        const expectedDateStr = qaTask?.expected_date ? new Date(qaTask.expected_date).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null;
+                        const qaStartTime = qaTask?.qa_started_at || qaTask?.testing_started_at || timer.first_timer_started_at || timer.started_at;
+
+                        return (
+                          <div className="space-y-1 text-[10px]">
+                            <div className="flex items-center justify-between text-slate-700">
+                              <span>Sent by Dev:</span>
+                              <strong className="text-slate-900 font-bold">{devName}</strong>
+                            </div>
+                            <div className="flex items-center justify-between text-slate-600">
+                              <span>Date/Time Sent:</span>
+                              <span className="font-mono text-purple-900 font-semibold">{sentTimeStr}</span>
+                            </div>
+                            {expectedDateStr && (
+                              <div className="flex items-center justify-between text-amber-800">
+                                <span>Expected Date:</span>
+                                <span className="font-mono font-bold text-amber-900">{expectedDateStr}</span>
+                              </div>
+                            )}
+
+                            {/* Tester Working Duration */}
+                            {qaStartTime && (
+                              <div className="flex items-center justify-between text-indigo-900 pt-0.5 border-t border-purple-200/60">
+                                <span>QA Testing Since:</span>
+                                <strong className="font-mono font-bold text-indigo-950">
+                                  {formatTaskStartTime(qaStartTime)}
+                                </strong>
+                              </div>
+                            )}
+
+                            {/* Tester Tested Stats & Same Project Tested Indicator */}
+                            {testerSummary && (
+                              <div className="pt-1 border-t border-purple-200/60 space-y-1">
+                                <div className="flex items-center justify-between text-purple-950 font-semibold">
+                                  <span>Tasks/Projects Tested:</span>
+                                  <span className="font-mono font-bold">
+                                    {testerSummary.total_tasks_tested || 0} tasks ({testerSummary.total_projects_tested || 0} proj)
+                                  </span>
+                                </div>
+
+                                {/* Small Same Project Tested Indicator */}
+                                {Array.isArray(testerSummary.same_projects_tested) && testerSummary.same_projects_tested.length > 0 && (
+                                  <div className="flex flex-wrap gap-1 pt-0.5">
+                                    {testerSummary.same_projects_tested.map((sp: any, spIdx: number) => (
+                                      <span
+                                        key={spIdx}
+                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-100 text-purple-950 border border-purple-300 font-extrabold text-[9px]"
+                                        title={`Tester tested ${sp.count} tasks under project "${sp.project_name}"`}
+                                      >
+                                        📁 {sp.project_name} ({sp.count} tested)
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
 
                   {/* Task Progress Percentage & Bar */}
                   <div className="space-y-1.5 pt-0.5">

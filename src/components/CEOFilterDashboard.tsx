@@ -129,7 +129,7 @@ export default function CEOFilterDashboard() {
   const [productivityPeriod, setProductivityPeriod] = useState<"today" | "week" | "month" | "year">("today");
   const [productivitySummary, setProductivitySummary] = useState<any>(null);
   const [productivityMap, setProductivityMap] = useState<Map<number, any>>(new Map());
-  const [selectedTagFilter, setSelectedTagFilter] = useState<"ALL" | "ideal" | "engaged" | "active" | "idle" | "off">("ALL");
+  const [selectedTagFilter, setSelectedTagFilter] = useState<"ALL" | "ideal" | "engaged" | "active" | "idle" | "overdue_work" | "off">("ALL");
 
   // Shift Working Hours Policy State
   const [fullDayPolicyHours, setFullDayPolicyHours] = useState<number>(8);
@@ -401,6 +401,10 @@ export default function CEOFilterDashboard() {
       const isActiveShift = prod?.metrics?.active_shift_today ?? false;
       const loginTime = prod?.metrics?.login_time_today ?? null;
 
+      const projectsAssignedCount = prod?.metrics?.projects_assigned_count ?? empProjectsCount;
+      const projectsWorkedTodayCount = prod?.metrics?.projects_worked_today_count ?? 0;
+      const tasksWorkedTodayCount = prod?.metrics?.tasks_worked_today_count ?? 0;
+
       // Detect Repeated Tasks for this employee
       const titleMap = new Map<string, any[]>();
       for (const t of empTasks) {
@@ -438,7 +442,9 @@ export default function CEOFilterDashboard() {
       return {
         ...emp,
         totalTasks: empTasks.length,
-        assignedProjectsCount: empProjectsCount,
+        assignedProjectsCount: projectsAssignedCount,
+        projectsWorkedTodayCount,
+        tasksWorkedTodayCount,
         completedCount: empCompleted,
         activeTasksCount: empActiveTasks.length,
         inProgressCount: empInProgress,
@@ -1029,7 +1035,7 @@ export default function CEOFilterDashboard() {
 
         {/* 4 KPI Summary Cards with Quick Filter */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {/* 1. Ideal */}
+          {/* 1. Ideal (Task Active) */}
           <button
             type="button"
             onClick={() => setSelectedTagFilter(selectedTagFilter === "ideal" ? "ALL" : "ideal")}
@@ -1044,18 +1050,18 @@ export default function CEOFilterDashboard() {
                 🌟 Ideal
               </span>
               <span className="text-[10px] font-bold text-emerald-600 bg-emerald-100/70 px-1.5 py-0.5 rounded">
-                ≥75 pts
+                Active Task
               </span>
             </div>
             <div className="text-2xl font-black text-emerald-950 mt-1">
               {productivitySummary?.ideal_count ?? 0}
             </div>
             <div className="text-[10px] text-emerald-700 mt-0.5">
-              High efficiency & execution
+              Active tasks assigned
             </div>
           </button>
 
-          {/* 2. Engaged (Working on Task) */}
+          {/* 2. Engaged (Task Timer ON) */}
           <button
             type="button"
             onClick={() => setSelectedTagFilter(selectedTagFilter === "engaged" ? "ALL" : "engaged")}
@@ -1070,40 +1076,40 @@ export default function CEOFilterDashboard() {
                 ⚡ Engaged
               </span>
               <span className="text-[10px] font-bold text-sky-600 bg-sky-100/70 px-1.5 py-0.5 rounded">
-                Working
+                Timer ON
               </span>
             </div>
             <div className="text-2xl font-black text-sky-950 mt-1">
               {productivitySummary?.engaged_count ?? productivitySummary?.active_count ?? 0}
             </div>
             <div className="text-[10px] text-sky-700 mt-0.5">
-              Working on assigned tasks
+              Active task timer running
             </div>
           </button>
 
-          {/* 3. Under-utilized */}
+          {/* 3. Overdue Work */}
           <button
             type="button"
-            onClick={() => setSelectedTagFilter(selectedTagFilter === "idle" ? "ALL" : "idle")}
+            onClick={() => setSelectedTagFilter(selectedTagFilter === "overdue_work" || selectedTagFilter === "idle" ? "ALL" : "overdue_work")}
             className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-              selectedTagFilter === "idle"
+              selectedTagFilter === "overdue_work" || selectedTagFilter === "idle"
                 ? "bg-amber-50 border-amber-400 ring-2 ring-amber-500/20 shadow-xs"
                 : "bg-amber-50/40 border-amber-200 hover:bg-amber-50"
             }`}
           >
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-amber-900 flex items-center gap-1">
-                🟡 Under-utilized
+                ⚠️ Overdue Work
               </span>
               <span className="text-[10px] font-bold text-amber-700 bg-amber-100/70 px-1.5 py-0.5 rounded">
-                &lt;50 pts
+                Overdue
               </span>
             </div>
             <div className="text-2xl font-black text-amber-950 mt-1">
               {productivitySummary?.idle_count ?? 0}
             </div>
             <div className="text-[10px] text-amber-700 mt-0.5">
-              Low task hours vs shift
+              Active tasks past deadline
             </div>
           </button>
 
@@ -1132,6 +1138,28 @@ export default function CEOFilterDashboard() {
               On leave or non-working
             </div>
           </button>
+        </div>
+
+        {/* Live Workload Metrics Audit Bar */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 p-3 rounded-xl bg-slate-50 border border-slate-200/80 text-xs">
+          <div className="flex items-center justify-between px-3 py-1.5 bg-white rounded-lg border border-slate-200 shadow-2xs">
+            <span className="font-semibold text-slate-600">Projects Assigned:</span>
+            <span className="font-extrabold text-slate-900 font-mono text-sm">
+              {productivitySummary?.total_projects_assigned ?? 0}
+            </span>
+          </div>
+          <div className="flex items-center justify-between px-3 py-1.5 bg-white rounded-lg border border-slate-200 shadow-2xs">
+            <span className="font-semibold text-sky-800">Worked (Proj) Today:</span>
+            <span className="font-extrabold text-sky-950 font-mono text-sm">
+              {productivitySummary?.total_projects_worked_today ?? 0}
+            </span>
+          </div>
+          <div className="flex items-center justify-between px-3 py-1.5 bg-white rounded-lg border border-slate-200 shadow-2xs">
+            <span className="font-semibold text-emerald-800">Worked (Tasks) Today:</span>
+            <span className="font-extrabold text-emerald-950 font-mono text-sm">
+              {productivitySummary?.total_tasks_worked_today ?? 0}
+            </span>
+          </div>
         </div>
 
         {selectedTagFilter !== "ALL" && (
@@ -1260,7 +1288,23 @@ export default function CEOFilterDashboard() {
                 <TableHead className="font-bold min-w-[200px]">Team Member</TableHead>
                 <TableHead className="font-bold min-w-[85px]">Role</TableHead>
                 <TableHead className="font-bold text-center min-w-[125px]">Workload Status</TableHead>
-                <TableHead className="font-bold text-center min-w-[70px]">Projects</TableHead>
+                <TableHead className="font-bold text-center min-w-[75px]">
+                  <div className="flex flex-col items-center leading-tight">
+                    <span>Proj Assigned</span>
+                  </div>
+                </TableHead>
+                <TableHead className="font-bold text-center min-w-[85px]">
+                  <div className="flex flex-col items-center leading-tight">
+                    <span className="text-sky-700">Worked (Proj)</span>
+                    <span className="text-[9px] text-sky-600 font-normal">Today</span>
+                  </div>
+                </TableHead>
+                <TableHead className="font-bold text-center min-w-[85px]">
+                  <div className="flex flex-col items-center leading-tight">
+                    <span className="text-emerald-700">Worked (Tasks)</span>
+                    <span className="text-[9px] text-emerald-600 font-normal">Today</span>
+                  </div>
+                </TableHead>
                 <TableHead className="font-bold text-center min-w-[65px]">Total</TableHead>
                 <TableHead className="font-bold text-center min-w-[85px]">
                   <span className="flex items-center justify-center gap-1 text-purple-700">
@@ -1314,9 +1358,9 @@ export default function CEOFilterDashboard() {
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={15} className="text-center py-8">Calculating live team metrics...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={17} className="text-center py-8">Calculating live team metrics...</TableCell></TableRow>
               ) : filteredEmployeeMatrix.length === 0 ? (
-                <TableRow><TableCell colSpan={15} className="text-center text-slate-500 py-10">No employees match the selected workload filter.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={17} className="text-center text-slate-500 py-10">No employees match the selected workload filter.</TableCell></TableRow>
               ) : (
                 filteredEmployeeMatrix.map((emp) => (
                   <TableRow key={emp.id} className={`transition-colors ${emp.hasNoActiveTasks ? "bg-amber-50/30 hover:bg-amber-50/60" : "hover:bg-slate-50/80"}`}>
@@ -1357,6 +1401,16 @@ export default function CEOFilterDashboard() {
                     </TableCell>
 
                     <TableCell className="text-center font-bold text-slate-800">{emp.assignedProjectsCount}</TableCell>
+                    <TableCell className="text-center font-extrabold text-sky-900 bg-sky-50/50">
+                      <span className="px-2 py-0.5 rounded-full bg-sky-100/90 text-sky-900 border border-sky-300 font-mono text-xs">
+                        {emp.projectsWorkedTodayCount}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-center font-extrabold text-emerald-900 bg-emerald-50/50">
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-100/90 text-emerald-900 border border-emerald-300 font-mono text-xs">
+                        {emp.tasksWorkedTodayCount}
+                      </span>
+                    </TableCell>
                     <TableCell className="text-center font-bold text-slate-900">{emp.totalTasks}</TableCell>
                     
                     {/* Pending Tasks */}
@@ -1547,9 +1601,21 @@ export default function CEOFilterDashboard() {
           {selectedStaffForModal && (
             <div className="space-y-4 pt-2">
               {/* Summary Metric Ribbon */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-5 lg:grid-cols-10 gap-2">
                 <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-center">
-                  <div className="text-[10px] font-bold text-slate-500 uppercase">Total</div>
+                  <div className="text-[10px] font-bold text-slate-500 uppercase">Assigned Proj</div>
+                  <div className="text-lg font-black text-slate-900 mt-0.5">{selectedStaffForModal.assignedProjectsCount}</div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-sky-50 border border-sky-200 text-center">
+                  <div className="text-[10px] font-bold text-sky-700 uppercase">Worked (Proj)</div>
+                  <div className="text-lg font-black text-sky-950 mt-0.5">{selectedStaffForModal.projectsWorkedTodayCount}</div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-center">
+                  <div className="text-[10px] font-bold text-emerald-700 uppercase">Worked (Tasks)</div>
+                  <div className="text-lg font-black text-emerald-950 mt-0.5">{selectedStaffForModal.tasksWorkedTodayCount}</div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-center">
+                  <div className="text-[10px] font-bold text-slate-500 uppercase">Total Tasks</div>
                   <div className="text-lg font-black text-slate-900 mt-0.5">{selectedStaffForModal.totalTasks}</div>
                 </div>
                 <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-center">
