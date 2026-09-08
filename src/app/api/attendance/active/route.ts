@@ -21,11 +21,16 @@ async function ensureBreaksTable() {
       break_start DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       break_end DATETIME NULL,
       duration_minutes INT NULL,
+      paused_task_id INT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_ab_user (user_id),
       INDEX idx_ab_attendance (attendance_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
   );
+  // Idempotently add paused_task_id if table already existed without it
+  await pool.query(
+    `ALTER TABLE attendance_breaks ADD COLUMN IF NOT EXISTS paused_task_id INT NULL`
+  ).catch(() => {});
 }
 
 export async function GET() {
@@ -476,12 +481,52 @@ export async function POST(req: Request) {
         [attendanceId]
       );
 
+      // --- Auto-pause any active task timer ---
+      let pausedTaskId: number | null = null;
+      try {
+        const [activeTimers]: any = await pool.query(
+          `SELECT id, task_id,
+                  GREATEST(1, TIMESTAMPDIFF(MINUTE, started_at, CURRENT_TIMESTAMP)) as duration_mins
+           FROM task_time_logs
+           WHERE user_id = ? AND is_active = 1
+           ORDER BY id DESC LIMIT 1`,
+          [userId]
+        );
+        if (activeTimers.length > 0) {
+          const t = activeTimers[0];
+          pausedTaskId = t.task_id;
+          await pool.query(
+            `UPDATE task_time_logs
+             SET ended_at = CURRENT_TIMESTAMP, duration_minutes = ?,
+                 session_summary = 'Auto-paused on Break', is_active = 0
+             WHERE id = ?`,
+            [t.duration_mins, t.id]
+          );
+          // Update hours_spent on task
+          const [sumRes]: any = await pool.query(
+            `SELECT IFNULL(SUM(duration_minutes), 0) as total_mins
+             FROM task_time_logs WHERE task_id = ? AND is_active = 0`,
+            [t.task_id]
+          );
+          const totalHoursCalc = (parseFloat(sumRes[0]?.total_mins || 0) / 60).toFixed(2);
+          await pool.query(`UPDATE tasks SET hours_spent = ? WHERE id = ?`, [totalHoursCalc, t.task_id]);
+        }
+      } catch (timerErr) {
+        console.error("Break-start: failed to auto-pause task timer:", timerErr);
+      }
+
       await pool.query(
-        `INSERT INTO attendance_breaks (attendance_id, user_id, break_start) VALUES (?, ?, CURRENT_TIMESTAMP)`,
-        [attendanceId, userId]
+        `INSERT INTO attendance_breaks (attendance_id, user_id, break_start, paused_task_id)
+         VALUES (?, ?, CURRENT_TIMESTAMP, ?)
+         ON DUPLICATE KEY UPDATE break_start = CURRENT_TIMESTAMP`,
+        [attendanceId, userId, pausedTaskId]
       );
 
-      return NextResponse.json({ success: true, message: "Break started. Enjoy your break!" });
+      return NextResponse.json({
+        success: true,
+        paused_task_id: pausedTaskId,
+        message: "Break started. Enjoy your break!",
+      });
     }
 
     // BREAK-END ACTION
@@ -499,7 +544,9 @@ export async function POST(req: Request) {
       const attendanceId = openRows[0].id;
 
       const [activeBreak]: any = await pool.query(
-        `SELECT id, break_start FROM attendance_breaks WHERE attendance_id = ? AND break_end IS NULL ORDER BY break_start DESC LIMIT 1`,
+        `SELECT id, break_start, paused_task_id FROM attendance_breaks
+         WHERE attendance_id = ? AND break_end IS NULL
+         ORDER BY break_start DESC LIMIT 1`,
         [attendanceId]
       );
 
@@ -512,15 +559,49 @@ export async function POST(req: Request) {
       ));
 
       await pool.query(
-        `UPDATE attendance_breaks 
-         SET break_end = CURRENT_TIMESTAMP, duration_minutes = ? 
+        `UPDATE attendance_breaks
+         SET break_end = CURRENT_TIMESTAMP, duration_minutes = ?
          WHERE id = ?`,
         [durationMins, activeBreak[0].id]
       );
 
+      // --- Auto-resume the paused task timer (if any) ---
+      let resumedTaskId: number | null = null;
+      try {
+        const pausedTaskId = activeBreak[0].paused_task_id;
+        if (pausedTaskId) {
+          // Verify task is still open (not completed) before resuming
+          const [taskCheck]: any = await pool.query(
+            `SELECT id, status FROM tasks WHERE id = ? AND status NOT IN ('Completed', 'Done')`,
+            [pausedTaskId]
+          );
+          if (taskCheck.length > 0) {
+            // Ensure no other active timer exists for this user first
+            await pool.query(
+              `UPDATE task_time_logs
+               SET ended_at = CURRENT_TIMESTAMP,
+                   duration_minutes = GREATEST(1, TIMESTAMPDIFF(MINUTE, started_at, CURRENT_TIMESTAMP)),
+                   session_summary = 'Auto-closed duplicate on Break-End',
+                   is_active = 0
+               WHERE user_id = ? AND is_active = 1`,
+              [userId]
+            );
+            await pool.query(
+              `INSERT INTO task_time_logs (task_id, user_id, started_at, is_active, session_summary)
+               VALUES (?, ?, CURRENT_TIMESTAMP, 1, 'Auto-resumed after Break')`,
+              [pausedTaskId, userId]
+            );
+            resumedTaskId = pausedTaskId;
+          }
+        }
+      } catch (timerErr) {
+        console.error("Break-end: failed to auto-resume task timer:", timerErr);
+      }
+
       return NextResponse.json({
         success: true,
         break_duration_minutes: durationMins,
+        resumed_task_id: resumedTaskId,
         message: `Break ended. Duration: ${durationMins} minute${durationMins !== 1 ? "s" : ""}. Welcome back!`,
       });
     }

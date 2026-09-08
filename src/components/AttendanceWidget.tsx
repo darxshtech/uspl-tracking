@@ -437,6 +437,8 @@ export default function AttendanceWidget() {
       if (data.break_duration_minutes) {
         setTodayBreakMinutes(prev => prev + data.break_duration_minutes);
       }
+      // Notify timer banner & management monitor that a new timer session started
+      window.dispatchEvent(new Event("task-timer-updated"));
     } catch {
       setWarningModal("Failed to end break. Please try again.");
     } finally {
