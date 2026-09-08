@@ -52,10 +52,10 @@ export default async function AnalyticsPage() {
             </div>
             <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight flex items-center gap-2.5">
               <TrendingUp className="h-7 w-7 text-indigo-400" />
-              Employee Productivity & Ideal Tags Analytics Hub
+              Productivity & Workload Analytics Hub
             </h1>
             <p className="text-slate-300 text-xs md:text-sm max-w-3xl">
-              Multi-dimensional evaluation based on <strong>Working Shift Time</strong> (Attendance check-in to check-out vs task timer hours), <strong>Task Delivery</strong>, <strong>Subtask Checklists</strong>, and <strong>Project Engagement</strong>.
+              Multi-dimensional intelligence tracking <strong>Project Delivery Deadlines</strong>, <strong>Staff Workload Breakdown</strong> (Pending, In Progress, In QA, Incomplete & Done), <strong>Shift Time vs Logged Hours</strong>, and <strong>Ideal Performance Tags</strong>.
             </p>
           </div>
 

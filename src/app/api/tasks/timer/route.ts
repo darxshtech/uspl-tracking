@@ -176,6 +176,7 @@ export async function GET(req: Request) {
     const [activeRows]: any = await pool.query(
       `SELECT ttl.*, 
               t.id as task_id, t.title as task_title, t.priority, t.status as task_status,
+              t.progress_percentage, t.daily_summary, t.blockers,
               p.name as project_name,
               TIMESTAMPDIFF(SECOND, ttl.started_at, CURRENT_TIMESTAMP) as current_session_seconds
        FROM task_time_logs ttl
@@ -639,6 +640,106 @@ export async function POST(req: Request) {
         message: "Time log deleted successfully and task hours recalculated",
         total_hours: totalHours
       });
+    }
+
+    // -------------------------------------------------------------
+    // ACTION: 45-MINUTE TASK PROGRESS CHECK-IN
+    // -------------------------------------------------------------
+    if (action === "progress_checkin") {
+      const { task_id, progress_percentage, session_summary, blockers } = body;
+      if (!task_id) {
+        return NextResponse.json({ error: "task_id is required" }, { status: 400 });
+      }
+
+      const parsedProgress = progress_percentage !== undefined && progress_percentage !== null
+        ? Math.max(0, Math.min(100, parseInt(String(progress_percentage), 10)))
+        : null;
+
+      // Update task progress, summary, and blockers in database
+      await pool.query(
+        `UPDATE tasks 
+         SET progress_percentage = IFNULL(?, progress_percentage),
+             daily_summary = IFNULL(?, daily_summary),
+             blockers = IFNULL(?, blockers)
+         WHERE id = ?`,
+        [
+          parsedProgress,
+          session_summary ? session_summary.trim() : null,
+          blockers !== undefined ? blockers.trim() : null,
+          task_id
+        ]
+      );
+
+      // Record work accomplishment in daily_work audit table
+      try {
+        const todayStr = new Date().toISOString().split("T")[0];
+        const [taskRows]: any = await pool.query(
+          "SELECT title, project_id, status FROM tasks WHERE id = ?", 
+          [task_id]
+        );
+        const taskObj = taskRows[0];
+        if (taskObj && (session_summary || parsedProgress !== null)) {
+          await pool.query(
+            `INSERT INTO daily_work (user_id, project_id, task_id, date, hours_worked, work_description, status, remarks)
+             VALUES (?, ?, ?, ?, 0.75, ?, ?, ?)`,
+            [
+              currentUserId,
+              taskObj.project_id || null,
+              task_id,
+              todayStr,
+              session_summary ? session_summary.trim() : `45-min check-in: Progress set to ${parsedProgress}%`,
+              taskObj.status || "In Progress",
+              blockers ? blockers.trim() : null
+            ]
+          );
+        }
+      } catch (dwErr) {
+        console.error("daily_work log on progress checkin error:", dwErr);
+      }
+
+      // Record in-app notification for the user
+      try {
+        const [taskRows]: any = await pool.query("SELECT title FROM tasks WHERE id = ?", [task_id]);
+        const taskTitle = taskRows[0]?.title || "Task";
+        await pool.query(
+          `INSERT INTO notifications (user_id, title, message, type)
+           VALUES (?, ?, ?, 'task_progress')`,
+          [
+            currentUserId,
+            `⏱️ 45-Min Progress Check-In Saved`,
+            `Progress updated to ${parsedProgress}% for "${taskTitle}". Great job maintaining focus!`,
+          ]
+        );
+      } catch (_) {}
+
+      return NextResponse.json({
+        success: true,
+        message: "Task progress check-in saved successfully",
+        task_id,
+        progress_percentage: parsedProgress
+      });
+    }
+
+    // -------------------------------------------------------------
+    // ACTION: 45-MINUTE TASK UPDATE REMINDER NOTIFICATION DISPATCH
+    // -------------------------------------------------------------
+    if (action === "notify_reminder") {
+      const { task_id, elapsed_minutes } = body;
+      try {
+        const [taskRows]: any = await pool.query("SELECT title FROM tasks WHERE id = ?", [task_id]);
+        const taskTitle = taskRows[0]?.title || "Task";
+        await pool.query(
+          `INSERT INTO notifications (user_id, title, message, type)
+           VALUES (?, ?, ?, 'task_reminder')`,
+          [
+            currentUserId,
+            `⏱️ 45-Min Task Progress Reminder`,
+            `You've been focused on "${taskTitle}" for ${elapsed_minutes || 45} minutes. Please update your task progress!`,
+          ]
+        );
+      } catch (_) {}
+
+      return NextResponse.json({ success: true });
     }
 
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });

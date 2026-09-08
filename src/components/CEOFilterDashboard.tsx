@@ -30,15 +30,87 @@ import {
   CheckCircle,
   AlertCircle,
   Calendar,
-  CalendarDays,
+  Eye,
+  ListTodo,
+  Search,
+  CheckSquare,
   Hourglass,
   Layers,
-  ChevronRight,
-  ListTodo
+  Target
 } from "lucide-react";
 import { showToast, showError, showSuccess, showWarning } from "@/lib/swal";
 import { formatHoursAndMinutes } from "@/lib/timeUtils";
 import EmployeeProductivityTag from "@/components/EmployeeProductivityTag";
+
+// Helper to calculate project & task deadline status
+export const getDeadlineInfo = (targetDateStr: string | null | undefined, isComplete: boolean = false) => {
+  if (!targetDateStr) {
+    return {
+      formatted: "No deadline set",
+      badge: "No Deadline",
+      status: "none" as const,
+      color: "bg-slate-100 text-slate-600 border-slate-200",
+      daysDiff: null,
+    };
+  }
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(targetDateStr);
+  target.setHours(0, 0, 0, 0);
+
+  const formatted = target.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+
+  if (isComplete) {
+    return {
+      formatted,
+      badge: "Completed",
+      status: "completed" as const,
+      color: "bg-emerald-50 text-emerald-700 border-emerald-300 font-bold",
+      daysDiff: 0,
+    };
+  }
+
+  const diffTime = target.getTime() - today.getTime();
+  const daysDiff = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+  if (daysDiff < 0) {
+    return {
+      formatted,
+      badge: `Overdue by ${Math.abs(daysDiff)}d`,
+      status: "overdue" as const,
+      color: "bg-rose-100 text-rose-800 border-rose-300 font-extrabold",
+      daysDiff,
+    };
+  } else if (daysDiff === 0) {
+    return {
+      formatted,
+      badge: "Due Today",
+      status: "due_today" as const,
+      color: "bg-amber-100 text-amber-900 border-amber-400 font-black animate-pulse",
+      daysDiff,
+    };
+  } else if (daysDiff <= 3) {
+    return {
+      formatted,
+      badge: `${daysDiff}d left (Due Soon)`,
+      status: "due_soon" as const,
+      color: "bg-amber-50 text-amber-800 border-amber-300 font-bold",
+      daysDiff,
+    };
+  } else {
+    return {
+      formatted,
+      badge: `${daysDiff}d remaining`,
+      status: "on_track" as const,
+      color: "bg-emerald-50 text-emerald-800 border-emerald-200 font-semibold",
+      daysDiff,
+    };
+  }
+};
 
 export default function CEOFilterDashboard() {
   const [tasks, setTasks] = useState<any[]>([]);
@@ -66,7 +138,12 @@ export default function CEOFilterDashboard() {
   const [selectedProject, setSelectedProject] = useState("ALL");
   const [selectedStatus, setSelectedStatus] = useState("ALL");
   const [selectedAssignee, setSelectedAssignee] = useState("ALL");
-  const [activeWorkloadTab, setActiveWorkloadTab] = useState<"all" | "active" | "incomplete" | "overdue" | "idle">("all");
+  const [activeWorkloadTab, setActiveWorkloadTab] = useState<"all" | "active" | "has_incomplete" | "has_pending" | "idle">("all");
+
+  // Staff Work Modal State
+  const [selectedStaffForModal, setSelectedStaffForModal] = useState<any | null>(null);
+  const [staffModalFilter, setStaffModalFilter] = useState<"all" | "incomplete" | "pending" | "in_progress" | "testing" | "completed">("all");
+  const [staffModalSearch, setStaffModalSearch] = useState<string>("");
 
   useEffect(() => {
     fetchPolicy();
@@ -236,123 +313,6 @@ export default function CEOFilterDashboard() {
     };
   }, [fetchData, fetchProductivity, productivityPeriod]);
 
-  // India Standard Time today string 'YYYY-MM-DD'
-  const todayIST = useMemo(() => {
-    return new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Kolkata',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit'
-    }).format(new Date());
-  }, []);
-
-  // Helpers for task statuses
-  const isTaskCompleted = (status: string) => {
-    return ["Completed", "Ready for Demo", "Tested (PASS)"].includes(status);
-  };
-
-  const isTaskPending = (status: string) => {
-    return ["Planning", "Ready for Testing"].includes(status);
-  };
-
-  const isTaskInProgress = (status: string) => {
-    return ["In Progress", "Testing", "Changes Required"].includes(status);
-  };
-
-  const isTaskOverdue = (task: any) => {
-    if (!task?.target_date || isTaskCompleted(task.status)) return false;
-    const cleanTarget = String(task.target_date).split("T")[0];
-    return cleanTarget < todayIST;
-  };
-
-  const getDaysDifference = (targetDateStr: string | null | undefined, baseDateStr: string = todayIST): number => {
-    if (!targetDateStr) return 0;
-    const d1 = new Date(targetDateStr.split('T')[0] + "T00:00:00");
-    const d2 = new Date(baseDateStr.split('T')[0] + "T00:00:00");
-    if (isNaN(d1.getTime()) || isNaN(d2.getTime())) return 0;
-    const diffTime = d1.getTime() - d2.getTime();
-    return Math.round(diffTime / (1000 * 60 * 60 * 24));
-  };
-
-  const formatDateReadable = (dateStr: string | null | undefined): string => {
-    if (!dateStr) return "N/A";
-    try {
-      const clean = dateStr.split("T")[0];
-      const d = new Date(clean + "T00:00:00");
-      if (isNaN(d.getTime())) return clean;
-      return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-    } catch (_) {
-      return dateStr;
-    }
-  };
-
-  // Render deadline badge with countdown or overdue indicator
-  const renderDeadlineBadge = (dateStr: string | null | undefined, isFinished: boolean = false) => {
-    if (!dateStr) {
-      return <span className="text-slate-400 text-xs italic">No deadline set</span>;
-    }
-    const cleanDate = dateStr.split("T")[0];
-    const diff = getDaysDifference(cleanDate, todayIST);
-    const formatted = formatDateReadable(cleanDate);
-
-    if (isFinished) {
-      return (
-        <div className="flex flex-col items-start gap-0.5">
-          <span className="text-xs font-semibold text-slate-700">{formatted}</span>
-          <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-emerald-50 text-emerald-700 border-emerald-200">
-            ✓ Finished
-          </Badge>
-        </div>
-      );
-    }
-
-    if (diff < 0) {
-      return (
-        <div className="flex flex-col items-start gap-0.5">
-          <span className="text-xs font-bold text-red-600 flex items-center gap-1">
-            <AlertTriangle className="h-3 w-3 text-red-500 shrink-0" />
-            {formatted}
-          </span>
-          <Badge className="bg-red-600 hover:bg-red-700 text-white text-[10px] px-1.5 py-0 font-bold whitespace-nowrap animate-pulse">
-            🚨 Overdue by {Math.abs(diff)}d
-          </Badge>
-        </div>
-      );
-    }
-
-    if (diff === 0) {
-      return (
-        <div className="flex flex-col items-start gap-0.5">
-          <span className="text-xs font-bold text-amber-700 flex items-center gap-1">
-            <Clock className="h-3 w-3 text-amber-500 shrink-0" />
-            {formatted}
-          </span>
-          <Badge className="bg-amber-500 hover:bg-amber-600 text-white text-[10px] px-1.5 py-0 font-bold whitespace-nowrap">
-            ⚠️ Due Today
-          </Badge>
-        </div>
-      );
-    }
-
-    if (diff <= 3) {
-      return (
-        <div className="flex flex-col items-start gap-0.5">
-          <span className="text-xs font-bold text-amber-900">{formatted}</span>
-          <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-300 text-[10px] px-1.5 py-0 font-bold whitespace-nowrap">
-            ⏳ {diff} {diff === 1 ? "day" : "days"} left
-          </Badge>
-        </div>
-      );
-    }
-
-    return (
-      <div className="flex flex-col items-start gap-0.5">
-        <span className="text-xs font-semibold text-slate-800">{formatted}</span>
-        <span className="text-[10px] text-slate-500 font-medium">in {diff} days</span>
-      </div>
-    );
-  };
-
   // Helper to check if task is assigned to employee (single or multi-assignee)
   const isTaskAssignedToEmployee = (task: any, empId: number) => {
     if (String(task.assigned_to) === String(empId)) return true;
@@ -367,27 +327,61 @@ export default function CEOFilterDashboard() {
     return ["In Progress", "Planning", "Ready for Testing", "Testing", "Changes Required"].includes(status);
   };
 
-  // Calculate progress stats for each employee (with pending, incomplete, and overdue metrics)
+  // Precompute Project metrics with deadlines
+  const projectsWithMetrics = useMemo(() => {
+    return projects.map((p) => {
+      const pTasks = tasks.filter((t) => String(t.project_id) === String(p.id));
+      const totalTasks = pTasks.length > 0 ? pTasks.length : (p.total_tasks || 0);
+      const completedTasks = pTasks.length > 0 
+        ? pTasks.filter((t) => ["Completed", "Ready for Demo", "Tested (PASS)"].includes(t.status)).length 
+        : (p.completed_tasks || 0);
+      const pendingTasks = pTasks.filter((t) => t.status === "Pending" || t.status === "Planning").length;
+      const inProgressTasks = pTasks.filter((t) => t.status === "In Progress").length;
+      const testingTasks = pTasks.filter((t) => ["Ready for Testing", "Testing", "Changes Required"].includes(t.status)).length;
+      const incompleteTasks = Math.max(0, totalTasks - completedTasks);
+      const progressRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+      const deadlineInfo = getDeadlineInfo(p.target_date, totalTasks > 0 && completedTasks === totalTasks);
+
+      return {
+        ...p,
+        totalTasks,
+        completedTasks,
+        pendingTasks,
+        inProgressTasks,
+        testingTasks,
+        incompleteTasks,
+        progressRate,
+        deadlineInfo,
+      };
+    });
+  }, [projects, tasks]);
+
+  const projectMap = useMemo(() => {
+    const map = new Map<number, any>();
+    projectsWithMetrics.forEach((p) => map.set(p.id, p));
+    return map;
+  }, [projectsWithMetrics]);
+
+  // Calculate progress stats for each employee with Pending, Incomplete, In Progress & QA breakdown
   const employeeProgressList = useMemo(() => {
     return employees.map((emp) => {
-      const allEmpTasks = tasks.filter((t) => isTaskAssignedToEmployee(t, emp.id));
-      const empTasks = selectedProject === "ALL" 
-        ? allEmpTasks 
-        : allEmpTasks.filter((t) => String(t.project_id) === String(selectedProject));
-
+      const empTasks = tasks.filter((t) => isTaskAssignedToEmployee(t, emp.id));
       const empProjectsCount = projects.filter((p) => {
         const isMember = Array.isArray(p.members) && p.members.some((m: any) => String(m.id) === String(emp.id));
-        const hasTask = allEmpTasks.some((t) => String(t.project_id) === String(p.id));
+        const hasTask = empTasks.some((t) => String(t.project_id) === String(p.id));
         return isMember || hasTask;
       }).length;
       
-      const empCompleted = empTasks.filter((t) => isTaskCompleted(t.status)).length;
+      const empCompleted = empTasks.filter((t) => 
+        ["Completed", "Ready for Demo", "Tested (PASS)"].includes(t.status)
+      ).length;
+      
       const empActiveTasks = empTasks.filter((t) => isActiveTask(t.status));
-      const empInProgress = empTasks.filter((t) => isTaskInProgress(t.status)).length;
-      const empPending = empTasks.filter((t) => isTaskPending(t.status)).length;
-      const empIncomplete = empTasks.length - empCompleted;
-      const empOverdue = empTasks.filter((t) => isTaskOverdue(t)).length;
-      const empBlocked = empTasks.filter((t) => t.blockers && !isTaskCompleted(t.status)).length;
+      const empInProgress = empTasks.filter((t) => t.status === "In Progress").length;
+      const empPending = empTasks.filter((t) => t.status === "Pending" || t.status === "Planning").length;
+      const empTesting = empTasks.filter((t) => ["Ready for Testing", "Testing", "Changes Required"].includes(t.status)).length;
+      const empIncomplete = Math.max(0, empTasks.length - empCompleted);
+      const empBlocked = empTasks.filter((t) => t.blockers && t.status !== "Completed" && t.status !== "Ready for Demo").length;
       const empTotalHours = empTasks.reduce((sum, t) => sum + (parseFloat(t.hours_spent) || 0), 0);
       const empRate = empTasks.length > 0 ? Math.round((empCompleted / empTasks.length) * 100) : 0;
       
@@ -407,14 +401,13 @@ export default function CEOFilterDashboard() {
       return {
         ...emp,
         totalTasks: empTasks.length,
-        allTotalTasks: allEmpTasks.length,
         assignedProjectsCount: empProjectsCount,
         completedCount: empCompleted,
         activeTasksCount: empActiveTasks.length,
         inProgressCount: empInProgress,
         pendingCount: empPending,
+        testingCount: empTesting,
         incompleteCount: empIncomplete,
-        overdueCount: empOverdue,
         blockedCount: empBlocked,
         totalHours: empTotalHours,
         shiftHours,
@@ -426,14 +419,10 @@ export default function CEOFilterDashboard() {
         completionRate: empRate,
         hasNoActiveTasks,
         lastTask,
+        tasks: empTasks,
       };
     });
-  }, [employees, tasks, projects, productivityMap, selectedProject, todayIST]);
-
-  // Counts for workload tabs
-  const activeStaffCount = useMemo(() => employeeProgressList.filter((e) => e.activeTasksCount > 0).length, [employeeProgressList]);
-  const incompleteStaffCount = useMemo(() => employeeProgressList.filter((e) => e.incompleteCount > 0).length, [employeeProgressList]);
-  const overdueStaffCount = useMemo(() => employeeProgressList.filter((e) => e.overdueCount > 0).length, [employeeProgressList]);
+  }, [employees, tasks, projects, productivityMap]);
 
   // List of Developers & Testers with NO active tasks
   const idleEmployees = useMemo(() => {
@@ -457,11 +446,11 @@ export default function CEOFilterDashboard() {
       if (activeWorkloadTab === "active") {
         return emp.activeTasksCount > 0;
       }
-      if (activeWorkloadTab === "incomplete") {
+      if (activeWorkloadTab === "has_incomplete") {
         return emp.incompleteCount > 0;
       }
-      if (activeWorkloadTab === "overdue") {
-        return emp.overdueCount > 0;
+      if (activeWorkloadTab === "has_pending") {
+        return emp.pendingCount > 0;
       }
       if (activeWorkloadTab === "idle") {
         return emp.hasNoActiveTasks;
@@ -470,67 +459,23 @@ export default function CEOFilterDashboard() {
     });
   }, [employeeProgressList, selectedAssignee, activeWorkloadTab, selectedTagFilter, productivityMap]);
 
-  // Selected active project details & metrics
-  const activeProject = useMemo(() => {
-    if (selectedProject === "ALL") return null;
-    return projects.find((p) => String(p.id) === String(selectedProject)) || null;
-  }, [selectedProject, projects]);
-
-  const projectTaskStats = useMemo(() => {
-    if (!activeProject) return null;
-    const pTasks = tasks.filter((t) => String(t.project_id) === String(activeProject.id));
-    const completed = pTasks.filter((t) => isTaskCompleted(t.status)).length;
-    const inProgress = pTasks.filter((t) => isTaskInProgress(t.status)).length;
-    const pending = pTasks.filter((t) => isTaskPending(t.status)).length;
-    const incomplete = pTasks.length - completed;
-    const overdue = pTasks.filter((t) => isTaskOverdue(t)).length;
-    const rate = pTasks.length > 0 ? Math.round((completed / pTasks.length) * 100) : 0;
-    return {
-      total: pTasks.length,
-      completed,
-      inProgress,
-      pending,
-      incomplete,
-      overdue,
-      completionRate: rate,
-    };
-  }, [activeProject, tasks, todayIST]);
-
-  // Filter tasks based on selections (including pending, incomplete, and overdue)
-  const filteredTasks = useMemo(() => {
-    return tasks.filter((t) => {
-      const matchProject = selectedProject === "ALL" || String(t.project_id) === String(selectedProject);
-      const matchAssignee = selectedAssignee === "ALL" || isTaskAssignedToEmployee(t, parseInt(selectedAssignee, 10));
-      
-      let matchStatus = true;
-      if (selectedStatus === "ALL") {
-        matchStatus = true;
-      } else if (selectedStatus === "INCOMPLETE") {
-        matchStatus = !isTaskCompleted(t.status);
-      } else if (selectedStatus === "PENDING") {
-        matchStatus = isTaskPending(t.status);
-      } else if (selectedStatus === "OVERDUE") {
-        matchStatus = isTaskOverdue(t);
-      } else if (selectedStatus === "COMPLETED") {
-        matchStatus = isTaskCompleted(t.status);
-      } else {
-        matchStatus = t.status === selectedStatus;
-      }
-
-      return matchProject && matchStatus && matchAssignee;
-    });
-  }, [tasks, selectedProject, selectedAssignee, selectedStatus, todayIST]);
+  // Filter tasks based on selections
+  const filteredTasks = tasks.filter((t) => {
+    const matchProject = selectedProject === "ALL" || String(t.project_id) === String(selectedProject);
+    const matchStatus = selectedStatus === "ALL" || t.status === selectedStatus;
+    const matchAssignee = selectedAssignee === "ALL" || isTaskAssignedToEmployee(t, parseInt(selectedAssignee, 10));
+    return matchProject && matchStatus && matchAssignee;
+  });
 
   const getStatusBadge = (status: string) => {
     switch (status) {
+      case "Pending":
       case "Planning":
-        return <Badge className="bg-purple-600 text-white font-bold whitespace-nowrap">Planning</Badge>;
+        return <Badge className="bg-purple-600 text-white font-bold whitespace-nowrap">Planning / Pending</Badge>;
       case "In Progress":
         return <Badge className="bg-sky-500 text-white font-bold whitespace-nowrap">In Progress</Badge>;
       case "Ready for Testing":
         return <Badge className="bg-amber-500 text-white font-bold animate-pulse whitespace-nowrap">Ready for Testing</Badge>;
-      case "Testing":
-        return <Badge className="bg-blue-600 text-white font-bold whitespace-nowrap">Testing</Badge>;
       case "Tested (PASS)":
         return <Badge className="bg-emerald-600 text-white font-bold whitespace-nowrap">Tested (PASS)</Badge>;
       case "Ready for Demo":
@@ -699,7 +644,174 @@ export default function CEOFilterDashboard() {
       {/* 3. Real-time KPI Summary & Daily/Monthly Visual Progress Charts */}
       <DailyMonthlyProgressSummary tasks={tasks} onRefresh={() => fetchData(false)} />
 
-      {/* 4. Filter Control Bar */}
+      {/* 4. Active Projects & Delivery Deadlines Roadmap Overview Deck */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100">
+                <Target className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                  Active Projects & Delivery Deadlines Roadmap
+                  <Badge variant="outline" className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border-indigo-200">
+                    {projectsWithMetrics.length} {projectsWithMetrics.length === 1 ? "Project" : "Projects"}
+                  </Badge>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Tracking project deadlines, target delivery dates, completion trajectories, and deliverables across teams.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {(() => {
+              const overdueProjects = projectsWithMetrics.filter(p => p.deadlineInfo.status === "overdue").length;
+              const dueSoonProjects = projectsWithMetrics.filter(p => p.deadlineInfo.status === "due_soon" || p.deadlineInfo.status === "due_today").length;
+              const onTrackProjects = projectsWithMetrics.filter(p => p.deadlineInfo.status === "on_track").length;
+              return (
+                <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                  {overdueProjects > 0 && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 font-bold border border-rose-200 text-[11px]">
+                      <AlertTriangle className="h-3 w-3 text-rose-600" />
+                      {overdueProjects} Overdue
+                    </span>
+                  )}
+                  {dueSoonProjects > 0 && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 font-bold border border-amber-200 text-[11px]">
+                      <Clock className="h-3 w-3 text-amber-600" />
+                      {dueSoonProjects} Due Soon
+                    </span>
+                  )}
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 font-semibold border border-emerald-200 text-[11px]">
+                    <CheckCircle className="h-3 w-3 text-emerald-600" />
+                    {onTrackProjects} On Track
+                  </span>
+                  {selectedProject !== "ALL" && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setSelectedProject("ALL")}
+                      className="h-7 text-xs font-bold text-sky-600 hover:text-sky-800 hover:bg-sky-50 px-2"
+                    >
+                      Clear Filter (Show All)
+                    </Button>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+
+        {/* Project Cards Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 pt-1">
+          {projectsWithMetrics.map((p) => {
+            const isSelected = selectedProject === String(p.id);
+            return (
+              <div
+                key={p.id}
+                onClick={() => setSelectedProject(isSelected ? "ALL" : String(p.id))}
+                className={`p-4 rounded-xl border transition-all cursor-pointer relative overflow-hidden flex flex-col justify-between group ${
+                  isSelected
+                    ? "bg-sky-50/50 border-sky-400 ring-2 ring-sky-400/30 shadow-md"
+                    : "bg-white border-slate-200 hover:border-slate-300 hover:shadow-sm"
+                }`}
+              >
+                <div className="space-y-2.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-bold text-sm text-slate-900 group-hover:text-sky-700 transition-colors truncate">
+                          {p.name}
+                        </span>
+                        {Boolean(p.is_fast_track) && (
+                          <Badge className="bg-amber-500 text-white text-[9px] px-1.5 py-0">
+                            Fast-Track
+                          </Badge>
+                        )}
+                      </div>
+                      {p.description && (
+                        <p className="text-[11px] text-slate-500 line-clamp-1 mt-0.5">
+                          {p.description}
+                        </p>
+                      )}
+                    </div>
+
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] border shrink-0 ${p.deadlineInfo.color}`}>
+                      <Calendar className="h-3 w-3 shrink-0" />
+                      {p.deadlineInfo.badge}
+                    </span>
+                  </div>
+
+                  {/* Project Deadline Date details */}
+                  <div className="flex items-center justify-between text-[11px] bg-slate-50 p-2 rounded-lg border border-slate-150">
+                    <span className="text-slate-600 font-medium flex items-center gap-1">
+                      <Calendar className="h-3 w-3 text-indigo-500" /> Project Deadline:
+                    </span>
+                    <span className="font-bold text-slate-900">
+                      {p.deadlineInfo.formatted}
+                    </span>
+                  </div>
+
+                  {/* Task Delivery Progress Bar */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-slate-600 font-medium">Task Delivery:</span>
+                      <span className="font-bold text-slate-900">
+                        {p.completedTasks}/{p.totalTasks} Done ({p.progressRate}%)
+                      </span>
+                    </div>
+                    <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                      <div
+                        className={`h-full transition-all ${
+                          p.progressRate === 100
+                            ? "bg-emerald-500"
+                            : p.progressRate >= 50
+                            ? "bg-sky-500"
+                            : "bg-amber-500"
+                        }`}
+                        style={{ width: `${p.progressRate}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Breakdown badges */}
+                  <div className="flex items-center justify-between gap-1 text-[10px] pt-1">
+                    <span className="text-slate-600">
+                      Remaining: <strong className="text-rose-700 font-bold">{p.incompleteTasks} Incomplete</strong>
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {p.pendingTasks > 0 && (
+                        <span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 rounded border border-purple-200 font-semibold">
+                          {p.pendingTasks} Pending
+                        </span>
+                      )}
+                      {p.inProgressTasks > 0 && (
+                        <span className="px-1.5 py-0.5 bg-sky-50 text-sky-700 rounded border border-sky-200 font-semibold">
+                          {p.inProgressTasks} In Prog
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-3 mt-3 border-t border-slate-150 flex items-center justify-between text-[11px]">
+                  <span className="text-slate-500 font-medium">
+                    {Array.isArray(p.members) ? `${p.members.length} team members` : "Team assigned"}
+                  </span>
+                  <span className={`font-bold transition-colors ${isSelected ? "text-sky-700 font-black" : "text-slate-500 group-hover:text-slate-800"}`}>
+                    {isSelected ? "✓ Active Filter" : "Filter Dashboard →"}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 5. Filter Control Bar */}
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
           <div className="flex items-center gap-2 text-sm font-bold text-slate-800">
@@ -780,19 +892,16 @@ export default function CEOFilterDashboard() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-600 uppercase">Project</label>
+            <label className="text-xs font-bold text-slate-600 uppercase">Project (with Deadline)</label>
             <Select value={selectedProject} onValueChange={(val) => setSelectedProject(val || "ALL")}>
               <SelectTrigger><SelectValue placeholder="All Projects" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="ALL">All Projects</SelectItem>
-                {projects.map((p) => {
-                  const deadlineStr = p.target_date ? `(Due: ${p.target_date.split("T")[0]})` : "";
-                  return (
-                    <SelectItem key={p.id} value={p.id.toString()}>
-                      {p.name} {deadlineStr}
-                    </SelectItem>
-                  );
-                })}
+                {projectsWithMetrics.map((p) => (
+                  <SelectItem key={p.id} value={p.id.toString()}>
+                    {p.name} {p.target_date ? `(Due: ${p.deadlineInfo.formatted} • ${p.deadlineInfo.badge})` : ""}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -811,16 +920,12 @@ export default function CEOFilterDashboard() {
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-600 uppercase">Task Status Filter</label>
+            <label className="text-xs font-bold text-slate-600 uppercase">Task Status</label>
             <Select value={selectedStatus} onValueChange={(val) => setSelectedStatus(val || "ALL")}>
               <SelectTrigger><SelectValue placeholder="All Statuses" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="ALL">All Statuses</SelectItem>
-                <SelectItem value="INCOMPLETE">⏳ Incomplete (Active & Pending)</SelectItem>
-                <SelectItem value="PENDING">🕒 Pending (Planning & Ready for QA)</SelectItem>
-                <SelectItem value="OVERDUE">🚨 Overdue Tasks</SelectItem>
-                <SelectItem value="COMPLETED">✅ Completed & Verified</SelectItem>
-                <SelectItem value="Planning">Planning</SelectItem>
+                <SelectItem value="Planning">Planning / Pending</SelectItem>
                 <SelectItem value="In Progress">In Progress</SelectItem>
                 <SelectItem value="Ready for Testing">Ready for Testing</SelectItem>
                 <SelectItem value="Testing">Testing</SelectItem>
@@ -833,182 +938,6 @@ export default function CEOFilterDashboard() {
           </div>
         </div>
       </div>
-
-      {/* 4.1 Selected Project Spotlight & Target Deadline Banner */}
-      {activeProject && projectTaskStats && (
-        <div className="rounded-2xl border-2 border-indigo-300 bg-gradient-to-r from-indigo-50/90 via-sky-50/70 to-indigo-50/90 p-5 shadow-md space-y-4 animate-fade-in relative overflow-hidden">
-          <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
-            <div className="space-y-1.5 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <Badge className="bg-indigo-600 text-white font-bold text-[11px] px-2.5 py-0.5 shadow-xs">
-                  🎯 Project Delivery Spotlight
-                </Badge>
-                <span className="text-xs font-bold text-slate-700 bg-white/90 px-2.5 py-0.5 rounded-full border border-indigo-200">
-                  Status: {activeProject.status || "Active"}
-                </span>
-                {activeProject.is_fast_track === 1 && (
-                  <Badge className="bg-amber-500 text-white text-[10px] font-bold">
-                    ⚡ Fast Track
-                  </Badge>
-                )}
-              </div>
-              <h3 className="text-xl font-black text-slate-900 flex items-center gap-2">
-                <Briefcase className="h-5 w-5 text-indigo-600 shrink-0" />
-                <span className="truncate">{activeProject.name}</span>
-              </h3>
-              {activeProject.description && (
-                <p className="text-xs text-slate-600 max-w-3xl line-clamp-2">
-                  {activeProject.description}
-                </p>
-              )}
-            </div>
-
-            {/* Project Target Deadline Callout */}
-            <div className="flex items-center gap-3 bg-white p-3.5 rounded-2xl border border-indigo-200 shadow-xs shrink-0 self-stretch sm:self-auto">
-              <div className="p-2.5 rounded-xl bg-indigo-100 text-indigo-700">
-                <CalendarDays className="h-6 w-6" />
-              </div>
-              <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
-                  Project Target Deadline
-                </span>
-                <div className="mt-0.5">
-                  {renderDeadlineBadge(activeProject.target_date, activeProject.status === "Completed")}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Project Tasks & Workload Breakdown Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 pt-2 border-t border-indigo-200/80">
-            <div className="p-2.5 rounded-xl bg-white border border-indigo-100 shadow-2xs">
-              <span className="text-[11px] font-bold text-slate-500 block">Total Tasks</span>
-              <span className="text-base font-black text-slate-900">{projectTaskStats.total}</span>
-            </div>
-            <div className="p-2.5 rounded-xl bg-emerald-50/80 border border-emerald-200 shadow-2xs">
-              <span className="text-[11px] font-bold text-emerald-700 block">Completed</span>
-              <span className="text-base font-black text-emerald-900">{projectTaskStats.completed}</span>
-            </div>
-            <div className="p-2.5 rounded-xl bg-amber-50/80 border border-amber-200 shadow-2xs">
-              <span className="text-[11px] font-bold text-amber-700 block">Incomplete</span>
-              <div className="flex items-baseline gap-1">
-                <span className="text-base font-black text-amber-900">{projectTaskStats.incomplete}</span>
-                <span className="text-[10px] font-semibold text-amber-700">
-                  ({projectTaskStats.inProgress} working)
-                </span>
-              </div>
-            </div>
-            <div className="p-2.5 rounded-xl bg-purple-50/80 border border-purple-200 shadow-2xs">
-              <span className="text-[11px] font-bold text-purple-700 block">Pending / QA</span>
-              <span className="text-base font-black text-purple-900">{projectTaskStats.pending}</span>
-            </div>
-            <div className="p-2.5 rounded-xl bg-red-50/80 border border-red-200 shadow-2xs col-span-2 sm:col-span-1">
-              <span className="text-[11px] font-bold text-red-700 block">Overdue Tasks</span>
-              <span className="text-base font-black text-red-900">{projectTaskStats.overdue}</span>
-            </div>
-          </div>
-
-          {/* Progress Bar & Actions */}
-          <div className="space-y-1.5 pt-1">
-            <div className="flex items-center justify-between text-xs font-bold">
-              <span className="text-slate-700">Overall Project Completion</span>
-              <span className="text-indigo-700 font-extrabold">{projectTaskStats.completionRate}%</span>
-            </div>
-            <div className="w-full bg-indigo-100 rounded-full h-2.5 overflow-hidden">
-              <div
-                className="bg-gradient-to-r from-indigo-500 to-sky-500 h-full transition-all duration-500"
-                style={{ width: `${projectTaskStats.completionRate}%` }}
-              />
-            </div>
-            <div className="flex items-center justify-between pt-1">
-              <span className="text-[11px] text-slate-500">
-                Viewing filtered workload for <strong>{activeProject.name}</strong>
-              </span>
-              <button
-                type="button"
-                onClick={() => setSelectedProject("ALL")}
-                className="text-xs font-bold text-indigo-700 hover:text-indigo-900 hover:underline flex items-center gap-1"
-              >
-                Clear Project Filter (View All)
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 4.2 All Company Projects Deadlines & Work In Progress Overview Strip */}
-      {selectedProject === "ALL" && projects.length > 0 && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-3.5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <CalendarDays className="h-5 w-5 text-indigo-600" />
-              <h3 className="text-sm font-bold text-slate-900">
-                Company Projects Deadlines & Delivery Overview
-              </h3>
-            </div>
-            <span className="text-xs text-slate-500 font-medium">
-              Click any project card to filter team deliverables
-            </span>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {projects.map((p) => {
-              const pTasks = tasks.filter((t) => String(t.project_id) === String(p.id));
-              const pCompleted = pTasks.filter((t) => isTaskCompleted(t.status)).length;
-              const pPending = pTasks.filter((t) => isTaskPending(t.status)).length;
-              const pIncomplete = pTasks.length - pCompleted;
-              const pOverdue = pTasks.filter((t) => isTaskOverdue(t)).length;
-              const pRate = pTasks.length > 0 ? Math.round((pCompleted / pTasks.length) * 100) : 0;
-
-              return (
-                <div
-                  key={p.id}
-                  onClick={() => setSelectedProject(String(p.id))}
-                  className="p-3.5 rounded-xl border border-slate-200 hover:border-indigo-400 bg-slate-50/50 hover:bg-indigo-50/30 transition-all cursor-pointer shadow-2xs space-y-2.5 group"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="text-xs font-bold text-slate-900 group-hover:text-indigo-700 truncate block">
-                      {p.name}
-                    </span>
-                    {pOverdue > 0 && (
-                      <span className="text-[10px] font-black text-red-600 bg-red-100 px-1.5 py-0.5 rounded shrink-0">
-                        {pOverdue} overdue
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Target Deadline */}
-                  <div className="text-xs">
-                    <span className="text-[10px] font-semibold text-slate-500 block">Project Deadline:</span>
-                    <div className="mt-0.5">
-                      {renderDeadlineBadge(p.target_date, p.status === "Completed")}
-                    </div>
-                  </div>
-
-                  {/* Task stats and progress */}
-                  <div className="pt-2 border-t border-slate-200/80 space-y-1.5">
-                    <div className="flex items-center justify-between text-[11px] text-slate-600 font-semibold">
-                      <span>{pCompleted}/{pTasks.length} Done</span>
-                      {pPending > 0 && (
-                        <span className="text-purple-700 text-[10px] font-bold">
-                          {pPending} pending
-                        </span>
-                      )}
-                      <span className="text-indigo-600 font-bold">{pRate}%</span>
-                    </div>
-                    <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
-                      <div
-                        className="bg-indigo-600 h-full rounded-full transition-all"
-                        style={{ width: `${pRate}%` }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       {/* 4.5 Workforce Productivity & Utilization Analytics */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
@@ -1176,7 +1105,7 @@ export default function CEOFilterDashboard() {
         )}
       </div>
 
-      {/* 5. Employee Progress Breakdown Matrix with Workload Tabs */}
+      {/* 5. Employee Progress Breakdown Matrix with Workload Tabs & Pending/Incomplete Audit */}
       <div className="space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
@@ -1185,7 +1114,7 @@ export default function CEOFilterDashboard() {
               Live Employee Deliverables & Workload Matrix
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Auditing employee active tasks, completed ratios, and bench availability.
+              Auditing staff work: <strong>Pending</strong>, <strong>In Progress</strong>, <strong>In QA</strong>, <strong>Incomplete</strong>, and completed ratios.
             </p>
           </div>
 
@@ -1203,38 +1132,38 @@ export default function CEOFilterDashboard() {
             <button
               type="button"
               onClick={() => setActiveWorkloadTab("active")}
-              className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors flex items-center gap-1 cursor-pointer ${
+              className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
                 activeWorkloadTab === "active" ? "bg-emerald-600 text-white shadow-2xs" : "text-emerald-700 hover:bg-emerald-50"
               }`}
             >
-              <CheckCircle className="h-3 w-3" /> Active ({activeStaffCount})
+              <CheckCircle className="h-3 w-3" /> Active ({employeeProgressList.filter(e => e.activeTasksCount > 0).length})
             </button>
             <button
               type="button"
-              onClick={() => setActiveWorkloadTab("incomplete")}
-              className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors flex items-center gap-1 cursor-pointer ${
-                activeWorkloadTab === "incomplete" ? "bg-amber-500 text-white shadow-2xs" : "text-amber-800 hover:bg-amber-50"
+              onClick={() => setActiveWorkloadTab("has_incomplete")}
+              className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                activeWorkloadTab === "has_incomplete" ? "bg-rose-600 text-white shadow-2xs" : "text-rose-700 hover:bg-rose-50"
               }`}
             >
-              <Hourglass className="h-3 w-3" /> Incomplete / Pending ({incompleteStaffCount})
+              <Hourglass className="h-3 w-3" /> Has Incomplete ({employeeProgressList.filter(e => e.incompleteCount > 0).length})
             </button>
             <button
               type="button"
-              onClick={() => setActiveWorkloadTab("overdue")}
-              className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors flex items-center gap-1 cursor-pointer ${
-                activeWorkloadTab === "overdue" ? "bg-red-600 text-white shadow-2xs" : "text-red-700 hover:bg-red-50"
+              onClick={() => setActiveWorkloadTab("has_pending")}
+              className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                activeWorkloadTab === "has_pending" ? "bg-purple-600 text-white shadow-2xs" : "text-purple-700 hover:bg-purple-50"
               }`}
             >
-              <AlertTriangle className="h-3 w-3" /> Overdue Tasks ({overdueStaffCount})
+              <Clock className="h-3 w-3" /> Has Pending ({employeeProgressList.filter(e => e.pendingCount > 0).length})
             </button>
             <button
               type="button"
               onClick={() => setActiveWorkloadTab("idle")}
-              className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors flex items-center gap-1 cursor-pointer ${
-                activeWorkloadTab === "idle" ? "bg-slate-800 text-white shadow-2xs" : "text-slate-600 hover:bg-slate-200/60"
+              className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                activeWorkloadTab === "idle" ? "bg-amber-500 text-white shadow-2xs" : "text-amber-700 hover:bg-amber-50"
               }`}
             >
-              <AlertCircle className="h-3 w-3" /> Bench / Idle ({idleEmployees.length})
+              <AlertCircle className="h-3 w-3" /> On Bench ({idleEmployees.length})
             </button>
           </div>
         </div>
@@ -1243,15 +1172,36 @@ export default function CEOFilterDashboard() {
           <Table className="min-w-[1100px]">
             <TableHeader className="bg-slate-50">
               <TableRow>
-                <TableHead className="font-bold min-w-[210px]">Team Member</TableHead>
-                <TableHead className="font-bold min-w-[90px]">Role</TableHead>
-                <TableHead className="font-bold text-center min-w-[130px]">Workload Status</TableHead>
+                <TableHead className="font-bold min-w-[200px]">Team Member</TableHead>
+                <TableHead className="font-bold min-w-[85px]">Role</TableHead>
+                <TableHead className="font-bold text-center min-w-[125px]">Workload Status</TableHead>
                 <TableHead className="font-bold text-center min-w-[70px]">Projects</TableHead>
-                <TableHead className="font-bold text-center min-w-[75px]">Total Tasks</TableHead>
-                <TableHead className="font-bold text-center min-w-[80px]">Completed</TableHead>
-                <TableHead className="font-bold text-center min-w-[95px]">Incomplete</TableHead>
-                <TableHead className="font-bold text-center min-w-[80px]">Pending</TableHead>
-                <TableHead className="font-bold text-center min-w-[80px]">Overdue</TableHead>
+                <TableHead className="font-bold text-center min-w-[65px]">Total</TableHead>
+                <TableHead className="font-bold text-center min-w-[85px]">
+                  <span className="flex items-center justify-center gap-1 text-purple-700">
+                    <Clock className="h-3 w-3" /> Pending
+                  </span>
+                </TableHead>
+                <TableHead className="font-bold text-center min-w-[95px]">
+                  <span className="flex items-center justify-center gap-1 text-sky-700">
+                    <Flame className="h-3 w-3" /> In Progress
+                  </span>
+                </TableHead>
+                <TableHead className="font-bold text-center min-w-[80px]">
+                  <span className="flex items-center justify-center gap-1 text-amber-700">
+                    In QA
+                  </span>
+                </TableHead>
+                <TableHead className="font-bold text-center min-w-[95px]">
+                  <span className="flex items-center justify-center gap-1 text-rose-700">
+                    <Hourglass className="h-3 w-3" /> Incomplete
+                  </span>
+                </TableHead>
+                <TableHead className="font-bold text-center min-w-[80px]">
+                  <span className="flex items-center justify-center gap-1 text-emerald-700">
+                    <CheckCircle className="h-3 w-3" /> Done
+                  </span>
+                </TableHead>
                 <TableHead className="font-bold text-center min-w-[130px]">
                   <div className="flex flex-col items-center leading-tight">
                     <span className="flex items-center gap-1 text-slate-800">
@@ -1262,20 +1212,21 @@ export default function CEOFilterDashboard() {
                     </span>
                   </div>
                 </TableHead>
-                <TableHead className="font-bold text-center min-w-[125px]">
+                <TableHead className="font-bold text-center min-w-[120px]">
                   <div className="flex flex-col items-center leading-tight">
-                    <span className="text-slate-800">Task Logged</span>
-                    <span className="text-[10px] text-slate-500 font-normal">Active & Done</span>
+                    <span className="text-slate-800">Task Hours</span>
+                    <span className="text-[10px] text-slate-500 font-normal">Logged Time</span>
                   </div>
                 </TableHead>
-                <TableHead className="font-bold text-right min-w-[110px]">Completion</TableHead>
+                <TableHead className="font-bold text-center min-w-[110px]">Progress</TableHead>
+                <TableHead className="font-bold text-center min-w-[100px]">Action</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={12} className="text-center py-8">Calculating live team metrics...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={14} className="text-center py-8">Calculating live team metrics...</TableCell></TableRow>
               ) : filteredEmployeeMatrix.length === 0 ? (
-                <TableRow><TableCell colSpan={12} className="text-center text-slate-500 py-10">No employees match the selected workload filter.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={14} className="text-center text-slate-500 py-10">No employees match the selected workload filter.</TableCell></TableRow>
               ) : (
                 filteredEmployeeMatrix.map((emp) => (
                   <TableRow key={emp.id} className={`transition-colors ${emp.hasNoActiveTasks ? "bg-amber-50/30 hover:bg-amber-50/60" : "hover:bg-slate-50/80"}`}>
@@ -1318,58 +1269,57 @@ export default function CEOFilterDashboard() {
                     <TableCell className="text-center font-bold text-slate-800">{emp.assignedProjectsCount}</TableCell>
                     <TableCell className="text-center font-bold text-slate-900">{emp.totalTasks}</TableCell>
                     
-                    {/* Completed */}
-                    <TableCell className="text-center">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
-                        {emp.completedCount}
-                      </span>
-                    </TableCell>
-
-                    {/* Incomplete */}
-                    <TableCell className="text-center">
-                      {emp.incompleteCount > 0 ? (
-                        <div className="inline-flex flex-col items-center">
-                          <span
-                            className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800"
-                            title={`${emp.inProgressCount} in progress / testing, ${emp.pendingCount} pending`}
-                          >
-                            {emp.incompleteCount}
-                          </span>
-                          <span className="text-[9px] text-amber-700 font-semibold mt-0.5">
-                            ({emp.inProgressCount} active)
-                          </span>
-                        </div>
-                      ) : (
-                        <span className="text-slate-400 text-xs">0</span>
-                      )}
-                    </TableCell>
-
-                    {/* Pending */}
+                    {/* Pending Tasks */}
                     <TableCell className="text-center">
                       {emp.pendingCount > 0 ? (
-                        <span
-                          className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-800"
-                          title="Planning & Ready for QA"
-                        >
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-800 border border-purple-200">
                           {emp.pendingCount}
                         </span>
                       ) : (
-                        <span className="text-slate-400 text-xs">0</span>
+                        <span className="text-slate-300 text-xs">0</span>
                       )}
                     </TableCell>
 
-                    {/* Overdue */}
+                    {/* In Progress Tasks */}
                     <TableCell className="text-center">
-                      {emp.overdueCount > 0 ? (
-                        <span
-                          className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700 animate-pulse"
-                          title="Tasks past target deadline"
-                        >
-                          🚨 {emp.overdueCount}
+                      {emp.inProgressCount > 0 ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-sky-100 text-sky-800 border border-sky-200">
+                          {emp.inProgressCount}
                         </span>
                       ) : (
-                        <span className="text-slate-400 text-xs">0</span>
+                        <span className="text-slate-300 text-xs">0</span>
                       )}
+                    </TableCell>
+
+                    {/* In QA / Testing Tasks */}
+                    <TableCell className="text-center">
+                      {emp.testingCount > 0 ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                          {emp.testingCount}
+                        </span>
+                      ) : (
+                        <span className="text-slate-300 text-xs">0</span>
+                      )}
+                    </TableCell>
+
+                    {/* Incomplete / Remaining Tasks */}
+                    <TableCell className="text-center">
+                      {emp.incompleteCount > 0 ? (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-rose-50 text-rose-700 border border-rose-200 shadow-2xs">
+                          {emp.incompleteCount}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          0
+                        </span>
+                      )}
+                    </TableCell>
+
+                    {/* Completed Tasks */}
+                    <TableCell className="text-center">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                        {emp.completedCount}
+                      </span>
                     </TableCell>
                     
                     {/* Shift Hours Cell */}
@@ -1408,9 +1358,9 @@ export default function CEOFilterDashboard() {
                       </div>
                     </TableCell>
 
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <div className="w-16 bg-slate-100 rounded-full h-2 overflow-hidden hidden sm:block">
+                    <TableCell className="text-center">
+                      <div className="flex items-center justify-center gap-1.5">
+                        <div className="w-14 bg-slate-100 rounded-full h-2 overflow-hidden hidden sm:block">
                           <div
                             className={`h-full ${
                               emp.completionRate === 100
@@ -1425,6 +1375,24 @@ export default function CEOFilterDashboard() {
                         <span className="font-black text-slate-900 text-xs">{emp.completionRate}%</span>
                       </div>
                     </TableCell>
+
+                    {/* Action / View Staff Work */}
+                    <TableCell className="text-center">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setSelectedStaffForModal(emp);
+                          setStaffModalFilter("all");
+                          setStaffModalSearch("");
+                        }}
+                        className="h-7 px-2 text-[11px] font-bold bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-300 shadow-2xs gap-1 cursor-pointer"
+                        title={`Inspect pending, incomplete, and active tasks for ${emp.name}`}
+                      >
+                        <Eye className="h-3 w-3 text-sky-600" />
+                        <span>View Work</span>
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))
               )}
@@ -1432,6 +1400,263 @@ export default function CEOFilterDashboard() {
           </Table>
         </div>
       </div>
+
+      {/* Staff Work & Deliverables Breakdown Inspection Modal */}
+      <Dialog open={!!selectedStaffForModal} onOpenChange={(open) => !open && setSelectedStaffForModal(null)}>
+        <DialogContent className="w-[95vw] sm:max-w-4xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
+          <DialogHeader>
+            <DialogTitle className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-150 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-sm border border-indigo-200 shrink-0">
+                  {selectedStaffForModal?.name?.slice(0, 2).toUpperCase()}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-black text-lg text-slate-900">{selectedStaffForModal?.name}</span>
+                    <Badge variant="outline" className="text-[10px] font-bold">{selectedStaffForModal?.role}</Badge>
+                    {selectedStaffForModal && productivityMap.has(selectedStaffForModal.id) && (
+                      <EmployeeProductivityTag
+                        tag={productivityMap.get(selectedStaffForModal.id)?.tag}
+                        score={productivityMap.get(selectedStaffForModal.id)?.score}
+                        metrics={productivityMap.get(selectedStaffForModal.id)?.metrics}
+                        size="xs"
+                      />
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 font-normal mt-0.5">
+                    Assigned Tasks, Deliverables, Status Breakdown & Project Deadlines
+                  </p>
+                </div>
+              </div>
+            </DialogTitle>
+          </DialogHeader>
+
+          {selectedStaffForModal && (
+            <div className="space-y-4 pt-2">
+              {/* Summary Metric Ribbon */}
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-center">
+                  <div className="text-[10px] font-bold text-slate-500 uppercase">Total</div>
+                  <div className="text-lg font-black text-slate-900 mt-0.5">{selectedStaffForModal.totalTasks}</div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-center">
+                  <div className="text-[10px] font-bold text-rose-700 uppercase">Incomplete</div>
+                  <div className="text-lg font-black text-rose-900 mt-0.5">{selectedStaffForModal.incompleteCount}</div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-purple-50 border border-purple-200 text-center">
+                  <div className="text-[10px] font-bold text-purple-700 uppercase">Pending</div>
+                  <div className="text-lg font-black text-purple-900 mt-0.5">{selectedStaffForModal.pendingCount}</div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-sky-50 border border-sky-200 text-center">
+                  <div className="text-[10px] font-bold text-sky-700 uppercase">In Progress</div>
+                  <div className="text-lg font-black text-sky-900 mt-0.5">{selectedStaffForModal.inProgressCount}</div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-center">
+                  <div className="text-[10px] font-bold text-amber-700 uppercase">In QA</div>
+                  <div className="text-lg font-black text-amber-900 mt-0.5">{selectedStaffForModal.testingCount}</div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-center">
+                  <div className="text-[10px] font-bold text-emerald-700 uppercase">Completed</div>
+                  <div className="text-lg font-black text-emerald-900 mt-0.5">{selectedStaffForModal.completedCount}</div>
+                </div>
+              </div>
+
+              {/* Filter Tabs & Search */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-1">
+                <div className="flex flex-wrap items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => setStaffModalFilter("all")}
+                    className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                      staffModalFilter === "all" ? "bg-white text-slate-900 shadow-2xs" : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    All ({selectedStaffForModal.totalTasks})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStaffModalFilter("incomplete")}
+                    className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                      staffModalFilter === "incomplete" ? "bg-rose-600 text-white shadow-2xs" : "text-rose-700 hover:bg-rose-50"
+                    }`}
+                  >
+                    Incomplete ({selectedStaffForModal.incompleteCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStaffModalFilter("pending")}
+                    className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                      staffModalFilter === "pending" ? "bg-purple-600 text-white shadow-2xs" : "text-purple-700 hover:bg-purple-50"
+                    }`}
+                  >
+                    Pending ({selectedStaffForModal.pendingCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStaffModalFilter("in_progress")}
+                    className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                      staffModalFilter === "in_progress" ? "bg-sky-600 text-white shadow-2xs" : "text-sky-700 hover:bg-sky-50"
+                    }`}
+                  >
+                    In Progress ({selectedStaffForModal.inProgressCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStaffModalFilter("testing")}
+                    className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                      staffModalFilter === "testing" ? "bg-amber-600 text-white shadow-2xs" : "text-amber-700 hover:bg-amber-50"
+                    }`}
+                  >
+                    In QA ({selectedStaffForModal.testingCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStaffModalFilter("completed")}
+                    className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                      staffModalFilter === "completed" ? "bg-emerald-600 text-white shadow-2xs" : "text-emerald-700 hover:bg-emerald-50"
+                    }`}
+                  >
+                    Done ({selectedStaffForModal.completedCount})
+                  </button>
+                </div>
+
+                <div className="relative min-w-[200px]">
+                  <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                  <Input
+                    type="text"
+                    placeholder="Search tasks or projects..."
+                    value={staffModalSearch}
+                    onChange={(e) => setStaffModalSearch(e.target.value)}
+                    className="h-8 pl-8 text-xs bg-slate-50"
+                  />
+                </div>
+              </div>
+
+              {/* Tasks List */}
+              <div className="space-y-2.5 max-h-[50vh] overflow-y-auto pr-1">
+                {(() => {
+                  const empTasks = selectedStaffForModal.tasks || [];
+                  const filtered = empTasks.filter((t: any) => {
+                    if (staffModalFilter === "incomplete") {
+                      if (["Completed", "Ready for Demo", "Tested (PASS)"].includes(t.status)) return false;
+                    } else if (staffModalFilter === "pending") {
+                      if (t.status !== "Pending" && t.status !== "Planning") return false;
+                    } else if (staffModalFilter === "in_progress") {
+                      if (t.status !== "In Progress") return false;
+                    } else if (staffModalFilter === "testing") {
+                      if (!["Ready for Testing", "Testing", "Changes Required"].includes(t.status)) return false;
+                    } else if (staffModalFilter === "completed") {
+                      if (!["Completed", "Ready for Demo", "Tested (PASS)"].includes(t.status)) return false;
+                    }
+
+                    if (staffModalSearch.trim()) {
+                      const q = staffModalSearch.toLowerCase();
+                      const matchTitle = t.title?.toLowerCase().includes(q);
+                      const matchDesc = t.description?.toLowerCase().includes(q);
+                      const matchProj = t.project_name?.toLowerCase().includes(q);
+                      if (!matchTitle && !matchDesc && !matchProj) return false;
+                    }
+
+                    return true;
+                  });
+
+                  if (filtered.length === 0) {
+                    return (
+                      <div className="p-8 text-center bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-500">
+                        No tasks found matching current filter & search criteria.
+                      </div>
+                    );
+                  }
+
+                  return filtered.map((t: any) => {
+                    const proj = projectMap.get(t.project_id);
+                    const deadlineInfo = getDeadlineInfo(proj?.target_date, proj && proj.completedTasks && proj.completedTasks >= proj.totalTasks);
+                    const taskDueInfo = t.due_date ? getDeadlineInfo(t.due_date, ["Completed", "Ready for Demo", "Tested (PASS)"].includes(t.status)) : null;
+
+                    return (
+                      <div
+                        key={t.id}
+                        className="p-3.5 rounded-xl bg-white border border-slate-200 hover:border-slate-300 shadow-2xs space-y-2.5 transition-colors"
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
+                          <div className="space-y-1 min-w-0">
+                            <div className="font-bold text-sm text-slate-900 leading-snug">
+                              {t.title}
+                            </div>
+                            {t.description && (
+                              <p className="text-xs text-slate-500 whitespace-pre-wrap break-words leading-relaxed bg-slate-50/70 p-2 rounded border border-slate-150">
+                                {t.description}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0 self-start sm:self-auto">
+                            {getStatusBadge(t.status)}
+                            <Badge variant="outline" className="text-[10px] uppercase font-bold">
+                              {t.priority || "Medium"}
+                            </Badge>
+                          </div>
+                        </div>
+
+                        {/* Project Name & Project Deadline Banner */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs bg-slate-50/80 p-2 rounded-lg border border-slate-150">
+                          <div className="flex items-center gap-1.5 font-semibold text-slate-800">
+                            <Briefcase className="h-3.5 w-3.5 text-sky-600 shrink-0" />
+                            <span>Project: {t.project_name || "Standalone / General"}</span>
+                          </div>
+
+                          {proj?.target_date && (
+                            <div className="flex items-center gap-1.5 text-[11px]">
+                              <span className="text-slate-500">Project Deadline:</span>
+                              <span className="font-bold text-slate-900">{deadlineInfo.formatted}</span>
+                              <span className={`px-1.5 py-0.2 rounded text-[9px] border ${deadlineInfo.color}`}>
+                                {deadlineInfo.badge}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Task Due Date & Progress Bar */}
+                        <div className="flex flex-wrap items-center justify-between gap-3 text-xs pt-1">
+                          <div className="flex items-center gap-3">
+                            {taskDueInfo && (
+                              <span className="inline-flex items-center gap-1 text-[11px] text-slate-600 font-medium">
+                                <Clock className="h-3.5 w-3.5 text-amber-500" />
+                                <span>Task Due: <strong>{taskDueInfo.formatted}</strong> ({taskDueInfo.badge})</span>
+                              </span>
+                            )}
+                            <span className="text-[11px] text-slate-500">
+                              Hours Logged: <strong className="text-slate-900 font-bold">{formatHoursAndMinutes(t.hours_spent)}</strong>
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <div className="w-20 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                              <div
+                                className="bg-sky-500 h-full"
+                                style={{ width: `${t.progress_percentage || 0}%` }}
+                              />
+                            </div>
+                            <span className="text-[11px] font-bold text-slate-700">{t.progress_percentage || 0}%</span>
+                          </div>
+                        </div>
+
+                        {/* Blockers alert if any */}
+                        {t.blockers && (
+                          <div className="p-2 rounded-lg bg-red-50 text-red-700 border border-red-200 text-xs font-semibold flex items-center gap-1.5">
+                            <AlertCircle className="h-3.5 w-3.5 text-red-600 shrink-0" />
+                            <span>Blocker: {t.blockers}</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* 6. Filtered Tasks Table */}
       <div className="space-y-3">
@@ -1443,24 +1668,23 @@ export default function CEOFilterDashboard() {
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden overflow-x-auto">
-          <Table className="min-w-[1050px]">
+          <Table className="min-w-[1000px]">
             <TableHeader className="bg-slate-50">
               <TableRow>
-                <TableHead className="font-bold w-[28%] min-w-[260px]">Task Details</TableHead>
-                <TableHead className="font-bold w-[16%] min-w-[150px]">Project & Deadline</TableHead>
-                <TableHead className="font-bold w-[14%] min-w-[130px]">Task Target Deadline</TableHead>
-                <TableHead className="font-bold w-[12%] min-w-[120px]">Assignee</TableHead>
-                <TableHead className="font-bold w-[10%] min-w-[110px]">Status</TableHead>
-                <TableHead className="font-bold w-[8%] min-w-[85px]">Progress</TableHead>
-                <TableHead className="font-bold w-[5%] min-w-[65px]">Hours</TableHead>
-                <TableHead className="font-bold w-[11%] min-w-[130px]">Blockers / Notes</TableHead>
+                <TableHead className="font-bold w-[34%] min-w-[300px]">Task Details</TableHead>
+                <TableHead className="font-bold w-[16%] min-w-[160px]">Project</TableHead>
+                <TableHead className="font-bold w-[12%] min-w-[130px]">Assignee</TableHead>
+                <TableHead className="font-bold w-[12%] min-w-[130px]">Status</TableHead>
+                <TableHead className="font-bold w-[10%] min-w-[110px]">Progress</TableHead>
+                <TableHead className="font-bold w-[6%] min-w-[80px]">Hours</TableHead>
+                <TableHead className="font-bold w-[10%] min-w-[140px]">Blockers / Notes</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={8} className="text-center py-8">Loading tasks...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center py-8">Loading tasks...</TableCell></TableRow>
               ) : filteredTasks.length === 0 ? (
-                <TableRow><TableCell colSpan={8} className="text-center text-slate-500 py-10">No tasks match criteria.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center text-slate-500 py-10">No tasks match criteria.</TableCell></TableRow>
               ) : (
                 filteredTasks.map((t) => (
                   <TableRow key={t.id} className="hover:bg-slate-50/80 transition-colors">
@@ -1476,26 +1700,32 @@ export default function CEOFilterDashboard() {
                       )}
                     </TableCell>
 
-                    {/* Project & Project Deadline */}
+                    {/* Project Name & Project Deadline */}
                     <TableCell className="align-top py-3.5 px-3">
-                      <div className="text-xs font-bold text-slate-900 break-words whitespace-normal leading-snug">
-                        {t.project_name || "N/A"}
+                      <div className="text-xs font-bold text-slate-800 break-words whitespace-normal leading-relaxed">
+                        {t.project_name || "Standalone / General"}
                       </div>
                       {(() => {
-                        const taskProj = projects.find((p) => String(p.id) === String(t.project_id));
-                        if (!taskProj?.target_date) return null;
-                        return (
-                          <div className="text-[10px] text-indigo-700 font-semibold mt-1 flex items-center gap-1">
-                            <Calendar className="h-3 w-3 text-indigo-500 shrink-0" />
-                            <span>Proj Due: {formatDateReadable(taskProj.target_date)}</span>
+                        const proj = projectMap.get(t.project_id);
+                        const deadlineInfo = getDeadlineInfo(proj?.target_date, proj && proj.completedTasks && proj.completedTasks >= proj.totalTasks);
+                        return proj?.target_date ? (
+                          <div className="mt-1 flex flex-col gap-0.5">
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-600">
+                              <Calendar className="h-3 w-3 text-indigo-500 shrink-0" />
+                              <span>Project Deadline: {deadlineInfo.formatted}</span>
+                            </span>
+                            <span className={`inline-block px-1.5 py-0.2 rounded text-[9px] w-fit border ${deadlineInfo.color}`}>
+                              {deadlineInfo.badge}
+                            </span>
                           </div>
-                        );
+                        ) : null;
                       })()}
-                    </TableCell>
-
-                    {/* Task Target Deadline with Overdue / Due status */}
-                    <TableCell className="align-top py-3.5 px-3 whitespace-nowrap">
-                      {renderDeadlineBadge(t.target_date, isTaskCompleted(t.status))}
+                      {t.due_date && (
+                        <div className="mt-1 text-[10px] text-slate-500 font-medium flex items-center gap-1">
+                          <Clock className="h-3 w-3 text-amber-500 shrink-0" />
+                          <span>Task Due: {new Date(t.due_date).toLocaleDateString()}</span>
+                        </div>
+                      )}
                     </TableCell>
 
                     {/* Assignee */}

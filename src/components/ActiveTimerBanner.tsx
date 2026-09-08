@@ -1,7 +1,25 @@
 "use client";
 
 import React, { useEffect, useState, useCallback, useRef } from "react";
-import { Play, Pause, Clock, AlertCircle, CheckCircle2, ChevronUp, ChevronDown } from "lucide-react";
+import { 
+  Play, 
+  Pause, 
+  Clock, 
+  AlertCircle, 
+  CheckCircle2, 
+  ChevronUp, 
+  ChevronDown, 
+  Bell, 
+  Sparkles, 
+  Timer, 
+  Check, 
+  RotateCcw, 
+  Flame,
+  MessageSquare,
+  Volume2
+} from "lucide-react";
+import { playBellChime } from "@/lib/audio";
+import { sendWebPushNotification, requestNotificationPermission, getNotificationPermission } from "@/lib/pushNotification";
 
 interface ActiveTimerData {
   id: number;
@@ -13,11 +31,17 @@ interface ActiveTimerData {
   is_active: number;
   previous_duration_seconds?: number;
   current_session_seconds?: number;
+  progress_percentage?: number;
+  daily_summary?: string;
+  blockers?: string;
 }
 
 export default function ActiveTimerBanner() {
   const [activeTimer, setActiveTimer] = useState<ActiveTimerData | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
+  const [currentSessionSecsState, setCurrentSessionSecsState] = useState<number>(0);
+  
+  // Pause / Finish Modal State
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<"pause" | "finish">("pause");
   const [sessionSummary, setSessionSummary] = useState("");
@@ -25,7 +49,58 @@ export default function ActiveTimerBanner() {
   const [submitting, setSubmitting] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
 
+  // 45-Minute Progress Check-In Modal State
+  const [progressReminderOpen, setProgressReminderOpen] = useState(false);
+  const [progressPercentage, setProgressPercentage] = useState<number>(0);
+  const [progressSummary, setProgressSummary] = useState("");
+  const [progressBlockers, setProgressBlockers] = useState("");
+  const [savingProgress, setSavingProgress] = useState(false);
+  const [snoozeNotice, setSnoozeNotice] = useState<string | null>(null);
+  const [checkinSuccessToast, setCheckinSuccessToast] = useState(false);
+  const [secsUntilNextCheckin, setSecsUntilNextCheckin] = useState<number>(2700); // 45 mins default
+
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastCheckinSecsRef = useRef<number>(0);
+  const snoozeUntilSecsRef = useRef<number>(0);
+  const reminderFiredMilestoneRef = useRef<number>(-1);
+  const progressReminderOpenRef = useRef<boolean>(false);
+  const activeTimerRef = useRef<ActiveTimerData | null>(null);
+
+  // Keep refs in sync
+  useEffect(() => {
+    progressReminderOpenRef.current = progressReminderOpen;
+  }, [progressReminderOpen]);
+
+  useEffect(() => {
+    activeTimerRef.current = activeTimer;
+    if (activeTimer) {
+      if (activeTimer.progress_percentage !== undefined && activeTimer.progress_percentage !== null) {
+        setProgressPercentage(Number(activeTimer.progress_percentage));
+      }
+      if (activeTimer.daily_summary) {
+        setProgressSummary(activeTimer.daily_summary);
+      }
+      if (activeTimer.blockers) {
+        setProgressBlockers(activeTimer.blockers);
+      }
+
+      // Initialize lastCheckinSecs from localStorage if exists
+      const storageKey = `unitglo_task_45m_checkin_${activeTimer.task_id}_${activeTimer.id}`;
+      const savedSecs = localStorage.getItem(storageKey);
+      if (savedSecs !== null) {
+        lastCheckinSecsRef.current = parseInt(savedSecs, 10) || 0;
+      } else {
+        lastCheckinSecsRef.current = 0;
+      }
+    }
+  }, [activeTimer]);
+
+  // Request browser push permission if not requested
+  useEffect(() => {
+    if (getNotificationPermission() === "default") {
+      requestNotificationPermission().catch(() => {});
+    }
+  }, []);
 
   // Fetch currently active timer
   const fetchActiveTimer = useCallback(async () => {
@@ -38,9 +113,13 @@ export default function ActiveTimerBanner() {
           const prevSecs = Number(data.active_timer.previous_duration_seconds) || 0;
           const currentSecs = Number(data.active_timer.current_session_seconds) || 0;
           setElapsedSeconds(prevSecs + currentSecs);
+          setCurrentSessionSecsState(currentSecs);
         } else {
           setActiveTimer(null);
           setElapsedSeconds(0);
+          setCurrentSessionSecsState(0);
+          lastCheckinSecsRef.current = 0;
+          reminderFiredMilestoneRef.current = -1;
         }
       }
     } catch (err) {
@@ -57,7 +136,6 @@ export default function ActiveTimerBanner() {
     };
 
     window.addEventListener("task-timer-updated", handleTimerChange);
-    // Poll every 30s as safety heartbeat
     const pollInterval = setInterval(fetchActiveTimer, 30000);
 
     return () => {
@@ -66,7 +144,7 @@ export default function ActiveTimerBanner() {
     };
   }, [fetchActiveTimer]);
 
-  // Live stopwatch counter (ticks every second, continuing from previous paused time)
+  // Live stopwatch counter (ticks every second, continuing smoothly)
   useEffect(() => {
     if (!activeTimer) {
       if (timerRef.current) clearInterval(timerRef.current);
@@ -74,19 +152,64 @@ export default function ActiveTimerBanner() {
     }
 
     const prevSecs = Number(activeTimer.previous_duration_seconds) || 0;
-    const currentSessionSecs = Number(activeTimer.current_session_seconds) || 0;
+    const initialSessionSecs = Number(activeTimer.current_session_seconds) || 0;
 
-    // Initialize immediately
-    const initialSecs = prevSecs + currentSessionSecs;
+    const initialSecs = prevSecs + initialSessionSecs;
     setElapsedSeconds(initialSecs);
-    
-    // Track client-side start time offset to compute elapsed time smoothly
-    const clientStartMs = Date.now() - (currentSessionSecs * 1000);
+    setCurrentSessionSecsState(initialSessionSecs);
+
+    const clientStartMs = Date.now() - (initialSessionSecs * 1000);
 
     timerRef.current = setInterval(() => {
       const nowMs = Date.now();
-      const newCurrentSessionSecs = Math.max(0, Math.floor((nowMs - clientStartMs) / 1000));
-      setElapsedSeconds(prevSecs + newCurrentSessionSecs);
+      const currentSessionSecs = Math.max(0, Math.floor((nowMs - clientStartMs) / 1000));
+      setElapsedSeconds(prevSecs + currentSessionSecs);
+      setCurrentSessionSecsState(currentSessionSecs);
+
+      // --- 45-MINUTE REMINDER CADENCE ENGINE ---
+      const secsSinceLastCheckin = currentSessionSecs - lastCheckinSecsRef.current;
+      const countdown = Math.max(0, 2700 - secsSinceLastCheckin);
+      setSecsUntilNextCheckin(countdown);
+
+      // Trigger condition: 45+ minutes since last check-in (2700 seconds) AND snooze has expired
+      if (
+        secsSinceLastCheckin >= 2700 &&
+        currentSessionSecs >= snoozeUntilSecsRef.current &&
+        !progressReminderOpenRef.current
+      ) {
+        const milestoneKey = Math.floor(secsSinceLastCheckin / 2700);
+        if (reminderFiredMilestoneRef.current !== milestoneKey) {
+          reminderFiredMilestoneRef.current = milestoneKey;
+
+          // 1. Play high-definition bell chime
+          playBellChime();
+
+          // 2. Dispatch Desktop/Mobile Web Push Notification
+          const currentTask = activeTimerRef.current;
+          const taskTitle = currentTask ? currentTask.task_title : "Active Task";
+          sendWebPushNotification({
+            title: "⏱️ 45-Minute Progress Check-In Reminder",
+            body: `You've been working on "${taskTitle}" for 45 minutes! Please update your progress percentage and summary.`,
+            tag: `task-reminder-${currentTask?.task_id || "active"}`,
+          }).catch(() => {});
+
+          // 3. Log notification in backend notifications table
+          if (currentTask?.task_id) {
+            fetch("/api/tasks/timer", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                action: "notify_reminder",
+                task_id: currentTask.task_id,
+                elapsed_minutes: Math.round(secsSinceLastCheckin / 60),
+              }),
+            }).catch(() => {});
+          }
+
+          // 4. Open the interactive Progress Check-In modal
+          setProgressReminderOpen(true);
+        }
+      }
     }, 1000);
 
     return () => {
@@ -101,6 +224,12 @@ export default function ActiveTimerBanner() {
     if (hrs > 0) {
       return `${hrs}h ${mins.toString().padStart(2, "0")}m ${secs.toString().padStart(2, "0")}s`;
     }
+    return `${mins}m ${secs.toString().padStart(2, "0")}s`;
+  };
+
+  const formatCountdown = (totalSecs: number) => {
+    const mins = Math.floor(totalSecs / 60);
+    const secs = totalSecs % 60;
     return `${mins}m ${secs.toString().padStart(2, "0")}s`;
   };
 
@@ -147,14 +276,91 @@ export default function ActiveTimerBanner() {
     }
   };
 
+  // Handle Snooze (5 Minutes)
+  const handleSnooze = () => {
+    snoozeUntilSecsRef.current = currentSessionSecsState + 300; // 5 minutes snooze
+    setProgressReminderOpen(false);
+    setSnoozeNotice("Reminder snoozed for 5 minutes.");
+    setTimeout(() => setSnoozeNotice(null), 4000);
+  };
+
+  // Handle 45-Minute Progress Check-In Save
+  const handleSaveProgressCheckin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeTimer) return;
+
+    setSavingProgress(true);
+    try {
+      const res = await fetch("/api/tasks/timer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "progress_checkin",
+          task_id: activeTimer.task_id,
+          progress_percentage: progressPercentage,
+          session_summary: progressSummary.trim(),
+          blockers: progressBlockers.trim(),
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        // Reset 45-minute milestone tracking for this task session
+        lastCheckinSecsRef.current = currentSessionSecsState;
+        const storageKey = `unitglo_task_45m_checkin_${activeTimer.task_id}_${activeTimer.id}`;
+        localStorage.setItem(storageKey, String(currentSessionSecsState));
+        reminderFiredMilestoneRef.current = -1;
+
+        // Update local activeTimer representation
+        setActiveTimer((prev) => prev ? {
+          ...prev,
+          progress_percentage: progressPercentage,
+          daily_summary: progressSummary.trim(),
+          blockers: progressBlockers.trim(),
+        } : null);
+
+        setProgressReminderOpen(false);
+        setCheckinSuccessToast(true);
+        setTimeout(() => setCheckinSuccessToast(false), 4500);
+        window.dispatchEvent(new Event("task-timer-updated"));
+      } else {
+        alert(data.error || "Failed to save progress check-in");
+      }
+    } catch (err) {
+      console.error("Progress check-in error:", err);
+      alert("An unexpected error occurred while saving progress.");
+    } finally {
+      setSavingProgress(false);
+    }
+  };
+
   if (!activeTimer) return null;
 
   return (
     <>
+      {/* Toast Confirmation when Progress is Saved */}
+      {checkinSuccessToast && (
+        <div className="fixed top-5 right-5 z-[60] flex items-center gap-2.5 px-4 py-3 bg-emerald-950/90 text-emerald-200 border border-emerald-500/50 rounded-xl shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-top-3">
+          <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0" />
+          <div className="text-xs">
+            <p className="font-bold text-white">45-Min Progress Saved!</p>
+            <p className="text-emerald-300">Next 45-minute reminder countdown has been reset.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Snooze Notice Toast */}
+      {snoozeNotice && (
+        <div className="fixed top-5 right-5 z-[60] flex items-center gap-2.5 px-4 py-3 bg-slate-900/90 text-amber-200 border border-amber-500/40 rounded-xl shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-top-3">
+          <Clock className="h-4 w-4 text-amber-400 shrink-0" />
+          <p className="text-xs font-medium text-slate-200">{snoozeNotice}</p>
+        </div>
+      )}
+
       {/* Floating Active Timer Widget */}
       <div 
         className={`fixed bottom-4 right-4 z-50 transition-all duration-300 ${
-          isMinimized ? "w-auto" : "w-80 sm:w-96"
+          isMinimized ? "w-auto" : "w-80 sm:w-[410px]"
         } rounded-2xl bg-slate-900/95 backdrop-blur-md text-white border border-slate-700 shadow-2xl overflow-hidden`}
       >
         {isMinimized ? (
@@ -166,6 +372,17 @@ export default function ActiveTimerBanner() {
             <span className="font-mono font-bold text-xs text-emerald-400 tracking-wider">
               {formatStopwatch(elapsedSeconds)}
             </span>
+            
+            {/* Quick 45m check-in button even when minimized */}
+            <button
+              onClick={() => setProgressReminderOpen(true)}
+              className="px-2 py-1 bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 rounded-md text-[10px] font-semibold flex items-center gap-1 transition"
+              title="Update Progress (45m Check-in)"
+            >
+              <Bell className="h-3 w-3" />
+              {secsUntilNextCheckin === 0 ? "Due" : formatCountdown(secsUntilNextCheckin)}
+            </button>
+
             <button
               onClick={() => setIsMinimized(false)}
               className="p-1 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 transition"
@@ -175,7 +392,8 @@ export default function ActiveTimerBanner() {
             </button>
           </div>
         ) : (
-          <div className="p-3.5">
+          <div className="p-3.5 space-y-2.5">
+            {/* Header with status and collapse */}
             <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-800">
               <div className="flex items-center gap-2 min-w-0">
                 <span className="relative flex h-2.5 w-2.5 shrink-0">
@@ -197,10 +415,16 @@ export default function ActiveTimerBanner() {
               </div>
             </div>
 
-            <div className="py-2.5 space-y-1">
-              <h4 className="font-semibold text-sm text-white truncate" title={activeTimer.task_title}>
-                {activeTimer.task_title}
-              </h4>
+            {/* Task Info & Progress Overview */}
+            <div className="space-y-1">
+              <div className="flex items-start justify-between gap-2">
+                <h4 className="font-semibold text-sm text-white truncate flex-1" title={activeTimer.task_title}>
+                  {activeTimer.task_title}
+                </h4>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  {progressPercentage}% Done
+                </span>
+              </div>
               {activeTimer.project_name && (
                 <p className="text-[11px] text-slate-400 truncate">
                   📁 {activeTimer.project_name}
@@ -208,17 +432,229 @@ export default function ActiveTimerBanner() {
               )}
             </div>
 
-            <div className="flex items-center pt-1 gap-2">
+            {/* Live Counter & 45-Min Reminder Badge */}
+            <div className="flex items-center justify-between gap-2 pt-0.5">
               <div className="flex items-center gap-1.5 bg-slate-800/80 px-2.5 py-1.5 rounded-lg border border-slate-700/60">
                 <Clock className="h-3.5 w-3.5 text-emerald-400" />
                 <span className="font-mono font-bold text-sm text-emerald-300 tracking-wider">
                   {formatStopwatch(elapsedSeconds)}
                 </span>
               </div>
+
+              {/* 45-Min Cadence Status Button */}
+              <button
+                type="button"
+                onClick={() => setProgressReminderOpen(true)}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition cursor-pointer ${
+                  secsUntilNextCheckin === 0
+                    ? "bg-amber-500/20 text-amber-300 border-amber-500/50 hover:bg-amber-500/30 animate-pulse"
+                    : "bg-sky-500/10 text-sky-300 border-sky-500/30 hover:bg-sky-500/20"
+                }`}
+                title="Click to update task progress manually anytime"
+              >
+                <Bell className="h-3.5 w-3.5" />
+                <span>
+                  {secsUntilNextCheckin === 0 ? "45m Check-in Due!" : `Next check-in: ${formatCountdown(secsUntilNextCheckin)}`}
+                </span>
+              </button>
+            </div>
+
+            {/* Quick Action Buttons: Pause, Finish, & Check-In */}
+            <div className="grid grid-cols-3 gap-1.5 pt-1">
+              <button
+                type="button"
+                onClick={() => handleOpenModal("pause")}
+                className="px-2 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-medium flex items-center justify-center gap-1 transition"
+                title="Pause task to take a break"
+              >
+                <Pause className="h-3 w-3" />
+                Break
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setProgressReminderOpen(true)}
+                className="px-2 py-1.5 rounded-lg bg-sky-600/30 hover:bg-sky-600/40 text-sky-200 border border-sky-500/40 text-xs font-semibold flex items-center justify-center gap-1 transition"
+                title="Submit 45-min progress update"
+              >
+                <MessageSquare className="h-3 w-3 text-sky-400" />
+                Progress
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleOpenModal("finish")}
+                className="px-2 py-1.5 rounded-lg bg-emerald-600/30 hover:bg-emerald-600/40 text-emerald-200 border border-emerald-500/40 text-xs font-semibold flex items-center justify-center gap-1 transition"
+                title="Finish and lock task hours"
+              >
+                <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+                Finish
+              </button>
             </div>
           </div>
         )}
       </div>
+
+      {/* 45-MINUTE PROGRESS CHECK-IN MODAL */}
+      {progressReminderOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-lg bg-slate-900 border border-sky-500/40 rounded-2xl shadow-2xl p-5 sm:p-6 text-white space-y-4">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="h-10 w-10 rounded-xl bg-sky-500/20 border border-sky-400/30 flex items-center justify-center text-sky-400 shrink-0">
+                  <Bell className="h-5 w-5 animate-bounce" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-white flex items-center gap-2">
+                    45-Minute Progress Check-In
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 font-semibold border border-sky-500/40">
+                      Active Cadence
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Stay on track! Update your current percentage and accomplishments.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setProgressReminderOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Task Info Pill */}
+            <div className="p-3 bg-slate-800/80 rounded-xl border border-slate-700/70 space-y-1">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-400">Working On:</span>
+                <span className="font-mono text-emerald-400 font-semibold flex items-center gap-1">
+                  <Clock className="h-3 w-3" /> {formatStopwatch(elapsedSeconds)}
+                </span>
+              </div>
+              <p className="font-semibold text-sm text-white truncate">
+                {activeTimer.task_title}
+              </p>
+              {activeTimer.project_name && (
+                <p className="text-[11px] text-slate-400">
+                  Project: {activeTimer.project_name}
+                </p>
+              )}
+            </div>
+
+            <form onSubmit={handleSaveProgressCheckin} className="space-y-4">
+              {/* Progress Percentage Slider & Quick Buttons */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-200">
+                    Task Progress:
+                  </label>
+                  <span className="text-sm font-extrabold text-sky-400 font-mono">
+                    {progressPercentage}%
+                  </span>
+                </div>
+
+                {/* Range Slider */}
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="5"
+                  value={progressPercentage}
+                  onChange={(e) => setProgressPercentage(parseInt(e.target.value, 10))}
+                  className="w-full accent-sky-500 cursor-pointer h-2 bg-slate-700 rounded-lg"
+                />
+
+                {/* Preset Chips */}
+                <div className="flex items-center justify-between gap-1 pt-1">
+                  {[0, 25, 50, 75, 90, 100].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setProgressPercentage(preset)}
+                      className={`px-2 py-1 rounded-md text-[11px] font-semibold transition ${
+                        progressPercentage === preset
+                          ? "bg-sky-500 text-white shadow-sm"
+                          : "bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700"
+                      }`}
+                    >
+                      {preset}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Accomplishment / Summary Input */}
+              <div>
+                <label className="block text-xs font-bold text-slate-200 mb-1">
+                  What did you complete in this session? *
+                </label>
+                <textarea
+                  value={progressSummary}
+                  onChange={(e) => setProgressSummary(e.target.value)}
+                  placeholder="e.g., Implemented UI components, verified API responses, resolved edge cases..."
+                  required
+                  rows={2}
+                  className="w-full text-xs p-3 rounded-xl bg-slate-800/90 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 resize-none"
+                />
+              </div>
+
+              {/* Blockers or Next Step Input */}
+              <div>
+                <label className="block text-xs font-bold text-slate-200 mb-1">
+                  Any blockers, impediments, or next step? (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={progressBlockers}
+                  onChange={(e) => setProgressBlockers(e.target.value)}
+                  placeholder="e.g., Waiting for API review, all good, ready for testing..."
+                  className="w-full text-xs p-2.5 rounded-xl bg-slate-800/90 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
+                />
+              </div>
+
+              {/* Actions: Snooze 5 Min, Cancel, and Save Progress */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={handleSnooze}
+                  className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-amber-300 flex items-center gap-1.5 transition cursor-pointer"
+                  title="Postpone reminder by 5 minutes"
+                >
+                  <Clock className="h-3.5 w-3.5" />
+                  Snooze (5 Mins)
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setProgressReminderOpen(false)}
+                    className="px-3 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-slate-300 border border-slate-700 text-xs font-semibold transition cursor-pointer"
+                  >
+                    Dismiss
+                  </button>
+
+                  <button
+                    type="submit"
+                    disabled={savingProgress}
+                    className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-lg shadow-sky-600/30 transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                  >
+                    {savingProgress ? (
+                      <>Saving...</>
+                    ) : (
+                      <>
+                        <Check className="h-4 w-4" />
+                        Save Progress & Continue
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Modal Dialog for Pause vs Finish */}
       {modalOpen && (
@@ -326,3 +762,4 @@ export default function ActiveTimerBanner() {
     </>
   );
 }
+
