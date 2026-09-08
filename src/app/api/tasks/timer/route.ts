@@ -84,6 +84,20 @@ export async function GET(req: Request) {
         `SELECT ttl.*, 
                 u.id as user_id, u.name as user_name, u.email as user_email, u.role as user_role,
                 t.id as task_id, t.title as task_title, t.priority, t.status as task_status,
+                t.start_date as task_assigned_start_date,
+                COALESCE(
+                  (
+                    SELECT MIN(started_at) 
+                    FROM task_time_logs 
+                    WHERE task_id = ttl.task_id AND user_id = ttl.user_id
+                  ),
+                  (
+                    SELECT MIN(started_at) 
+                    FROM task_time_logs 
+                    WHERE task_id = ttl.task_id
+                  ),
+                  ttl.started_at
+                ) as first_timer_started_at,
                 p.id as project_id, p.name as project_name,
                 TIMESTAMPDIFF(SECOND, ttl.started_at, CURRENT_TIMESTAMP) as current_session_seconds,
                 (

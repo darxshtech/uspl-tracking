@@ -18,6 +18,8 @@ interface ActiveTeamTimer {
   project_id?: number;
   project_name?: string;
   started_at: string;
+  first_timer_started_at?: string;
+  task_assigned_start_date?: string | null;
   previous_duration_seconds?: number;
   current_session_seconds?: number;
   todays_intime?: string | null;
@@ -149,13 +151,35 @@ export default function LiveTeamActivityMonitor({
     return `${hrs}h ${mins.toString().padStart(2, "0")}m`;
   };
 
-  const formatTaskStartTime = (dateStr: string) => {
+  const formatTaskStartTime = (dateStr?: string) => {
     if (!dateStr) return "--";
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) return "--";
-    const dateFormatted = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+    const now = new Date();
+    const isToday =
+      d.getFullYear() === now.getFullYear() &&
+      d.getMonth() === now.getMonth() &&
+      d.getDate() === now.getDate();
+
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    const isYesterday =
+      d.getFullYear() === yesterday.getFullYear() &&
+      d.getMonth() === yesterday.getMonth() &&
+      d.getDate() === yesterday.getDate();
+
+    const weekday = d.toLocaleDateString("en-US", { weekday: "short" });
+    const monthDay = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
     const timeFormatted = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true });
-    return `${dateFormatted}, ${timeFormatted}`;
+
+    if (isToday) {
+      return `Today (${weekday}, ${monthDay}), ${timeFormatted}`;
+    }
+    if (isYesterday) {
+      return `Yesterday (${weekday}, ${monthDay}), ${timeFormatted}`;
+    }
+    return `${weekday}, ${monthDay}, ${timeFormatted}`;
   };
 
   return (
@@ -337,13 +361,28 @@ export default function LiveTeamActivityMonitor({
                     </button>
                   </div>
 
-                  {/* Task Start Date and Time */}
-                  <div className="flex items-center gap-1.5 text-[10px] text-slate-500 bg-slate-50 px-2 py-1 rounded border border-slate-100">
-                    <Calendar className="h-3 w-3 text-emerald-600 shrink-0" />
-                    <span className="text-slate-400">Task Started:</span>
-                    <span className="font-bold text-slate-700 truncate">
-                      {formatTaskStartTime(timer.started_at)}
-                    </span>
+                  {/* Task Start Date and Time (Initial Timer Start Date & Day, NOT Session Resume Date) */}
+                  <div className="space-y-1">
+                    <div 
+                      className="flex items-center justify-between gap-1 text-[10px] bg-slate-50 px-2 py-1.5 rounded border border-slate-100"
+                      title={`Initial task timer started on ${formatTaskStartTime(timer.first_timer_started_at || timer.started_at)}`}
+                    >
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <Calendar className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                        <span className="text-slate-500 font-semibold shrink-0">Task Started:</span>
+                        <span className="font-bold text-slate-800 truncate">
+                          {formatTaskStartTime(timer.first_timer_started_at || timer.started_at)}
+                        </span>
+                      </div>
+                    </div>
+                    {Number(timer.previous_duration_seconds) > 0 && timer.started_at && (
+                      <div className="flex items-center justify-between text-[9px] text-slate-400 px-1">
+                        <span>Latest Resumed:</span>
+                        <span className="font-medium text-slate-500">
+                          {new Date(timer.started_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true })}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
