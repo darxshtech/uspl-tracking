@@ -170,8 +170,8 @@ export default function ActiveTimerBanner() {
           lastCheckinSecsRef.current = 0;
         }
       }
-    } catch (err) {
-      console.error("Failed to fetch active timer:", err);
+    } catch (err: any) {
+      console.warn("[ActiveTimer] Transient network or fetch interruption (will auto-retry):", err?.message || err);
     }
   }, []);
 

@@ -40,7 +40,7 @@ const pool = globalForDb._mysqlPool ?? mysql.createPool({
   console.error('[DB Pool Warning/Error]:', err?.message || err);
 });
 
-function isConnectionExhaustionError(err: any): boolean {
+function isRetryableDbError(err: any): boolean {
   if (!err) return false;
   const msg = typeof err.message === 'string' ? err.message : '';
   const code = err.code || '';
@@ -49,10 +49,20 @@ function isConnectionExhaustionError(err: any): boolean {
     code === 'ER_USER_LIMIT_REACHED' ||
     code === 'ER_TOO_MANY_USER_CONNECTIONS' ||
     code === 'ER_CON_COUNT_ERROR' ||
+    code === 'ENETUNREACH' ||
+    code === 'ETIMEDOUT' ||
+    code === 'ECONNRESET' ||
+    code === 'PROTOCOL_CONNECTION_LOST' ||
+    code === 'EHOSTUNREACH' ||
+    code === 'ECONNREFUSED' ||
     errno === 1203 ||
     errno === 1040 ||
+    errno === -4062 ||
     msg.includes('max_user_connections') ||
-    msg.includes('Too many connections')
+    msg.includes('Too many connections') ||
+    msg.includes('ENETUNREACH') ||
+    msg.includes('ETIMEDOUT') ||
+    msg.includes('Connection lost')
   );
 }
 
@@ -63,23 +73,23 @@ async function withRetry<T>(operation: () => Promise<T>, maxRetries = 3): Promis
       return await operation();
     } catch (err: any) {
       attempt++;
-      if (isConnectionExhaustionError(err) && attempt <= maxRetries) {
-        // Fast backoff with jitter: 150ms, 300ms, 600ms
-        const delay = Math.min(1000, Math.floor(Math.pow(2, attempt - 1) * 150 + Math.random() * 100));
+      if (isRetryableDbError(err) && attempt <= maxRetries) {
+        // Exponential backoff with jitter: 200ms, 450ms, 900ms
+        const delay = Math.min(2000, Math.floor(Math.pow(2, attempt - 1) * 200 + Math.random() * 150));
         console.warn(
-          `[DB Pool] Connection limit reached (${err.message || err.code}). Retrying query in ${delay}ms (attempt ${attempt}/${maxRetries})...`
+          `[DB Pool] Transient DB error (${err.code || err.message}). Retrying in ${delay}ms (attempt ${attempt}/${maxRetries})...`
         );
         await new Promise((resolve) => setTimeout(resolve, delay));
         continue;
       }
 
-      if (isConnectionExhaustionError(err)) {
-        console.error(`[DB Pool] Max retries exhausted for connection limit error:`, err.message);
+      if (isRetryableDbError(err)) {
+        console.error(`[DB Pool] Max retries exhausted for transient DB error:`, err.message);
         const friendlyError = new Error(
-          "The database server is currently experiencing high activity. Please try again in a moment."
+          "The database server is currently experiencing transient connection issues. Please try again in a moment."
         );
         (friendlyError as any).code = err.code || 'ER_USER_LIMIT_REACHED';
-        (friendlyError as any).errno = err.errno || 1203;
+        (friendlyError as any).errno = err.errno;
         throw friendlyError;
       }
 
