@@ -6,18 +6,14 @@ export default withAuth(
     const token = req.nextauth.token;
     const isAuthPage = req.nextUrl.pathname.startsWith("/login");
 
-    if (isAuthPage) {
-      if (token) {
-        return NextResponse.redirect(new URL("/dashboard", req.url));
-      }
-      return null;
-    }
-
-    if (!token && req.nextUrl.pathname.startsWith("/dashboard")) {
-      return NextResponse.redirect(new URL("/login", req.url));
+    if (isAuthPage && token) {
+      return NextResponse.redirect(new URL("/dashboard", req.url));
     }
   },
   {
+    pages: {
+      signIn: "/login",
+    },
     callbacks: {
       authorized: ({ token, req }) => {
         if (req.nextUrl.pathname.startsWith("/login")) {
