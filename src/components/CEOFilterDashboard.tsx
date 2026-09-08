@@ -48,7 +48,7 @@ export default function CEOFilterDashboard() {
   const [productivityPeriod, setProductivityPeriod] = useState<"today" | "week" | "month" | "year">("today");
   const [productivitySummary, setProductivitySummary] = useState<any>(null);
   const [productivityMap, setProductivityMap] = useState<Map<number, any>>(new Map());
-  const [selectedTagFilter, setSelectedTagFilter] = useState<"ALL" | "ideal" | "active" | "idle" | "off">("ALL");
+  const [selectedTagFilter, setSelectedTagFilter] = useState<"ALL" | "ideal" | "engaged" | "active" | "idle" | "off">("ALL");
 
   // Shift Working Hours Policy State
   const [fullDayPolicyHours, setFullDayPolicyHours] = useState<number>(8);
@@ -312,8 +312,10 @@ export default function CEOFilterDashboard() {
 
       if (selectedTagFilter !== "ALL") {
         const prod = productivityMap.get(emp.id);
-        const tag = prod?.tag || "off";
-        if (tag !== selectedTagFilter) return false;
+        const rawTag = prod?.tag || "off";
+        const normalizedTag = rawTag === "active" || rawTag === "idle" ? "engaged" : rawTag;
+        const filterNormalized = selectedTagFilter === "active" || selectedTagFilter === "idle" ? "engaged" : selectedTagFilter;
+        if (normalizedTag !== filterNormalized) return false;
       }
 
       if (activeWorkloadTab === "active") {
@@ -707,29 +709,29 @@ export default function CEOFilterDashboard() {
             </div>
           </button>
 
-          {/* 2. Active */}
+          {/* 2. Engaged (Working on Task) */}
           <button
             type="button"
-            onClick={() => setSelectedTagFilter(selectedTagFilter === "active" ? "ALL" : "active")}
+            onClick={() => setSelectedTagFilter(selectedTagFilter === "engaged" ? "ALL" : "engaged")}
             className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-              selectedTagFilter === "active"
+              selectedTagFilter === "engaged" || selectedTagFilter === "active"
                 ? "bg-sky-50 border-sky-400 ring-2 ring-sky-500/20 shadow-xs"
                 : "bg-sky-50/40 border-sky-200 hover:bg-sky-50"
             }`}
           >
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-sky-800 flex items-center gap-1">
-                🟢 Active
+                ⚡ Engaged
               </span>
               <span className="text-[10px] font-bold text-sky-600 bg-sky-100/70 px-1.5 py-0.5 rounded">
-                50-74 pts
+                Working
               </span>
             </div>
             <div className="text-2xl font-black text-sky-950 mt-1">
-              {productivitySummary?.active_count ?? 0}
+              {productivitySummary?.engaged_count ?? productivitySummary?.active_count ?? 0}
             </div>
             <div className="text-[10px] text-sky-700 mt-0.5">
-              Regular pacing & output
+              Working on assigned tasks
             </div>
           </button>
 

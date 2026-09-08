@@ -85,7 +85,7 @@ export async function GET(req: Request) {
       return NextResponse.json({
         period,
         date_range: { start: startDate, end: endDate },
-        summary: { total_employees: 0, ideal_count: 0, active_count: 0, idle_count: 0, off_count: 0 },
+        summary: { total_employees: 0, ideal_count: 0, engaged_count: 0, active_count: 0, idle_count: 0, off_count: 0 },
         employees: []
       });
     }
@@ -199,6 +199,7 @@ export async function GET(req: Request) {
 
     // 12. Process and evaluate metrics per employee
     let idealCount = 0;
+    let engagedCount = 0;
     let activeCount = 0;
     let idleCount = 0;
     let offCount = 0;
@@ -393,25 +394,25 @@ export async function GET(req: Request) {
       const compositeScore = Math.min(100, timeScore + taskScore + priorityScore + subtaskScore + projectScore);
 
       // --- H. Determine Performance Tag ---
-      let tag: "ideal" | "active" | "idle" | "off" = "off";
+      // Requirement: 2 tags when employee is working:
+      // 1. "ideal" - when employee has completed/done tasks (completedTasks > 0)
+      // 2. "engaged" - when employee is working on task (in-progress/active)
+      // (Plus "off" when off shift / on leave)
+      let tag: "ideal" | "engaged" | "off" = "off";
       let tagLabel = "⚪ Off / On Leave";
 
       if (totalShiftHours === 0 && !hasActiveShiftToday) {
         tag = "off";
         tagLabel = "⚪ Off / On Leave";
         offCount++;
-      } else if (compositeScore >= 75) {
+      } else if (completedTasks > 0) {
         tag = "ideal";
-        tagLabel = "🌟 Ideal Employee";
+        tagLabel = "🌟 Ideal (Tasks Done)";
         idealCount++;
-      } else if (compositeScore >= 50) {
-        tag = "active";
-        tagLabel = "🟢 Active / Working";
-        activeCount++;
       } else {
-        tag = "idle";
-        tagLabel = "🟡 Under-utilized";
-        idleCount++;
+        tag = "engaged";
+        tagLabel = "⚡ Engaged (Working on Task)";
+        engagedCount++;
       }
 
       return {
@@ -457,8 +458,9 @@ export async function GET(req: Request) {
       summary: {
         total_employees: evaluatedEmployees.length,
         ideal_count: idealCount,
-        active_count: activeCount,
-        idle_count: idleCount,
+        engaged_count: engagedCount,
+        active_count: engagedCount, // Alias for backward compatibility
+        idle_count: 0,
         off_count: offCount,
       },
       employees: evaluatedEmployees,

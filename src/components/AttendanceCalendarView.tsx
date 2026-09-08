@@ -444,28 +444,28 @@ export default function AttendanceCalendarView({
                     🌟
                   </div>
                   <div>
-                    <div className="text-[11px] font-bold text-amber-900">Ideal Employees</div>
+                    <div className="text-[11px] font-bold text-amber-900">Ideal (Tasks Done)</div>
                     <div className="text-base font-black text-amber-950">{productivitySummary?.ideal_count || 0}</div>
                   </div>
                 </div>
 
-                <div className="bg-gradient-to-br from-emerald-50 to-teal-50/50 p-2.5 rounded-xl border border-emerald-200 shadow-2xs flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-bold text-sm shadow-xs">
-                    🟢
+                <div className="bg-gradient-to-br from-sky-50 to-indigo-50/50 p-2.5 rounded-xl border border-sky-200 shadow-2xs flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-sky-600 text-white flex items-center justify-center font-bold text-sm shadow-xs">
+                    ⚡
                   </div>
                   <div>
-                    <div className="text-[11px] font-bold text-emerald-900">Active / Working</div>
-                    <div className="text-base font-black text-emerald-950">{productivitySummary?.active_count || 0}</div>
+                    <div className="text-[11px] font-bold text-sky-900">Engaged (Working)</div>
+                    <div className="text-base font-black text-sky-950">{productivitySummary?.engaged_count ?? productivitySummary?.active_count ?? 0}</div>
                   </div>
                 </div>
 
-                <div className="bg-gradient-to-br from-slate-50 to-amber-50/30 p-2.5 rounded-xl border border-slate-200 shadow-2xs flex items-center gap-2.5">
+                <div className="bg-gradient-to-br from-slate-50 to-slate-100/50 p-2.5 rounded-xl border border-slate-200 shadow-2xs flex items-center gap-2.5">
                   <div className="w-8 h-8 rounded-lg bg-slate-200 text-slate-700 flex items-center justify-center font-bold text-sm">
-                    🟡
+                    ⚪
                   </div>
                   <div>
-                    <div className="text-[11px] font-semibold text-slate-600">Under-utilized</div>
-                    <div className="text-base font-extrabold text-slate-800">{productivitySummary?.idle_count || 0}</div>
+                    <div className="text-[11px] font-semibold text-slate-600">Off Shift / Leave</div>
+                    <div className="text-base font-extrabold text-slate-800">{productivitySummary?.off_count || 0}</div>
                   </div>
                 </div>
               </div>
@@ -483,11 +483,11 @@ export default function AttendanceCalendarView({
                     >
                       <span className="group-hover:text-indigo-600 font-bold">{emp.name}</span>
                       <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                        emp.tag === "ideal" ? "bg-amber-100 text-amber-900 border border-amber-300" :
-                        emp.tag === "active" ? "bg-emerald-100 text-emerald-800" :
-                        "bg-slate-100 text-slate-700"
+                        emp.tag === "ideal" ? "bg-emerald-100 text-emerald-900 border border-emerald-300" :
+                        emp.tag === "off" ? "bg-slate-100 text-slate-600" :
+                        "bg-sky-100 text-sky-900 border border-sky-200"
                       }`}>
-                        {emp.tag === "ideal" ? "🌟 Ideal" : emp.tag === "active" ? "🟢 Active" : "🟡 Idle"} ({emp.score} pts)
+                        {emp.tag === "ideal" ? "🌟 Ideal" : emp.tag === "off" ? "⚪ Off" : "⚡ Engaged"}
                       </span>
                     </button>
                   ))}

@@ -38,7 +38,7 @@ export interface EmployeeProductivityMetrics {
 }
 
 export interface EmployeeProductivityTagProps {
-  tag?: "ideal" | "active" | "idle" | "off" | string;
+  tag?: "ideal" | "engaged" | "active" | "idle" | "off" | string;
   score?: number;
   metrics?: EmployeeProductivityMetrics;
   size?: "xs" | "sm" | "md";
@@ -47,7 +47,7 @@ export interface EmployeeProductivityTagProps {
 }
 
 export default function EmployeeProductivityTag({
-  tag = "active",
+  tag = "engaged",
   score,
   metrics,
   size = "xs",
@@ -81,7 +81,14 @@ export default function EmployeeProductivityTag({
     return null;
   }
 
+  // Normalize legacy tags
+  const normalizedTag = tag === "active" || tag === "idle" ? "engaged" : tag;
+
   // Configuration per tag
+  // Only 2 tags when employee is working:
+  // 1. "ideal": when employee has completed/done tasks
+  // 2. "engaged": when employee is working on task
+  // Plus "off" for off shift / on leave
   const config = {
     ideal: {
       label: "Ideal",
@@ -89,26 +96,17 @@ export default function EmployeeProductivityTag({
       dotClass: "bg-emerald-500",
       icon: <Sparkles className="h-3 w-3 text-emerald-600 fill-emerald-100 animate-pulse" />,
       accentColor: "emerald",
-      title: "🌟 Ideal Performer",
-      desc: "High working-time efficiency, consistent task delivery & active across assigned projects.",
+      title: "🌟 Ideal (Tasks Done)",
+      desc: "Employee has completed tasks and successfully delivered work output.",
     },
-    active: {
-      label: "Active",
+    engaged: {
+      label: "Engaged",
       badgeClass: "bg-sky-50 text-sky-800 border-sky-300 hover:bg-sky-100/90 shadow-xs",
       dotClass: "bg-sky-500",
       icon: <CheckCircle2 className="h-3 w-3 text-sky-600" />,
       accentColor: "sky",
-      title: "🟢 Active & Working",
-      desc: "Steady workload pacing with reliable subtask & task completion progress.",
-    },
-    idle: {
-      label: "Under-utilized",
-      badgeClass: "bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100/90 shadow-xs",
-      dotClass: "bg-amber-500",
-      icon: <AlertTriangle className="h-3 w-3 text-amber-600" />,
-      accentColor: "amber",
-      title: "🟡 Under-utilized",
-      desc: "Attendance shift hours exceed logged task timer output or tasks are currently stalled.",
+      title: "⚡ Engaged (Working on Task)",
+      desc: "Employee is active and currently working on assigned task progress.",
     },
     off: {
       label: "Off Shift",
@@ -119,7 +117,7 @@ export default function EmployeeProductivityTag({
       title: "⚪ Off Shift / Leave",
       desc: "No active attendance shift or scheduled leave during this evaluated timeframe.",
     },
-  }[tag as "ideal" | "active" | "idle" | "off"] || {
+  }[normalizedTag as "ideal" | "engaged" | "off"] || {
     label: tag,
     badgeClass: "bg-slate-100 text-slate-700 border-slate-300",
     dotClass: "bg-slate-500",

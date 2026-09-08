@@ -294,10 +294,11 @@ export default function LiveTeamActivityMonitor({
                         score={productivityMap.get(timer.user_id)?.score}
                         metrics={productivityMap.get(timer.user_id)?.metrics}
                         size="xs"
+                        showScore={false}
                       />
                     ) : (
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
-                        Active
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 text-sky-800 border border-sky-300 shrink-0">
+                        ⚡ Engaged
                       </span>
                     )}
                   </div>
