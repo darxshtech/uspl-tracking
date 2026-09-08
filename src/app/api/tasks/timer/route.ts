@@ -105,6 +105,7 @@ export async function GET(req: Request) {
         `SELECT ttl.*, 
                 u.id as user_id, u.name as user_name, u.email as user_email, u.role as user_role,
                 t.id as task_id, t.title as task_title, t.priority, t.status as task_status,
+                t.progress_percentage, t.daily_summary, t.blockers,
                 t.start_date as task_assigned_start_date,
                 COALESCE(
                   (
@@ -119,6 +120,11 @@ export async function GET(req: Request) {
                   ),
                   ttl.started_at
                 ) as first_timer_started_at,
+                (
+                  SELECT MAX(created_at) 
+                  FROM daily_work 
+                  WHERE task_id = ttl.task_id AND user_id = ttl.user_id
+                ) as last_progress_checkin_at,
                 p.id as project_id, p.name as project_name,
                 TIMESTAMPDIFF(SECOND, ttl.started_at, CURRENT_TIMESTAMP) as current_session_seconds,
                 (
@@ -172,8 +178,29 @@ export async function GET(req: Request) {
             }
           }
         }
+
+        const prevSecs = Number(r.previous_duration_seconds) || 0;
+        const curSecs = Number(r.current_session_seconds) || 0;
+        const totalTaskSecs = prevSecs + curSecs;
+
+        // Progress Overdue: Task running >= 45 mins without progress update
+        let isProgressOverdue = false;
+        if (totalTaskSecs >= 2700) {
+          if (!r.last_progress_checkin_at) {
+            isProgressOverdue = true;
+          } else {
+            const lastCheckinMs = new Date(r.last_progress_checkin_at).getTime();
+            const secsSinceCheckin = Math.max(0, Math.floor((nowMs - lastCheckinMs) / 1000));
+            if (secsSinceCheckin >= 2700) {
+              isProgressOverdue = true;
+            }
+          }
+        }
+
         return {
           ...r,
+          total_task_elapsed_seconds: totalTaskSecs,
+          is_progress_overdue: isProgressOverdue,
           office_elapsed_seconds: officeElapsedSeconds
         };
       });
@@ -693,7 +720,95 @@ export async function POST(req: Request) {
         ? Math.max(0, Math.min(100, parseInt(String(progress_percentage), 10)))
         : null;
 
-      // Update task progress, summary, and blockers in database
+      const is100Percent = parsedProgress === 100;
+      const todayStr = new Date().toISOString().split("T")[0];
+
+      const [taskRows]: any = await pool.query(
+        "SELECT title, project_id, status FROM tasks WHERE id = ?", 
+        [task_id]
+      );
+      const taskObj = taskRows[0];
+      const taskTitle = taskObj?.title || "Task";
+
+      // -----------------------------------------------------------
+      // IF 100% PROGRESS: Task is Finished! Trigger Finish & Stop Timer
+      // -----------------------------------------------------------
+      if (is100Percent) {
+        await pool.query(
+          `UPDATE tasks 
+           SET status = 'Completed',
+               progress_percentage = 100,
+               daily_summary = IFNULL(?, daily_summary),
+               blockers = IFNULL(?, blockers)
+           WHERE id = ?`,
+          [session_summary ? session_summary.trim() : "Completed at 100%", blockers || null, task_id]
+        );
+
+        // Deactivate active running timer for this task
+        await pool.query(
+          `UPDATE task_time_logs 
+           SET ended_at = CURRENT_TIMESTAMP, 
+               duration_minutes = GREATEST(1, ROUND(TIMESTAMPDIFF(SECOND, started_at, CURRENT_TIMESTAMP) / 60)), 
+               session_summary = IFNULL(?, 'Finished task with 100% progress'),
+               is_active = 0 
+           WHERE task_id = ? AND is_active = 1`,
+          [session_summary ? session_summary.trim() : null, task_id]
+        );
+
+        const totalHours = await syncTaskHours(task_id);
+
+        // Record completed accomplishment in daily_work table
+        try {
+          await pool.query(
+            `INSERT INTO daily_work (user_id, project_id, task_id, date, hours_worked, work_description, status, remarks)
+             VALUES (?, ?, ?, ?, ?, ?, 'Completed', 'Finished with 100% progress')`,
+            [
+              currentUserId,
+              taskObj?.project_id || null,
+              task_id,
+              todayStr,
+              totalHours > 0 ? totalHours : 0.75,
+              session_summary ? `[Completed 100%] ${session_summary.trim()}` : `[Completed 100%] Finished task: ${taskTitle}`,
+            ]
+          );
+        } catch (dwErr) {
+          console.error("daily_work 100% completion error:", dwErr);
+        }
+
+        // Notify employee
+        try {
+          await pool.query(
+            `INSERT INTO notifications (user_id, title, message, type)
+             VALUES (?, ?, ?, 'task_completed')`,
+            [
+              currentUserId,
+              `🎉 Task Completed (100%)`,
+              `You marked "${taskTitle}" as 100% finished! Timer has been stopped and hours recorded.`,
+            ]
+          );
+        } catch (_) {}
+
+        // Notify Admin, CEO, and PM of 100% completion
+        await notifyManagement(
+          `🎉 Task Finished (100%): ${currentUserName}`,
+          `${currentUserName} (${currentRole}) marked task "${taskTitle}" as 100% Completed. Total hours: ${totalHours}h. Work: "${session_summary || 'Finished'}".`,
+          "task_completed"
+        );
+
+        return NextResponse.json({
+          success: true,
+          is_completed: true,
+          message: `Task finished and marked Completed (100%)! Total hours spent: ${totalHours}h recorded.`,
+          task_id,
+          progress_percentage: 100,
+          status: "Completed",
+          hours_spent: totalHours
+        });
+      }
+
+      // -----------------------------------------------------------
+      // Progress < 100%: Standard 45-Minute Progress Check-In
+      // -----------------------------------------------------------
       await pool.query(
         `UPDATE tasks 
          SET progress_percentage = IFNULL(?, progress_percentage),
@@ -710,12 +825,6 @@ export async function POST(req: Request) {
 
       // Record work accomplishment in daily_work audit table
       try {
-        const todayStr = new Date().toISOString().split("T")[0];
-        const [taskRows]: any = await pool.query(
-          "SELECT title, project_id, status FROM tasks WHERE id = ?", 
-          [task_id]
-        );
-        const taskObj = taskRows[0];
         if (taskObj && (session_summary || parsedProgress !== null)) {
           await pool.query(
             `INSERT INTO daily_work (user_id, project_id, task_id, date, hours_worked, work_description, status, remarks)
@@ -737,8 +846,6 @@ export async function POST(req: Request) {
 
       // Record in-app notification for the user
       try {
-        const [taskRows]: any = await pool.query("SELECT title FROM tasks WHERE id = ?", [task_id]);
-        const taskTitle = taskRows[0]?.title || "Task";
         await pool.query(
           `INSERT INTO notifications (user_id, title, message, type)
            VALUES (?, ?, ?, 'task_progress')`,
@@ -749,6 +856,13 @@ export async function POST(req: Request) {
           ]
         );
       } catch (_) {}
+
+      // Notify Admin, CEO, and PM of Progress Update
+      await notifyManagement(
+        `📝 Task Progress Updated: ${currentUserName} (${parsedProgress}%)`,
+        `${currentUserName} (${currentRole}) updated progress to ${parsedProgress}% on task "${taskTitle}". Work accomplished: "${session_summary || 'Progress updated'}".`,
+        "task_progress_updated"
+      );
 
       return NextResponse.json({
         success: true,
@@ -766,6 +880,8 @@ export async function POST(req: Request) {
       try {
         const [taskRows]: any = await pool.query("SELECT title FROM tasks WHERE id = ?", [task_id]);
         const taskTitle = taskRows[0]?.title || "Task";
+        
+        // Notify employee
         await pool.query(
           `INSERT INTO notifications (user_id, title, message, type)
            VALUES (?, ?, ?, 'task_reminder')`,
@@ -774,6 +890,13 @@ export async function POST(req: Request) {
             `⏱️ 45-Min Task Progress Reminder`,
             `You've been focused on "${taskTitle}" for ${elapsed_minutes || 45} minutes. Please update your task progress!`,
           ]
+        );
+
+        // Notify Admin, CEO, and PM that employee has been running task for >45m without adding progress!
+        await notifyManagement(
+          `⚠️ 45m+ Progress Update Pending: ${currentUserName}`,
+          `${currentUserName} (${currentRole}) has been running task "${taskTitle}" for ${elapsed_minutes || 45} minutes without updating task progress.`,
+          "task_progress_pending"
         );
       } catch (_) {}
 
@@ -784,6 +907,23 @@ export async function POST(req: Request) {
   } catch (error: any) {
     console.error("POST /api/tasks/timer error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
+// Helper: Notify all management users (Admin, CEO, PM)
+async function notifyManagement(title: string, message: string, type: string = "task_progress") {
+  try {
+    const [executives]: any = await pool.query(
+      "SELECT id FROM users WHERE role IN ('Admin', 'CEO', 'PM')"
+    );
+    for (const exec of executives) {
+      await pool.query(
+        "INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, ?)",
+        [exec.id, title, message, type]
+      );
+    }
+  } catch (err) {
+    console.error("notifyManagement error:", err);
   }
 }
 

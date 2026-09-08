@@ -350,6 +350,18 @@ export default function ActiveTimerBanner() {
 
       const data = await res.json();
       if (res.ok) {
+        // If 100% progress was recorded, task is finished!
+        if (data.is_completed || progressPercentage === 100) {
+          setActiveTimer(null);
+          setProgressReminderOpen(false);
+          setCheckinSuccessToast(true);
+          localStorage.removeItem(`unitglo_task_45m_checkin_${activeTimer.task_id}`);
+          localStorage.removeItem(`unitglo_task_45m_snoozed_${activeTimer.task_id}`);
+          setTimeout(() => setCheckinSuccessToast(false), 5000);
+          window.dispatchEvent(new Event("task-timer-updated"));
+          return;
+        }
+
         // Reset 45-minute milestone tracking for this task
         const currentTotalElapsed = elapsedSeconds;
         lastCheckinSecsRef.current = currentTotalElapsed;
@@ -686,10 +698,20 @@ export default function ActiveTimerBanner() {
                 />
               </div>
 
+              {/* 100% Completion Celebration Banner */}
+              {progressPercentage === 100 && (
+                <div className="p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-200 text-xs flex items-center gap-2 animate-pulse">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                  <span className="font-semibold">
+                    🎉 100% Completion: Saving will finish this task, mark status as Completed, and stop the active timer!
+                  </span>
+                </div>
+              )}
+
               {/* Actions: Snooze 5 Min (Strictly Once) and Save Progress */}
               <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800">
                 <div>
-                  {!hasSnoozedCurrentCycle ? (
+                  {!hasSnoozedCurrentCycle && progressPercentage < 100 ? (
                     <button
                       type="button"
                       onClick={handleSnooze}
@@ -699,21 +721,30 @@ export default function ActiveTimerBanner() {
                       <Clock className="h-3.5 w-3.5" />
                       Snooze (5 Mins - Once Only)
                     </button>
-                  ) : (
+                  ) : hasSnoozedCurrentCycle && progressPercentage < 100 ? (
                     <div className="text-[11px] text-amber-300/90 font-medium flex items-center gap-1.5 bg-amber-500/10 px-3 py-2 rounded-xl border border-amber-500/25">
                       <span>⚠️ 5-Min Snooze already used. You must submit progress!</span>
                     </div>
-                  )}
+                  ) : null}
                 </div>
 
                 <div className="flex items-center gap-2 ml-auto">
                   <button
                     type="submit"
                     disabled={savingProgress}
-                    className="px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-lg shadow-sky-600/30 transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                    className={`px-5 py-2.5 rounded-xl text-white font-bold text-xs shadow-lg transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer ${
+                      progressPercentage === 100
+                        ? "bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/30 ring-2 ring-emerald-400"
+                        : "bg-sky-600 hover:bg-sky-500 shadow-sky-600/30"
+                    }`}
                   >
                     {savingProgress ? (
                       <>Saving...</>
+                    ) : progressPercentage === 100 ? (
+                      <>
+                        <CheckCircle2 className="h-4 w-4" />
+                        Finish Task (100% Completed)
+                      </>
                     ) : (
                       <>
                         <Check className="h-4 w-4" />

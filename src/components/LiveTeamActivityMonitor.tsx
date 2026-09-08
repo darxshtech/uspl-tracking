@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback, useRef } from "react";
-import { Play, Clock, RefreshCw, Users, Briefcase, Activity, CheckCircle2, ArrowDown, LogIn, Building2, Calendar } from "lucide-react";
+import { Play, Clock, RefreshCw, Users, Briefcase, Activity, CheckCircle2, ArrowDown, LogIn, Building2, Calendar, AlertTriangle, MessageSquare } from "lucide-react";
 import Link from "next/link";
 import EmployeeProductivityTag from "@/components/EmployeeProductivityTag";
 
@@ -15,6 +15,12 @@ interface ActiveTeamTimer {
   task_title: string;
   priority: string;
   task_status: string;
+  progress_percentage?: number;
+  daily_summary?: string;
+  blockers?: string;
+  is_progress_overdue?: boolean;
+  last_progress_checkin_at?: string | null;
+  total_task_elapsed_seconds?: number;
   project_id?: number;
   project_name?: string;
   started_at: string;
@@ -279,6 +285,8 @@ export default function LiveTeamActivityMonitor({
                 className={`p-4 rounded-xl border bg-white transition-all shadow-2xs space-y-3 flex flex-col justify-between cursor-pointer group ${
                   isSelected
                     ? "border-emerald-500 ring-2 ring-emerald-400 bg-emerald-50/40 shadow-md scale-[1.01]"
+                    : timer.is_progress_overdue
+                    ? "border-amber-400 ring-2 ring-amber-300/80 bg-amber-50/20 hover:border-amber-500 hover:shadow-md hover:-translate-y-0.5"
                     : "border-slate-200 hover:border-emerald-400 hover:shadow-md hover:-translate-y-0.5"
                 }`}
                 title={`Click to jump to and highlight ongoing task #${timer.task_id} (${timer.task_title})`}
@@ -300,7 +308,12 @@ export default function LiveTeamActivityMonitor({
                       </div>
                     </div>
 
-                    {productivityMap.has(timer.user_id) ? (
+                    {timer.is_progress_overdue ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 shrink-0 flex items-center gap-1 animate-pulse" title="Task running > 45 minutes without progress check-in">
+                        <AlertTriangle className="h-2.5 w-2.5 text-amber-600" />
+                        <span>45m+ Pending</span>
+                      </span>
+                    ) : productivityMap.has(timer.user_id) ? (
                       <EmployeeProductivityTag
                         tag={productivityMap.get(timer.user_id)?.tag}
                         score={productivityMap.get(timer.user_id)?.score}
@@ -348,6 +361,51 @@ export default function LiveTeamActivityMonitor({
                       </div>
                     )}
                   </div>
+
+                  {/* Task Progress Percentage & Bar */}
+                  <div className="space-y-1.5 pt-0.5">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-semibold text-slate-600">Task Progress</span>
+                      <span className={`font-bold font-mono ${Number(timer.progress_percentage) === 100 ? "text-emerald-600" : "text-indigo-600"}`}>
+                        {timer.progress_percentage || 0}%
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-500 rounded-full ${
+                          Number(timer.progress_percentage) === 100
+                            ? "bg-emerald-500"
+                            : Number(timer.progress_percentage) >= 50
+                            ? "bg-indigo-500"
+                            : "bg-amber-500"
+                        }`}
+                        style={{ width: `${Math.min(100, Math.max(0, Number(timer.progress_percentage) || 0))}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* 45m+ Overdue Check-in Alert */}
+                  {timer.is_progress_overdue && (
+                    <div className="p-2 rounded-lg bg-amber-50 border border-amber-300 text-[11px] text-amber-900 flex items-start gap-2 shadow-2xs animate-pulse">
+                      <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-bold">45m+ Progress Update Pending:</span>
+                        <p className="text-[10px] text-amber-800 mt-0.5">
+                          {timer.user_name} has been running this task for 45+ minutes without recording a progress check-in.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Latest Daily Summary Snippet */}
+                  {timer.daily_summary && (
+                    <div className="p-2 rounded-lg bg-slate-50 border border-slate-200/80 text-[10px] text-slate-600 flex items-start gap-1.5">
+                      <MessageSquare className="h-3 w-3 text-slate-400 shrink-0 mt-0.5" />
+                      <div className="line-clamp-2 italic" title={timer.daily_summary}>
+                        &ldquo;{timer.daily_summary}&rdquo;
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Footer: Live Task Stopwatch & Start Date-Time & Jump */}

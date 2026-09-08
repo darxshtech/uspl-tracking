@@ -518,6 +518,25 @@ export async function PATCH(req: Request) {
       const finalTargetDate = expected_date !== undefined ? expected_date : (target_date !== undefined ? target_date : null);
       const finalDueDate = expected_date !== undefined ? expected_date : (due_date !== undefined ? due_date : null);
 
+      let editStatus = status !== undefined ? status : null;
+      let editProgress = progress_percentage !== undefined ? progress_percentage : null;
+
+      if (editStatus === "Completed" || Number(editProgress) === 100) {
+        editStatus = "Completed";
+        editProgress = 100;
+
+        // Auto-stop active running timer if task is completed
+        await pool.query(
+          `UPDATE task_time_logs 
+           SET ended_at = CURRENT_TIMESTAMP, 
+               duration_minutes = GREATEST(1, ROUND(TIMESTAMPDIFF(SECOND, started_at, CURRENT_TIMESTAMP) / 60)), 
+               session_summary = IFNULL(session_summary, 'Task marked Completed via edit'), 
+               is_active = 0 
+           WHERE task_id = ? AND is_active = 1`,
+          [id]
+        );
+      }
+
       await pool.query(
         `UPDATE tasks 
          SET title = IFNULL(?, title),
@@ -548,9 +567,9 @@ export async function PATCH(req: Request) {
               expected_date !== undefined ? expected_date : null,
               finalTargetDate,
               finalDueDate,
-              status !== undefined ? status : null,
+              editStatus,
               assigned_by_type !== undefined ? assigned_by_type : null,
-              progress_percentage !== undefined ? progress_percentage : null,
+              editProgress,
               hours_spent !== undefined ? hours_spent : null,
               blockers !== undefined ? blockers : null,
               remarks !== undefined ? remarks : null,
@@ -567,9 +586,9 @@ export async function PATCH(req: Request) {
               expected_date !== undefined ? expected_date : null,
               finalTargetDate,
               finalDueDate,
-              status !== undefined ? status : null,
+              editStatus,
               assigned_by_type !== undefined ? assigned_by_type : null,
-              progress_percentage !== undefined ? progress_percentage : null,
+              editProgress,
               hours_spent !== undefined ? hours_spent : null,
               blockers !== undefined ? blockers : null,
               remarks !== undefined ? remarks : null,
@@ -812,11 +831,18 @@ export async function PATCH(req: Request) {
     }
 
     // 6. Standard Progress / Lifecycle Status Update
-    const newStatus = status || currentTask.status;
+    let newStatus = status || currentTask.status;
+    let finalProgress = progress_percentage !== undefined ? progress_percentage : currentTask.progress_percentage;
+
+    const is100Percent = Number(progress_percentage) === 100 || newStatus === "Completed";
+    if (is100Percent) {
+      newStatus = "Completed";
+      finalProgress = 100;
+    }
 
     // Auto-stop timer if transitioning to terminal or locked state
     const LOCKED_STATUSES = ["Completed", "Ready for Demo", "Ready for Testing", "Testing", "Tested (PASS)"];
-    if (LOCKED_STATUSES.includes(newStatus)) {
+    if (LOCKED_STATUSES.includes(newStatus) || is100Percent) {
       await pool.query(
         `UPDATE task_time_logs 
          SET ended_at = CURRENT_TIMESTAMP, 
@@ -861,13 +887,29 @@ export async function PATCH(req: Request) {
         remarks !== undefined ? remarks : null, 
         task_link !== undefined ? task_link : null,
         linksJson !== undefined ? linksJson : null,
-        progress_percentage !== undefined ? progress_percentage : null,
+        finalProgress !== undefined ? finalProgress : null,
         effectiveHoursSpent,
         blockers !== undefined ? blockers : null,
         daily_summary !== undefined ? daily_summary : null,
         id
       ]
     );
+
+    // Notify Admin, CEO, and PM when task is 100% completed or progress is recorded
+    const currentUserName = session.user?.name || "User";
+    if (is100Percent && currentTask.status !== "Completed") {
+      await notifyManagement(
+        `🎉 Task Finished (100%): ${currentUserName}`,
+        `${currentUserName} (${currentRole}) marked task "${currentTask.title}" as 100% Completed.`,
+        "task_completed"
+      );
+    } else if (progress_percentage !== undefined && Number(progress_percentage) !== Number(currentTask.progress_percentage)) {
+      await notifyManagement(
+        `📝 Task Progress Updated: ${currentUserName} (${progress_percentage}%)`,
+        `${currentUserName} (${currentRole}) updated progress to ${progress_percentage}% on task "${currentTask.title}". Work: "${daily_summary || remarks || 'Progress updated'}".`,
+        "task_progress_updated"
+      );
+    }
 
     // Auto-record into daily_work table if hours or work summary logged
     if ((effectiveHoursSpent && parseFloat(effectiveHoursSpent) > 0) || daily_summary) {
@@ -962,3 +1004,21 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+
+// Helper: Notify all management users (Admin, CEO, PM)
+async function notifyManagement(title: string, message: string, type: string = "task_progress") {
+  try {
+    const [executives]: any = await pool.query(
+      "SELECT id FROM users WHERE role IN ('Admin', 'CEO', 'PM')"
+    );
+    for (const exec of executives) {
+      await pool.query(
+        "INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, ?)",
+        [exec.id, title, message, type]
+      );
+    }
+  } catch (err) {
+    console.error("notifyManagement error:", err);
+  }
+}
+

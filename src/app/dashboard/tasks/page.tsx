@@ -1055,6 +1055,10 @@ export default function DailyTasksPage() {
       ? parseFloat(selectedTaskForProgress.hours_spent)
       : Math.max(0, Number(hoursSpentToday) || 0);
 
+    const is100Pct = Number(progressPercentage) === 100 || progressStatus === "Completed";
+    const finalStatus = is100Pct ? "Completed" : progressStatus;
+    const finalPct = is100Pct ? 100 : progressPercentage;
+
     setSubmittingProgress(true);
     try {
       const res = await fetch("/api/tasks", {
@@ -1062,8 +1066,8 @@ export default function DailyTasksPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: selectedTaskForProgress.id,
-          status: progressStatus,
-          progress_percentage: progressPercentage,
+          status: finalStatus,
+          progress_percentage: finalPct,
           hours_spent: finalHours,
           daily_summary: dailySummary.trim(),
           blockers: blockers.trim() || null,
@@ -1074,7 +1078,8 @@ export default function DailyTasksPage() {
         setProgressModalOpen(false);
         setSelectedTaskForProgress(null);
         fetchTasks();
-        showToast("Progress updated!");
+        window.dispatchEvent(new Event("task-timer-updated"));
+        showToast(is100Pct ? "Task finished & marked Completed (100%)!" : "Progress updated!");
       } else {
         const data = await res.json();
         showError("Update Failed", data.error || "Unknown error");
@@ -2273,18 +2278,35 @@ export default function DailyTasksPage() {
             {/* Progress Percentage Control */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label className="font-bold text-slate-800 text-xs">
-                  Completion Progress: <span className="text-sky-600 text-sm font-black">{progressPercentage}%</span>
+                <Label className="font-bold text-slate-800 text-xs flex items-center gap-2">
+                  <span>Completion Progress:</span>
+                  <span className={`text-sm font-black ${progressPercentage === 100 ? "text-emerald-600" : "text-sky-600"}`}>
+                    {progressPercentage}%
+                  </span>
+                  {progressPercentage === 100 && (
+                    <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full border border-emerald-300">
+                      Completed
+                    </span>
+                  )}
                 </Label>
                 <div className="flex gap-1">
                   {[0, 25, 50, 75, 100].map((pct) => (
                     <button
                       key={pct}
                       type="button"
-                      onClick={() => setProgressPercentage(pct)}
-                      className={`px-2 py-0.5 text-[10px] font-bold rounded border transition-all ${
+                      onClick={() => {
+                        setProgressPercentage(pct);
+                        if (pct === 100) {
+                          setProgressStatus("Completed");
+                        } else if (progressStatus === "Completed" && pct < 100) {
+                          setProgressStatus("In Progress");
+                        }
+                      }}
+                      className={`px-2 py-0.5 text-[10px] font-bold rounded border transition-all cursor-pointer ${
                         progressPercentage === pct
-                          ? "bg-sky-600 text-white border-sky-600"
+                          ? pct === 100
+                            ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
+                            : "bg-sky-600 text-white border-sky-600 shadow-xs"
                           : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
                       }`}
                     >
@@ -2300,7 +2322,15 @@ export default function DailyTasksPage() {
                 max="100"
                 step="5"
                 value={progressPercentage}
-                onChange={(e) => setProgressPercentage(parseInt(e.target.value))}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10);
+                  setProgressPercentage(val);
+                  if (val === 100) {
+                    setProgressStatus("Completed");
+                  } else if (progressStatus === "Completed" && val < 100) {
+                    setProgressStatus("In Progress");
+                  }
+                }}
                 className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-sky-600"
               />
 
@@ -2373,7 +2403,13 @@ export default function DailyTasksPage() {
                 <Label className="font-semibold text-slate-700 text-xs">Task Status</Label>
                 <Select 
                   value={progressStatus} 
-                  onValueChange={(val) => setProgressStatus(val || "In Progress")}
+                  onValueChange={(val) => {
+                    const newStatus = val || "In Progress";
+                    setProgressStatus(newStatus);
+                    if (newStatus === "Completed") {
+                      setProgressPercentage(100);
+                    }
+                  }}
                 >
                   <SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger>
                   <SelectContent>
@@ -2417,12 +2453,33 @@ export default function DailyTasksPage() {
               </div>
             )}
 
+            {/* 100% Progress Celebration Notice */}
+            {(progressPercentage === 100 || progressStatus === "Completed") && (
+              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs flex items-center gap-2 font-semibold animate-pulse">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                <span>🎉 100% Progress: This task will be marked Completed and any running timer will be stopped.</span>
+              </div>
+            )}
+
             <Button
               type="submit"
               disabled={submittingProgress}
-              className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 shadow-md"
+              className={`w-full font-bold py-2.5 shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                progressPercentage === 100 || progressStatus === "Completed"
+                  ? "bg-emerald-600 hover:bg-emerald-700 text-white ring-2 ring-emerald-400"
+                  : "bg-slate-900 hover:bg-slate-800 text-white"
+              }`}
             >
-              {submittingProgress ? "Updating Task..." : "Save Progress & Sync Daily Log"}
+              {submittingProgress ? (
+                "Updating Task..."
+              ) : progressPercentage === 100 || progressStatus === "Completed" ? (
+                <>
+                  <CheckCircle2 className="h-4 w-4" />
+                  Save & Finish Task (100% Completed)
+                </>
+              ) : (
+                "Save Progress & Sync Daily Log"
+              )}
             </Button>
           </form>
         </DialogContent>
