@@ -125,7 +125,9 @@ export default function CronLogsPage() {
     }
   };
 
-  const handleManualTrigger = async (type: "custom" | "weekly" | "monthly" | "auto" | "test" | "dry_run") => {
+  const handleManualTrigger = async (
+    type: "custom" | "weekly" | "monthly" | "auto" | "test" | "dry_run" | "delayed_tasks" | "delayed_tasks_dry_run"
+  ) => {
     if (type === "custom" || type === "test" || type === "dry_run") {
       if (!customStartDate || !customEndDate) {
         showWarning("Date Range Required", "Please select both a Start Date and End Date.");
@@ -154,6 +156,10 @@ export default function CronLogsPage() {
         endpoint = `/api/cron/attendance-emails?type=weekly`;
       } else if (type === "monthly") {
         endpoint = `/api/cron/attendance-emails?type=monthly`;
+      } else if (type === "delayed_tasks") {
+        endpoint = `/api/cron/delayed-tasks?force=true`;
+      } else if (type === "delayed_tasks_dry_run") {
+        endpoint = `/api/cron/delayed-tasks?dry_run=true`;
       }
 
       const res = await fetch(endpoint);
@@ -411,8 +417,8 @@ export default function CronLogsPage() {
           </div>
         </div>
 
-        {/* 3 Action Cards Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 pt-5">
+        {/* Action Cards Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 pt-5">
           {/* Card 1: Broadcasts */}
           <div className="bg-slate-50/80 border border-slate-200/90 p-4 rounded-xl flex flex-col justify-between space-y-4">
             <div>
@@ -520,6 +526,42 @@ export default function CronLogsPage() {
               </div>
             </div>
           </div>
+
+          {/* Card 4: Delayed Tasks PM Alert */}
+          <div className="bg-rose-50/70 border border-rose-200/90 p-4 rounded-xl flex flex-col justify-between space-y-4 shadow-2xs">
+            <div>
+              <span className="text-xs font-bold text-rose-800 uppercase tracking-wider flex items-center gap-1.5">
+                <AlertTriangle className="h-3.5 w-3.5 text-rose-600" />
+                4. Delayed Tasks Alert (≥2 Days)
+              </span>
+              <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
+                Scans for tasks delayed by 2+ days past expected date and sends alert email to assigned PMs explaining why work is stuck.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Button
+                size="sm"
+                onClick={() => handleManualTrigger("delayed_tasks")}
+                disabled={triggering !== null}
+                className="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs gap-1.5 shadow-xs h-9 justify-center cursor-pointer"
+                title="Immediately run delayed tasks alert and dispatch emails to PMs"
+              >
+                {triggering === "delayed_tasks" ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                ⚡ Run PM Escalation Now
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleManualTrigger("delayed_tasks_dry_run")}
+                disabled={triggering !== null}
+                className="w-full bg-white hover:bg-rose-50 text-rose-700 border-rose-300 font-bold text-xs gap-1.5 shadow-xs h-8 justify-center cursor-pointer"
+                title="Simulate without sending real emails"
+              >
+                {triggering === "delayed_tasks_dry_run" ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5 text-rose-600" />}
+                Simulate (Dry-Run)
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -618,7 +660,13 @@ export default function CronLogsPage() {
                     <tr key={log.id} className="hover:bg-slate-50/80 transition-colors">
                       <td className="py-3.5 px-4">{statusBadge}</td>
                       <td className="py-3.5 px-4 font-bold text-slate-800">
-                        <span className="capitalize">{log.job_type.replace(/_/g, " ")}</span>
+                        {log.job_type === "delayed_tasks_pm_alert" ? (
+                          <span className="inline-flex items-center gap-1 font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded text-[11px]">
+                            🚨 Delayed Tasks PM Alert
+                          </span>
+                        ) : (
+                          <span className="capitalize">{log.job_type.replace(/_/g, " ")}</span>
+                        )}
                       </td>
                       <td className="py-3.5 px-4 text-slate-600">
                         <Badge variant="outline" className="bg-white font-mono text-[10px]">

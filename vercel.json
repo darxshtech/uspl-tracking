@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/attendance-emails?type=auto",
       "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/delayed-tasks",
+      "schedule": "30 3 * * *"
     }
   ]
 }
