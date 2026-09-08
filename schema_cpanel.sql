@@ -67,6 +67,8 @@ CREATE TABLE IF NOT EXISTS `tasks` (
   `title` VARCHAR(255) NOT NULL,
   `description` TEXT DEFAULT NULL,
   `priority` ENUM('Low', 'Medium', 'High', 'Urgent') NOT NULL DEFAULT 'Medium',
+  `start_date` DATE DEFAULT NULL,
+  `expected_date` DATE DEFAULT NULL,
   `due_date` DATE DEFAULT NULL,
   `target_date` DATE DEFAULT NULL,
   `status` ENUM('Planning', 'In Progress', 'Ready for Testing', 'Testing', 'Changes Required', 'Tested (PASS)', 'Ready for Demo', 'Completed') NOT NULL DEFAULT 'In Progress',

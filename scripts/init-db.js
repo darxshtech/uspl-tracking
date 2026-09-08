@@ -62,6 +62,8 @@ async function initDb() {
       created_by INT,
       assigned_to INT,
       priority ENUM('Low', 'Medium', 'High', 'Urgent') DEFAULT 'Medium',
+      start_date DATE,
+      expected_date DATE,
       due_date DATE,
       estimated_hours DECIMAL(5,2),
       status ENUM('Created', 'Assigned', 'Planning', 'In Progress', 'Ready for Testing', 'Testing', 'Changes Required', 'Tested (PASS)', 'Ready for Demo', 'Completed', 'Cancelled') DEFAULT 'Created',

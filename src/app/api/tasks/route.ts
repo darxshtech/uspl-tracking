@@ -108,8 +108,15 @@ export async function GET() {
 
       const taskAssignees = assigneesMap[r.id] || (r.assigned_to ? [{ id: r.assigned_to, name: r.assignee_name }] : []);
 
+      const rawStartDate = r.start_date ? (typeof r.start_date === 'string' ? r.start_date.split("T")[0] : new Date(r.start_date).toISOString().split("T")[0]) : (r.created_at ? new Date(r.created_at).toISOString().split("T")[0] : null);
+      const rawExpectedDate = r.expected_date ? (typeof r.expected_date === 'string' ? r.expected_date.split("T")[0] : new Date(r.expected_date).toISOString().split("T")[0]) : (r.target_date ? (typeof r.target_date === 'string' ? r.target_date.split("T")[0] : new Date(r.target_date).toISOString().split("T")[0]) : (r.due_date ? (typeof r.due_date === 'string' ? r.due_date.split("T")[0] : new Date(r.due_date).toISOString().split("T")[0]) : null));
+
       return {
         ...r,
+        start_date: rawStartDate,
+        expected_date: rawExpectedDate,
+        target_date: rawExpectedDate || r.target_date,
+        due_date: rawExpectedDate || r.due_date,
         task_links: parsedLinks,
         attachments: parsedAttachments,
         checklists: checklistMap[r.id] || [],
@@ -164,6 +171,8 @@ export async function POST(req: Request) {
       project_id, 
       assigned_to, 
       priority, 
+      start_date,
+      expected_date,
       due_date, 
       target_date, 
       timeline, 
@@ -178,19 +187,23 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Task title and project are required" }, { status: 400 });
     }
 
-    // Calculate target date for Today vs Tomorrow
+    // Calculate dates: start_date defaults to today, expected_date defaults to today/target/timeline
     const now = new Date();
     const todayStr = now.toISOString().split("T")[0];
     const tomorrow = new Date(now);
     tomorrow.setDate(tomorrow.getDate() + 1);
     const tomorrowStr = tomorrow.toISOString().split("T")[0];
 
-    let taskTargetDate = target_date || todayStr;
+    const taskStartDate = start_date || todayStr;
+    let taskExpectedDate = expected_date || target_date || due_date || todayStr;
     if (timeline === "tomorrow") {
-      taskTargetDate = tomorrowStr;
-    } else if (timeline === "today") {
-      taskTargetDate = todayStr;
+      taskExpectedDate = tomorrowStr;
+    } else if (timeline === "today" && !expected_date) {
+      taskExpectedDate = todayStr;
     }
+
+    const taskTargetDate = taskExpectedDate;
+    const taskDueDate = taskExpectedDate;
 
     const finalAssignedByType = assigned_by_type || (role === "Developer" || role === "Tester" ? "Self Tested" : role);
     const isExecutiveOrAdmin = ["Admin", "CEO", "PM"].includes(role);
@@ -205,8 +218,8 @@ export async function POST(req: Request) {
       let createdCount = 0;
       for (const emp of allEmployees) {
         const [result]: any = await pool.query(
-          `INSERT INTO tasks (title, description, project_id, created_by, assigned_to, priority, due_date, target_date, status, assigned_by_type, attachments) 
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Assigned', ?, ?)`,
+          `INSERT INTO tasks (title, description, project_id, created_by, assigned_to, priority, start_date, expected_date, due_date, target_date, status, assigned_by_type, attachments) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Assigned', ?, ?)`,
           [
             title,
             description || null,
@@ -214,7 +227,9 @@ export async function POST(req: Request) {
             currentUserId,
             emp.id,
             priority || "Medium",
-            due_date || taskTargetDate,
+            taskStartDate,
+            taskExpectedDate,
+            taskDueDate,
             taskTargetDate,
             finalAssignedByType,
             taskAttachmentsJson
@@ -288,8 +303,8 @@ export async function POST(req: Request) {
     const primaryAssignee = assignedUserIds[0];
 
     const [result]: any = await pool.query(
-      `INSERT INTO tasks (title, description, project_id, created_by, assigned_to, priority, due_date, target_date, status, assigned_by_type, attachments) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (title, description, project_id, created_by, assigned_to, priority, start_date, expected_date, due_date, target_date, status, assigned_by_type, attachments) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         title,
         description || null,
@@ -297,7 +312,9 @@ export async function POST(req: Request) {
         currentUserId,
         primaryAssignee,
         priority || "Medium",
-        due_date || taskTargetDate,
+        taskStartDate,
+        taskExpectedDate,
+        taskDueDate,
         taskTargetDate,
         role === "Developer" || role === "Tester" ? "In Progress" : "Assigned",
         finalAssignedByType,
@@ -410,6 +427,8 @@ export async function PATCH(req: Request) {
       project_id,
       assigned_to,
       priority,
+      start_date,
+      expected_date,
       target_date,
       due_date,
       assigned_by_type,
@@ -471,6 +490,9 @@ export async function PATCH(req: Request) {
       const primaryAssignee = assignedUserIds && assignedUserIds.length > 0 ? assignedUserIds[0] : (assigned_to !== undefined ? assigned_to : null);
       const attachmentsJson = attachments !== undefined ? (Array.isArray(attachments) ? JSON.stringify(attachments) : null) : undefined;
 
+      const finalTargetDate = expected_date !== undefined ? expected_date : (target_date !== undefined ? target_date : null);
+      const finalDueDate = expected_date !== undefined ? expected_date : (due_date !== undefined ? due_date : null);
+
       await pool.query(
         `UPDATE tasks 
          SET title = IFNULL(?, title),
@@ -478,6 +500,8 @@ export async function PATCH(req: Request) {
              project_id = IFNULL(?, project_id),
              assigned_to = IFNULL(?, assigned_to),
              priority = IFNULL(?, priority),
+             start_date = IFNULL(?, start_date),
+             expected_date = IFNULL(?, expected_date),
              target_date = IFNULL(?, target_date),
              due_date = IFNULL(?, due_date),
              status = IFNULL(?, status),
@@ -495,8 +519,10 @@ export async function PATCH(req: Request) {
               project_id !== undefined ? project_id : null,
               primaryAssignee,
               priority !== undefined ? priority : null,
-              target_date !== undefined ? target_date : null,
-              due_date !== undefined ? due_date : null,
+              start_date !== undefined ? start_date : null,
+              expected_date !== undefined ? expected_date : null,
+              finalTargetDate,
+              finalDueDate,
               status !== undefined ? status : null,
               assigned_by_type !== undefined ? assigned_by_type : null,
               progress_percentage !== undefined ? progress_percentage : null,
@@ -512,8 +538,10 @@ export async function PATCH(req: Request) {
               project_id !== undefined ? project_id : null,
               primaryAssignee,
               priority !== undefined ? priority : null,
-              target_date !== undefined ? target_date : null,
-              due_date !== undefined ? due_date : null,
+              start_date !== undefined ? start_date : null,
+              expected_date !== undefined ? expected_date : null,
+              finalTargetDate,
+              finalDueDate,
               status !== undefined ? status : null,
               assigned_by_type !== undefined ? assigned_by_type : null,
               progress_percentage !== undefined ? progress_percentage : null,

@@ -89,6 +89,8 @@ export default function DailyTasksPage() {
   const [assignedByType, setAssignedByType] = useState<"PM" | "CEO" | "Tester" | "Self Tested">("Self Tested");
   const [timeline, setTimeline] = useState<"today" | "tomorrow" | "custom">("today");
   const [customDate, setCustomDate] = useState("");
+  const [startDate, setStartDate] = useState(new Date().toISOString().split("T")[0]);
+  const [expectedDate, setExpectedDate] = useState(new Date().toISOString().split("T")[0]);
   const [initialChecklists, setInitialChecklists] = useState<{ id?: number; item_text: string; is_completed?: boolean }[]>([]);
   const [newChecklistInput, setNewChecklistInput] = useState("");
   const [editingInitialChecklistIdx, setEditingInitialChecklistIdx] = useState<number | null>(null);
@@ -156,6 +158,8 @@ export default function DailyTasksPage() {
   const [editTargetDate, setEditTargetDate] = useState("");
   const [editTimeline, setEditTimeline] = useState<"today" | "tomorrow" | "custom">("today");
   const [editCustomDate, setEditCustomDate] = useState("");
+  const [editStartDate, setEditStartDate] = useState(new Date().toISOString().split("T")[0]);
+  const [editExpectedDate, setEditExpectedDate] = useState(new Date().toISOString().split("T")[0]);
   const [editAssignedByType, setEditAssignedByType] = useState("PM");
   const [editProgressPercentage, setEditProgressPercentage] = useState(0);
   const [editHoursSpent, setEditHoursSpent] = useState(0);
@@ -791,6 +795,9 @@ export default function DailyTasksPage() {
         ? (assignedTo.length > 0 ? assignedTo : [currentUserId.toString()])
         : [currentUserId.toString()];
 
+      const finalStartDate = startDate || todayStr;
+      const finalExpectedDate = expectedDate || todayStr;
+
       const res = await fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -801,8 +808,11 @@ export default function DailyTasksPage() {
           assigned_to: finalAssignees,
           priority,
           assigned_by_type: assignedByType,
-          timeline,
-          target_date: timeline === "custom" ? customDate : undefined,
+          start_date: finalStartDate,
+          expected_date: finalExpectedDate,
+          target_date: finalExpectedDate,
+          due_date: finalExpectedDate,
+          timeline: finalExpectedDate === tomorrowStr ? "tomorrow" : (finalExpectedDate === todayStr ? "today" : "custom"),
           checklists: initialChecklists,
           attachments: initialTaskAttachments,
           assign_to_all: assignToAll,
@@ -822,6 +832,8 @@ export default function DailyTasksPage() {
         setAssignedByType("Self Tested");
         setTimeline("today");
         setCustomDate("");
+        setStartDate(todayStr);
+        setExpectedDate(todayStr);
         setInitialChecklists([]);
         setNewChecklistInput("");
         setInitialTaskAttachments([]);
@@ -857,8 +869,14 @@ export default function DailyTasksPage() {
     setEditPriority(task.priority || "Medium");
     setEditStatus(task.status || "In Progress");
 
+    // Start date & Expected date prefill
+    const sDate = task.start_date ? (task.start_date.includes("T") ? task.start_date.split("T")[0] : task.start_date) : (task.created_at ? task.created_at.split("T")[0] : todayStr);
+    const expDate = task.expected_date ? (task.expected_date.includes("T") ? task.expected_date.split("T")[0] : task.expected_date) : (task.target_date ? (task.target_date.includes("T") ? task.target_date.split("T")[0] : task.target_date) : (task.due_date ? (task.due_date.includes("T") ? task.due_date.split("T")[0] : task.due_date) : todayStr));
+    setEditStartDate(sDate);
+    setEditExpectedDate(expDate);
+
     // Target date handling & timeline prefill
-    const taskDate = task.target_date ? (task.target_date.includes("T") ? task.target_date.split("T")[0] : task.target_date) : "";
+    const taskDate = expDate || "";
     setEditTargetDate(taskDate);
     if (taskDate === todayStr) {
       setEditTimeline("today");
@@ -921,17 +939,13 @@ export default function DailyTasksPage() {
     e.preventDefault();
     if (!editingTask) return;
 
-    let finalTargetDate = editTargetDate;
-    if (editTimeline === "today") {
-      finalTargetDate = todayStr;
-    } else if (editTimeline === "tomorrow") {
-      finalTargetDate = tomorrowStr;
-    } else if (editTimeline === "custom") {
-      if (!editCustomDate) {
-        showError("Invalid Date", "Please select a specific date for the scheduled target date.");
-        return;
-      }
-      finalTargetDate = editCustomDate;
+    if (!editStartDate) {
+      showError("Invalid Date", "Please select a start date.");
+      return;
+    }
+    if (!editExpectedDate) {
+      showError("Invalid Date", "Please select an expected date.");
+      return;
     }
 
     setSavingEditTask(true);
@@ -948,7 +962,10 @@ export default function DailyTasksPage() {
           assigned_to: canManageAllTasks ? editAssignedTo.map((id) => parseInt(id)) : undefined,
           priority: editPriority,
           status: editStatus,
-          target_date: finalTargetDate || undefined,
+          start_date: editStartDate,
+          expected_date: editExpectedDate,
+          target_date: editExpectedDate,
+          due_date: editExpectedDate,
           assigned_by_type: editAssignedByType,
           progress_percentage: editProgressPercentage,
           hours_spent: editHoursSpent,
@@ -1256,15 +1273,16 @@ export default function DailyTasksPage() {
   // Comprehensive Multi-dimensional Filter
   const filteredTasks = useMemo(() => {
     return tasks.filter((t) => {
-      const taskDate = t.target_date ? t.target_date.split("T")[0] : todayStr;
+      const taskExpDate = t.expected_date ? t.expected_date.split("T")[0] : (t.target_date ? t.target_date.split("T")[0] : todayStr);
+      const taskStartDate = t.start_date ? t.start_date.split("T")[0] : (t.created_at ? t.created_at.split("T")[0] : todayStr);
       const isCompleted = t.status === "Completed" || t.status === "Ready for Demo";
 
       // 1. Tab filtering
       let matchTab = true;
       if (activeTab === "today") {
-        matchTab = taskDate <= todayStr || !isCompleted;
+        matchTab = taskExpDate <= todayStr || !isCompleted;
       } else if (activeTab === "tomorrow") {
-        matchTab = taskDate > todayStr;
+        matchTab = taskExpDate > todayStr;
       } else if (activeTab === "assigned_pm") {
         matchTab = t.assigned_by_type === "PM" || t.creator_role === "PM" || t.project_creator_role === "PM";
       } else if (activeTab === "assigned_ceo") {
@@ -1287,14 +1305,14 @@ export default function DailyTasksPage() {
         return false;
       }
 
-      // 4. Date filter
-      if (filterDateMode === "TODAY" && taskDate !== todayStr) {
+      // 4. Date filter (checks both expected date and start date)
+      if (filterDateMode === "TODAY" && taskExpDate !== todayStr && taskStartDate !== todayStr) {
         return false;
       }
-      if (filterDateMode === "TOMORROW" && taskDate !== tomorrowStr) {
+      if (filterDateMode === "TOMORROW" && taskExpDate !== tomorrowStr) {
         return false;
       }
-      if (filterDateMode === "CUSTOM" && filterCustomDate && taskDate !== filterCustomDate) {
+      if (filterDateMode === "CUSTOM" && filterCustomDate && taskExpDate !== filterCustomDate && taskStartDate !== filterCustomDate) {
         return false;
       }
 
@@ -1356,12 +1374,15 @@ export default function DailyTasksPage() {
   };
 
   const countToday = tasks.filter((t) => {
-    const taskDate = t.target_date ? t.target_date.split("T")[0] : todayStr;
+    const taskExpDate = t.expected_date ? t.expected_date.split("T")[0] : (t.target_date ? t.target_date.split("T")[0] : todayStr);
     const isCompleted = t.status === "Completed" || t.status === "Ready for Demo";
-    return taskDate <= todayStr || !isCompleted;
+    return taskExpDate <= todayStr || !isCompleted;
   }).length;
 
-  const countTomorrow = tasks.filter((t) => (t.target_date ? t.target_date.split("T")[0] : todayStr) > todayStr).length;
+  const countTomorrow = tasks.filter((t) => {
+    const taskExpDate = t.expected_date ? t.expected_date.split("T")[0] : (t.target_date ? t.target_date.split("T")[0] : todayStr);
+    return taskExpDate > todayStr;
+  }).length;
   const countPM = tasks.filter((t) => t.assigned_by_type === "PM" || t.creator_role === "PM" || t.project_creator_role === "PM").length;
   const countCEO = tasks.filter((t) => t.assigned_by_type === "CEO" || t.creator_role === "CEO" || t.project_creator_role === "CEO").length;
   const countTester = tasks.filter((t) => t.assigned_by_type === "Tester" || t.status === "Changes Required" || t.status === "Ready for Testing" || t.status === "Testing" || t.creator_role === "Tester").length;
@@ -1576,63 +1597,94 @@ export default function DailyTasksPage() {
                   </div>
                 )}
 
-                {/* Timeline Selection */}
-                <div className="space-y-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
-                  <Label className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
-                    <Calendar className="h-4 w-4 text-sky-500" /> Target Date & Schedule
-                  </Label>
-                  <div className="grid grid-cols-3 gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => setTimeline("today")}
-                      className={`p-2 rounded-lg border text-xs font-bold transition-all flex flex-col items-center gap-1 ${
-                        timeline === "today"
-                          ? "bg-sky-50 border-sky-400 text-sky-900 shadow-xs"
-                          : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                      }`}
-                    >
-                      <Flame className="h-4 w-4 text-amber-500" />
-                      <span>⚡ To Do Today</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setTimeline("tomorrow")}
-                      className={`p-2 rounded-lg border text-xs font-bold transition-all flex flex-col items-center gap-1 ${
-                        timeline === "tomorrow"
-                          ? "bg-indigo-50 border-indigo-400 text-indigo-900 shadow-xs"
-                          : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                      }`}
-                    >
-                      <SunMedium className="h-4 w-4 text-indigo-500" />
-                      <span>🌅 For Tomorrow</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setTimeline("custom")}
-                      className={`p-2 rounded-lg border text-xs font-bold transition-all flex flex-col items-center gap-1 ${
-                        timeline === "custom"
-                          ? "bg-purple-50 border-purple-400 text-purple-900 shadow-xs"
-                          : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                      }`}
-                    >
-                      <Calendar className="h-4 w-4 text-purple-500" />
-                      <span>📅 Specific Date</span>
-                    </button>
+                {/* Task Schedule Dates (Start Date default Today & Expected Date) */}
+                <div className="space-y-3 p-3.5 bg-gradient-to-br from-slate-50 to-sky-50/30 rounded-xl border border-slate-200 shadow-2xs">
+                  <div className="flex items-center justify-between">
+                    <Label className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
+                      <Calendar className="h-4 w-4 text-sky-600" /> Task Schedule & Dates
+                    </Label>
+                    <span className="text-[10px] text-slate-500 font-medium">
+                      Start date defaults to today
+                    </span>
                   </div>
 
-                  {timeline === "custom" && (
-                    <div className="pt-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* Start Date */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="taskStartDate" className="text-xs font-semibold text-slate-700 flex items-center gap-1">
+                          <Play className="h-3 w-3 text-emerald-600" /> Start Date *
+                        </Label>
+                        {startDate === todayStr && (
+                          <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100/70 px-1.5 py-0.2 rounded">Today</span>
+                        )}
+                      </div>
                       <Input
+                        id="taskStartDate"
                         type="date"
-                        value={customDate}
-                        onChange={(e) => setCustomDate(e.target.value)}
-                        className="bg-white text-xs"
+                        value={startDate}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setStartDate(val);
+                          if (expectedDate && val && expectedDate < val) {
+                            setExpectedDate(val);
+                          }
+                        }}
+                        className="bg-white text-xs font-medium border-slate-300 focus:border-sky-500"
                         required
                       />
                     </div>
-                  )}
+
+                    {/* Expected Date */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="taskExpectedDate" className="text-xs font-semibold text-slate-700 flex items-center gap-1">
+                          <Clock className="h-3 w-3 text-sky-600" /> Expected Date *
+                        </Label>
+                        {expectedDate === todayStr ? (
+                          <span className="text-[9px] font-bold text-amber-700 bg-amber-100/70 px-1.5 py-0.2 rounded">Today</span>
+                        ) : expectedDate === tomorrowStr ? (
+                          <span className="text-[9px] font-bold text-indigo-700 bg-indigo-100/70 px-1.5 py-0.2 rounded">Tomorrow</span>
+                        ) : null}
+                      </div>
+                      <Input
+                        id="taskExpectedDate"
+                        type="date"
+                        min={startDate || undefined}
+                        value={expectedDate}
+                        onChange={(e) => setExpectedDate(e.target.value)}
+                        className="bg-white text-xs font-medium border-slate-300 focus:border-sky-500"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  {/* Quick Preset Buttons for Expected Date */}
+                  <div className="flex items-center gap-1.5 pt-1">
+                    <span className="text-[10px] text-slate-500 font-semibold mr-1">Quick Expected:</span>
+                    <button
+                      type="button"
+                      onClick={() => setExpectedDate(todayStr)}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                        expectedDate === todayStr
+                          ? "bg-amber-500 text-white shadow-2xs"
+                          : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-100"
+                      }`}
+                    >
+                      <Flame className="h-3 w-3" /> Due Today
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setExpectedDate(tomorrowStr)}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                        expectedDate === tomorrowStr
+                          ? "bg-indigo-600 text-white shadow-2xs"
+                          : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-100"
+                      }`}
+                    >
+                      <SunMedium className="h-3 w-3" /> Due Tomorrow
+                    </button>
+                  </div>
                 </div>
 
                 {/* Task-Level Attachments & Reference Links */}
@@ -2567,63 +2619,94 @@ export default function DailyTasksPage() {
               </div>
             )}
 
-            {/* Timeline Selection (Target Date & Schedule) */}
-            <div className="space-y-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
-              <Label className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
-                <Calendar className="h-4 w-4 text-sky-500" /> Target Date & Schedule
-              </Label>
-              <div className="grid grid-cols-3 gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setEditTimeline("today")}
-                  className={`p-2 rounded-lg border text-xs font-bold transition-all flex flex-col items-center gap-1 ${
-                    editTimeline === "today"
-                      ? "bg-sky-50 border-sky-400 text-sky-900 shadow-xs"
-                      : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                  }`}
-                >
-                  <Flame className="h-4 w-4 text-amber-500" />
-                  <span>⚡ To Do Today</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setEditTimeline("tomorrow")}
-                  className={`p-2 rounded-lg border text-xs font-bold transition-all flex flex-col items-center gap-1 ${
-                    editTimeline === "tomorrow"
-                      ? "bg-indigo-50 border-indigo-400 text-indigo-900 shadow-xs"
-                      : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                  }`}
-                >
-                  <SunMedium className="h-4 w-4 text-indigo-500" />
-                  <span>🌅 For Tomorrow</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setEditTimeline("custom")}
-                  className={`p-2 rounded-lg border text-xs font-bold transition-all flex flex-col items-center gap-1 ${
-                    editTimeline === "custom"
-                      ? "bg-purple-50 border-purple-400 text-purple-900 shadow-xs"
-                      : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                  }`}
-                >
-                  <Calendar className="h-4 w-4 text-purple-500" />
-                  <span>📅 Specific Date</span>
-                </button>
+            {/* Task Schedule Dates in Edit Modal */}
+            <div className="space-y-3 p-3.5 bg-gradient-to-br from-slate-50 to-sky-50/30 rounded-xl border border-slate-200 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <Label className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
+                  <Calendar className="h-4 w-4 text-sky-600" /> Task Schedule & Dates
+                </Label>
+                <span className="text-[10px] text-slate-500 font-medium">
+                  Adjust start and target completion dates
+                </span>
               </div>
 
-              {editTimeline === "custom" && (
-                <div className="pt-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Edit Start Date */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="editTaskStartDate" className="text-xs font-semibold text-slate-700 flex items-center gap-1">
+                      <Play className="h-3 w-3 text-emerald-600" /> Start Date *
+                    </Label>
+                    {editStartDate === todayStr && (
+                      <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100/70 px-1.5 py-0.2 rounded">Today</span>
+                    )}
+                  </div>
                   <Input
+                    id="editTaskStartDate"
                     type="date"
-                    value={editCustomDate}
-                    onChange={(e) => setEditCustomDate(e.target.value)}
-                    className="bg-white text-xs"
+                    value={editStartDate}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setEditStartDate(val);
+                      if (editExpectedDate && val && editExpectedDate < val) {
+                        setEditExpectedDate(val);
+                      }
+                    }}
+                    className="bg-white text-xs font-medium border-slate-300 focus:border-sky-500"
                     required
                   />
                 </div>
-              )}
+
+                {/* Edit Expected Date */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="editTaskExpectedDate" className="text-xs font-semibold text-slate-700 flex items-center gap-1">
+                      <Clock className="h-3 w-3 text-sky-600" /> Expected Date *
+                    </Label>
+                    {editExpectedDate === todayStr ? (
+                      <span className="text-[9px] font-bold text-amber-700 bg-amber-100/70 px-1.5 py-0.2 rounded">Today</span>
+                    ) : editExpectedDate === tomorrowStr ? (
+                      <span className="text-[9px] font-bold text-indigo-700 bg-indigo-100/70 px-1.5 py-0.2 rounded">Tomorrow</span>
+                    ) : null}
+                  </div>
+                  <Input
+                    id="editTaskExpectedDate"
+                    type="date"
+                    min={editStartDate || undefined}
+                    value={editExpectedDate}
+                    onChange={(e) => setEditExpectedDate(e.target.value)}
+                    className="bg-white text-xs font-medium border-slate-300 focus:border-sky-500"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Quick Preset Buttons for Expected Date */}
+              <div className="flex items-center gap-1.5 pt-1">
+                <span className="text-[10px] text-slate-500 font-semibold mr-1">Quick Expected:</span>
+                <button
+                  type="button"
+                  onClick={() => setEditExpectedDate(todayStr)}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                    editExpectedDate === todayStr
+                      ? "bg-amber-500 text-white shadow-2xs"
+                      : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-100"
+                  }`}
+                >
+                  <Flame className="h-3 w-3" /> Due Today
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditExpectedDate(tomorrowStr)}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                    editExpectedDate === tomorrowStr
+                      ? "bg-indigo-600 text-white shadow-2xs"
+                      : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-100"
+                  }`}
+                >
+                  <SunMedium className="h-3 w-3" /> Due Tomorrow
+                </button>
+              </div>
             </div>
 
             {/* Task Attachments in Edit Task Modal */}
@@ -2928,7 +3011,7 @@ export default function DailyTasksPage() {
               <TableHead className="font-bold w-20 text-center">Task ID</TableHead>
               <TableHead className="font-bold">Task & Progress</TableHead>
               <TableHead className="font-bold">Project & Assigner</TableHead>
-              <TableHead className="font-bold">Schedule Date</TableHead>
+              <TableHead className="font-bold">Schedule (Start / Expected)</TableHead>
               <TableHead className="font-bold">Status</TableHead>
               <TableHead className="font-bold text-right">Daily Actions</TableHead>
             </TableRow>
@@ -2948,9 +3031,12 @@ export default function DailyTasksPage() {
                 const completedChecklists = checklists.filter((c) => c.is_completed).length;
                 const checklistPct = checklists.length > 0 ? Math.round((completedChecklists / checklists.length) * 100) : 0;
                 const isChecklistOpen = activeChecklistTaskId === task.id;
-                const taskDate = task.target_date ? task.target_date.split("T")[0] : todayStr;
-                const isToday = taskDate <= todayStr;
-                const isTomorrow = taskDate === tomorrowStr;
+                const taskExpDate = task.expected_date ? task.expected_date.split("T")[0] : (task.target_date ? task.target_date.split("T")[0] : todayStr);
+                const taskStartDate = task.start_date ? task.start_date.split("T")[0] : (task.created_at ? task.created_at.split("T")[0] : todayStr);
+                const isCompleted = task.status === "Completed" || task.status === "Ready for Demo";
+                const isToday = taskExpDate === todayStr;
+                const isTomorrow = taskExpDate === tomorrowStr;
+                const isOverdue = taskExpDate < todayStr && !isCompleted;
                 const pct = task.progress_percentage || (checklists.length > 0 ? checklistPct : 0);
                 const employeeSeqId = employeeTaskSeqMap[task.id] || task.id;
 
@@ -3288,21 +3374,40 @@ export default function DailyTasksPage() {
                       </div>
                     </TableCell>
 
-                    {/* DEDICATED SCHEDULE DATE COLUMN */}
-                    <TableCell className="align-top space-y-1.5">
-                      <div className="font-bold text-slate-800 text-xs flex items-center gap-1">
-                        <Calendar className="h-3.5 w-3.5 text-sky-500" />
-                        {new Date(taskDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    {/* DEDICATED SCHEDULE DATES COLUMN (Start & Expected) */}
+                    <TableCell className="align-top space-y-1.5 min-w-[150px]">
+                      <div className="space-y-1">
+                        {/* Start Date */}
+                        <div className="flex items-center gap-1.5 text-xs text-slate-600">
+                          <Play className="h-3 w-3 text-emerald-600 shrink-0" />
+                          <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Start:</span>
+                          <span className="font-semibold text-slate-800 text-[11px]">
+                            {new Date(taskStartDate + "T00:00:00").toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          </span>
+                        </div>
+
+                        {/* Expected Date */}
+                        <div className="flex items-center gap-1.5 text-xs">
+                          <Clock className="h-3 w-3 text-sky-600 shrink-0" />
+                          <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Expected:</span>
+                          <span className="font-bold text-slate-900 text-[11px]">
+                            {new Date(taskExpDate + "T00:00:00").toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          </span>
+                        </div>
                       </div>
 
-                      <div>
-                        {isToday ? (
+                      <div className="pt-0.5">
+                        {isOverdue ? (
+                          <Badge className="bg-rose-50 text-rose-800 border-rose-300 font-bold text-[10px] gap-1">
+                            <AlertTriangle className="h-3 w-3 text-rose-600" /> Overdue
+                          </Badge>
+                        ) : isToday ? (
                           <Badge className="bg-amber-50 text-amber-800 border-amber-300 font-bold text-[10px] gap-1">
-                            <Flame className="h-3 w-3 text-amber-600" /> Today's Task
+                            <Flame className="h-3 w-3 text-amber-600" /> Due Today
                           </Badge>
                         ) : isTomorrow ? (
                           <Badge className="bg-indigo-50 text-indigo-800 border-indigo-300 font-bold text-[10px] gap-1">
-                            <SunMedium className="h-3 w-3 text-indigo-600" /> Tomorrow
+                            <SunMedium className="h-3 w-3 text-indigo-600" /> Due Tomorrow
                           </Badge>
                         ) : (
                           <Badge variant="outline" className="text-[10px] text-slate-600">
