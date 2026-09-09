@@ -124,6 +124,7 @@ export default function TestingQueuePage() {
 
   useEffect(() => {
     if (isAuthorized) {
+      fetchTestingQueue();
       const interval = setInterval(() => {
         if (typeof document !== "undefined" && document.hidden) return;
         fetchTestingQueue();
