@@ -520,11 +520,11 @@ export async function resolveIntentAsync(query: string, role: string): Promise<I
   if (q.includes("analytics") || q.includes("productivity") || q.includes("metrics") || q.includes("kpi")) {
     return handleAnalyticsIntent();
   }
+  if (q.includes("daily task") || q.includes("task board") || q.includes("tasks") || q.includes("task")) {
+    return handleTasksIntent(rawQ);
+  }
   if (q.includes("project") || q.includes("projects")) {
     return handleProjectsIntent();
-  }
-  if (q.includes("daily task") || q.includes("task board") || q.includes("tasks") || q.includes("task")) {
-    return handleTasksIntent();
   }
   if (q.includes("salary payouts") || q.includes("payroll")) {
     return handlePayrollIntent();

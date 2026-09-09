@@ -274,14 +274,19 @@ async function runHumanVoiceTestSuite() {
   const taskTest = await resolveIntentAsync("what are my daily tasks for today", "Admin");
   console.log(`   Tasks Card Data: ${taskTest.cardData ? "✅ PRESENT (" + taskTest.cardData.title + ")" : "❌ MISSING"}`);
 
-  const payrollTest = await resolveIntentAsync("show me monthly payroll overview", "Admin");
-  console.log(`   Payroll Card Data: ${payrollTest.cardData ? "✅ PRESENT (" + payrollTest.cardData.title + ")" : "❌ MISSING"}`);
+  // Project & Employee specific task queries
+  console.log("\n🎯 Verifying Project & Employee Today's Tasks Filtering:");
+  const projTasksTest = await resolveIntentAsync("what are today's tasks for FarmersBag", "Admin");
+  console.log(`   FarmersBag Tasks: "${projTasksTest.speechSummary}"`);
 
-  const testingTest = await resolveIntentAsync("show me the testing queue", "Admin");
-  console.log(`   Testing Card Data: ${testingTest.cardData ? "✅ PRESENT (" + testingTest.cardData.title + ")" : "❌ MISSING"}`);
+  const empTasksTest = await resolveIntentAsync("show today's tasks for Kartik", "Admin");
+  console.log(`   Kartik Tasks: "${empTasksTest.speechSummary}"`);
 
-  const credsTest = await resolveIntentAsync("where are the cloudinary api keys", "Admin");
-  console.log(`   Credentials Card Data: ${credsTest.cardData ? "✅ PRESENT (" + credsTest.cardData.title + ")" : "❌ MISSING"}`);
+  const breakdownProjTest = await resolveIntentAsync("show today's tasks by project", "Admin");
+  console.log(`   Project Breakdown: "${breakdownProjTest.speechSummary}"`);
+
+  const breakdownEmpTest = await resolveIntentAsync("show today's tasks by employee", "Admin");
+  console.log(`   Employee Breakdown: "${breakdownEmpTest.speechSummary}"`);
 }
 
 runHumanVoiceTestSuite();

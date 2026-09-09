@@ -1,4 +1,4 @@
-import { IntentResult, GenericCardItem } from "./ai-scripting";
+import { IntentResult, GenericCardItem, matchEmployeeFuzzy } from "./ai-scripting";
 
 export async function handleProjectsIntent(): Promise<IntentResult> {
   if (typeof window === "undefined") {
@@ -62,7 +62,7 @@ export async function handleProjectsIntent(): Promise<IntentResult> {
   };
 }
 
-export async function handleTasksIntent(): Promise<IntentResult> {
+export async function handleTasksIntent(query?: string): Promise<IntentResult> {
   if (typeof window === "undefined") {
     return {
       matched: true,
@@ -77,7 +77,7 @@ export async function handleTasksIntent(): Promise<IntentResult> {
     const res = await fetch("/api/tasks");
     if (res.ok) {
       const data = await res.json();
-      const tasks = Array.isArray(data) ? data : (data.tasks || []);
+      const tasks: any[] = Array.isArray(data) ? data : (data.tasks || []);
       const total = tasks.length;
 
       const todayStr = new Date().toISOString().split("T")[0];
@@ -91,9 +91,217 @@ export async function handleTasksIntent(): Promise<IntentResult> {
         return isScheduledToday || isUnfinishedPastTask;
       });
 
+      const q = query ? query.toLowerCase().trim() : "";
+
+      // 1. Check if user is asking for tasks by specific project
+      let matchedProjectName = "";
+      if (q) {
+        try {
+          const projRes = await fetch("/api/projects");
+          if (projRes.ok) {
+            const projData = await projRes.json();
+            const projList = Array.isArray(projData) ? projData : (projData.projects || []);
+            const foundProj = projList.find((p: any) => {
+              const pTitle = (p.title || p.name || "").toLowerCase();
+              if (!pTitle) return false;
+              if (q.includes(pTitle)) return true;
+              const words = pTitle.split(/\s+/).filter((w: string) => w.length >= 3 && !["app", "system", "portal", "project", "e-commerce"].includes(w));
+              return words.some((w: string) => q.includes(w));
+            });
+            if (foundProj) {
+              matchedProjectName = foundProj.title || foundProj.name;
+            }
+          }
+        } catch (_) {}
+      }
+
+      if (!matchedProjectName && q) {
+        const projNamesInTasks = Array.from(new Set(todayTasks.map((t: any) => t.project_name).filter(Boolean)));
+        const found = projNamesInTasks.find((pName: string) => {
+          const lowerP = pName.toLowerCase();
+          if (q.includes(lowerP)) return true;
+          const words = lowerP.split(/\s+/).filter((w: string) => w.length >= 3 && !["app", "system", "portal", "project"].includes(w));
+          return words.some((w: string) => q.includes(w));
+        });
+        if (found) matchedProjectName = found;
+      }
+
+      if (matchedProjectName) {
+        const projTodayTasks = todayTasks.filter((t: any) => (t.project_name || "").toLowerCase() === matchedProjectName.toLowerCase());
+        const pTotal = projTodayTasks.length;
+        const pCompleted = projTodayTasks.filter((t: any) => ["Completed", "Ready for Demo", "Tested (PASS)"].includes(t.status)).length;
+        const pInProgress = pTotal - pCompleted;
+
+        const items: GenericCardItem[] = projTodayTasks.slice(0, 4).map((t: any) => ({
+          id: t.id,
+          title: t.title || t.task_name || "Task",
+          subtitle: `Assigned: ${t.assignee_name || t.assigned_to || "Staff"}`,
+          badge: t.status || "Pending",
+          badgeColor: t.status === "Completed" ? "bg-emerald-500" : "bg-amber-500",
+          detailKey1: "Priority",
+          detailVal1: t.priority || "Medium",
+          detailKey2: "Project",
+          detailVal2: t.project_name || matchedProjectName
+        }));
+
+        const speech = `Today's Tasks Briefing for ${matchedProjectName}: ${pTotal} task${pTotal !== 1 ? "s" : ""} scheduled today (${pCompleted} completed, ${pInProgress} in progress). Navigating to Daily Tasks.`;
+        const display = `Today's Tasks (${matchedProjectName}): ${pTotal} Tasks (${pCompleted} Completed, ${pInProgress} In Progress).`;
+
+        return {
+          matched: true,
+          intent: "daily_tasks",
+          redirectUrl: `/dashboard/tasks?search=${encodeURIComponent(matchedProjectName)}`,
+          speechSummary: speech,
+          displayText: display,
+          cardData: {
+            type: "tasks",
+            title: `📁 ${matchedProjectName} — Today's Tasks`,
+            items,
+            statsSummary: `${pTotal} Tasks Today (${pCompleted} Completed)`
+          }
+        };
+      }
+
+      // 2. Check if user is asking for tasks by specific employee
+      let matchedEmpName = "";
+      if (q) {
+        try {
+          const empRes = await fetch("/api/employees");
+          if (empRes.ok) {
+            const empData = await empRes.json();
+            const empList = Array.isArray(empData) ? empData : (empData.employees || []);
+            const cleanToken = q.replace(/today|todays|task|tasks|show|tell|me|for|by|each|project|employee|dev|developer|list|open/gi, " ").trim();
+            if (cleanToken.length >= 2) {
+              const foundEmp = empList.find((e: any) => matchEmployeeFuzzy(cleanToken, e));
+              if (foundEmp) matchedEmpName = foundEmp.name;
+            }
+          }
+        } catch (_) {}
+      }
+
+      if (matchedEmpName) {
+        const empTodayTasks = todayTasks.filter((t: any) => {
+          const mainAssignee = (t.assignee_name || "").toLowerCase();
+          const targetNameLower = matchedEmpName.toLowerCase();
+          if (mainAssignee.includes(targetNameLower) || targetNameLower.includes(mainAssignee)) return true;
+          if (Array.isArray(t.assignees)) {
+            return t.assignees.some((a: any) => (a.name || "").toLowerCase().includes(targetNameLower));
+          }
+          return false;
+        });
+
+        const eTotal = empTodayTasks.length;
+        const eCompleted = empTodayTasks.filter((t: any) => ["Completed", "Ready for Demo", "Tested (PASS)"].includes(t.status)).length;
+        const eInProgress = eTotal - eCompleted;
+
+        const items: GenericCardItem[] = empTodayTasks.slice(0, 4).map((t: any) => ({
+          id: t.id,
+          title: t.title || t.task_name || "Task",
+          subtitle: `Project: ${t.project_name || "General"}`,
+          badge: t.status || "Pending",
+          badgeColor: t.status === "Completed" ? "bg-emerald-500" : "bg-amber-500",
+          detailKey1: "Priority",
+          detailVal1: t.priority || "Medium",
+          detailKey2: "Assigned",
+          detailVal2: matchedEmpName
+        }));
+
+        const speech = `Today's Tasks Briefing for ${matchedEmpName}: ${eTotal} task${eTotal !== 1 ? "s" : ""} assigned for today (${eCompleted} completed, ${eInProgress} in progress). Navigating to Daily Tasks.`;
+        const display = `Today's Tasks (${matchedEmpName}): ${eTotal} Tasks (${eCompleted} Completed, ${eInProgress} In Progress).`;
+
+        return {
+          matched: true,
+          intent: "daily_tasks",
+          redirectUrl: `/dashboard/tasks?search=${encodeURIComponent(matchedEmpName)}`,
+          speechSummary: speech,
+          displayText: display,
+          cardData: {
+            type: "tasks",
+            title: `👤 ${matchedEmpName} — Today's Tasks`,
+            items,
+            statsSummary: `${eTotal} Tasks Today (${eCompleted} Completed)`
+          }
+        };
+      }
+
+      // 3. Check if user is asking for grouped breakdown by project
+      if (q.includes("by project") || q.includes("project breakdown") || q.includes("each project")) {
+        const projectCounts: Record<string, number> = {};
+        todayTasks.forEach((t: any) => {
+          const pName = t.project_name || "General / Unassigned";
+          projectCounts[pName] = (projectCounts[pName] || 0) + 1;
+        });
+
+        const projEntries = Object.entries(projectCounts).sort((a, b) => b[1] - a[1]);
+        const breakdownStr = projEntries.map(([pName, count]) => `${pName}: ${count} task${count > 1 ? "s" : ""}`).join(", ");
+
+        const items: GenericCardItem[] = projEntries.slice(0, 4).map(([pName, count]) => ({
+          id: pName,
+          title: pName,
+          subtitle: "Project Breakdown",
+          badge: `${count} Tasks Today`,
+          badgeColor: "bg-indigo-500"
+        }));
+
+        const speech = `Today's Tasks Breakdown by Project (${todayTasks.length} total tasks today): ${breakdownStr || "No active projects"}. Navigating to Daily Tasks.`;
+        const display = `Today's Tasks by Project: ${breakdownStr || "None"}.`;
+
+        return {
+          matched: true,
+          intent: "daily_tasks",
+          redirectUrl: "/dashboard/tasks",
+          speechSummary: speech,
+          displayText: display,
+          cardData: {
+            type: "tasks",
+            title: "📊 Today's Tasks by Project",
+            items,
+            statsSummary: `${projEntries.length} Projects (${todayTasks.length} Total Tasks)`
+          }
+        };
+      }
+
+      // 4. Check if user is asking for grouped breakdown by employee / developer
+      if (q.includes("by employee") || q.includes("by developer") || q.includes("by dev") || q.includes("employee breakdown") || q.includes("each employee")) {
+        const empCounts: Record<string, number> = {};
+        todayTasks.forEach((t: any) => {
+          const eName = t.assignee_name || "Unassigned";
+          empCounts[eName] = (empCounts[eName] || 0) + 1;
+        });
+
+        const empEntries = Object.entries(empCounts).sort((a, b) => b[1] - a[1]);
+        const breakdownStr = empEntries.map(([eName, count]) => `${eName}: ${count} task${count > 1 ? "s" : ""}`).join(", ");
+
+        const items: GenericCardItem[] = empEntries.slice(0, 4).map(([eName, count]) => ({
+          id: eName,
+          title: eName,
+          subtitle: "Team Member Breakdown",
+          badge: `${count} Tasks Today`,
+          badgeColor: "bg-emerald-500"
+        }));
+
+        const speech = `Today's Tasks Breakdown by Team Member (${todayTasks.length} total tasks today): ${breakdownStr || "No active tasks"}. Navigating to Daily Tasks.`;
+        const display = `Today's Tasks by Employee: ${breakdownStr || "None"}.`;
+
+        return {
+          matched: true,
+          intent: "daily_tasks",
+          redirectUrl: "/dashboard/tasks",
+          speechSummary: speech,
+          displayText: display,
+          cardData: {
+            type: "tasks",
+            title: "👥 Today's Tasks by Employee",
+            items,
+            statsSummary: `${empEntries.length} Team Members (${todayTasks.length} Total Tasks)`
+          }
+        };
+      }
+
+      // 5. Default General Today's Tasks Briefing
       const todayTotal = todayTasks.length;
-      const todayCompleted = todayTasks.filter((t: any) => t.status === "Completed" || t.status === "Ready for Demo" || t.status === "Tested (PASS)").length;
-      const todayInProgress = todayTasks.filter((t: any) => t.status === "In Progress" || t.status === "Planning" || t.status === "Testing" || t.status === "Ready for Testing" || t.status === "Changes Required").length;
+      const todayCompleted = todayTasks.filter((t: any) => ["Completed", "Ready for Demo", "Tested (PASS)"].includes(t.status)).length;
+      const todayInProgress = todayTotal - todayCompleted;
 
       const displayList = todayTotal > 0 ? todayTasks : tasks;
 
