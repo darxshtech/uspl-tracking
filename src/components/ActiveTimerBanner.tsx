@@ -35,6 +35,8 @@ interface ActiveTimerData {
   progress_percentage?: number;
   daily_summary?: string;
   blockers?: string;
+  last_progress_checkin_at?: string | null;
+  secs_since_last_progress_checkin?: number | null;
 }
 
 export default function ActiveTimerBanner() {
@@ -84,6 +86,49 @@ export default function ActiveTimerBanner() {
       return;
     }
 
+    const prevSecs = Number(activeTimer.previous_duration_seconds) || 0;
+    const initialSessionSecs = Number(activeTimer.current_session_seconds) || 0;
+    const currentTotalElapsed = prevSecs + initialSessionSecs;
+
+    // 1. Calculate check-in seconds from database timestamp (authoritative across browsers/tabs)
+    let serverCheckinSecs = 0;
+    if (activeTimer.secs_since_last_progress_checkin !== undefined && activeTimer.secs_since_last_progress_checkin !== null) {
+      const secsAgo = Math.max(0, Number(activeTimer.secs_since_last_progress_checkin));
+      serverCheckinSecs = Math.max(0, currentTotalElapsed - secsAgo);
+    } else if (activeTimer.last_progress_checkin_at) {
+      const checkinMs = new Date(activeTimer.last_progress_checkin_at).getTime();
+      if (!isNaN(checkinMs) && checkinMs > 0) {
+        const secsAgo = Math.max(0, Math.floor((Date.now() - checkinMs) / 1000));
+        serverCheckinSecs = Math.max(0, currentTotalElapsed - secsAgo);
+      }
+    }
+
+    // 2. Read local check-in seconds from localStorage
+    const storageKey = `unitglo_task_45m_checkin_${activeTimer.task_id}`;
+    const savedSecs = localStorage.getItem(storageKey);
+    let localSavedSecs = 0;
+    if (savedSecs !== null) {
+      const parsed = parseInt(savedSecs, 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        localSavedSecs = parsed;
+      }
+    }
+
+    // Combine server check-in timestamp with local storage check-in (take the highest/most recent value!)
+    const effectiveLastCheckin = Math.max(serverCheckinSecs, localSavedSecs);
+    lastCheckinSecsRef.current = effectiveLastCheckin;
+    if (effectiveLastCheckin > 0) {
+      localStorage.setItem(storageKey, String(effectiveLastCheckin));
+    }
+
+    // 3. Auto-dismiss reminder popup if progress was saved recently (<45 mins ago = 2700s)
+    const secsSinceCheckin = Math.max(0, currentTotalElapsed - effectiveLastCheckin);
+    if (effectiveLastCheckin > 0 && secsSinceCheckin < 2700) {
+      if (progressReminderOpenRef.current) {
+        setProgressReminderOpen(false);
+      }
+    }
+
     const isNewTask = activeTimer.task_id !== lastTaskIdRef.current;
     if (isNewTask) {
       lastTaskIdRef.current = activeTimer.task_id;
@@ -92,16 +137,6 @@ export default function ActiveTimerBanner() {
       setProgressPercentage(Number(activeTimer.progress_percentage || 0));
       setProgressSummary(activeTimer.daily_summary || "");
       setProgressBlockers(activeTimer.blockers || "");
-
-      // Initialize lastCheckinSecs from localStorage
-      const storageKey = `unitglo_task_45m_checkin_${activeTimer.task_id}`;
-      const savedSecs = localStorage.getItem(storageKey);
-      if (savedSecs !== null) {
-        const parsed = parseInt(savedSecs, 10);
-        lastCheckinSecsRef.current = !isNaN(parsed) && parsed > 0 ? parsed : 0;
-      } else {
-        lastCheckinSecsRef.current = 0;
-      }
 
       // Check if one-time snooze was already used in this 45-minute cycle
       const snoozeStorageKey = `unitglo_task_45m_snoozed_${activeTimer.task_id}`;
@@ -113,16 +148,6 @@ export default function ActiveTimerBanner() {
       if (!progressReminderOpenRef.current) {
         if (activeTimer.progress_percentage !== undefined && activeTimer.progress_percentage !== null) {
           setProgressPercentage(Number(activeTimer.progress_percentage));
-        }
-      }
-
-      // Synchronize last check-in from localStorage without resetting to 0
-      const storageKey = `unitglo_task_45m_checkin_${activeTimer.task_id}`;
-      const savedSecs = localStorage.getItem(storageKey);
-      if (savedSecs !== null) {
-        const parsed = parseInt(savedSecs, 10);
-        if (!isNaN(parsed) && parsed > 0) {
-          lastCheckinSecsRef.current = Math.max(lastCheckinSecsRef.current, parsed);
         }
       }
     }
@@ -201,11 +226,21 @@ export default function ActiveTimerBanner() {
       fetchActiveTimer();
     };
 
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        fetchActiveTimer();
+      }
+    };
+
     window.addEventListener("task-timer-updated", handleTimerChange);
-    const pollInterval = setInterval(fetchActiveTimer, 30000);
+    window.addEventListener("focus", handleTimerChange);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    const pollInterval = setInterval(fetchActiveTimer, 15000);
 
     return () => {
       window.removeEventListener("task-timer-updated", handleTimerChange);
+      window.removeEventListener("focus", handleTimerChange);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       clearInterval(pollInterval);
     };
   }, [fetchActiveTimer]);

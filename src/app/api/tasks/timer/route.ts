@@ -271,7 +271,12 @@ export async function GET(req: Request) {
                 SELECT MAX(created_at) 
                 FROM daily_work 
                 WHERE task_id = ttl.task_id AND user_id = ttl.user_id
-              ) as last_progress_checkin_at
+              ) as last_progress_checkin_at,
+              (
+                SELECT TIMESTAMPDIFF(SECOND, MAX(created_at), CURRENT_TIMESTAMP)
+                FROM daily_work 
+                WHERE task_id = ttl.task_id AND user_id = ttl.user_id
+              ) as secs_since_last_progress_checkin
        FROM task_time_logs ttl
        JOIN tasks t ON ttl.task_id = t.id
        LEFT JOIN projects p ON t.project_id = p.id
