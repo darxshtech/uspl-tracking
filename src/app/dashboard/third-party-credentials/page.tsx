@@ -375,11 +375,44 @@ function ThirdPartyCredentialsContent() {
     return map;
   }, [credentials]);
 
+  // Synthesized combined list of projects (combines /api/projects with any project referenced in credentials)
+  const allProjects = useMemo(() => {
+    const projMap = new Map<number, any>();
+    projects.forEach((p) => {
+      if (p.id) projMap.set(Number(p.id), p);
+    });
+
+    credentials.forEach((c) => {
+      if (c.project_id && !projMap.has(Number(c.project_id))) {
+        projMap.set(Number(c.project_id), {
+          id: c.project_id,
+          name: c.project_title || `Project #${c.project_id}`,
+          description: c.project_description || "Project Workspace",
+          members: c.team_members || [],
+        });
+      }
+    });
+
+    return Array.from(projMap.values());
+  }, [projects, credentials]);
+
+  // Auto-sync project selection state when allProjects updates
+  useEffect(() => {
+    if (allProjects.length > 0) {
+      if (!selectedProjectId) {
+        setSelectedProjectId(String(allProjects[0].id));
+      }
+      if (!importProjectId) {
+        setImportProjectId(String(allProjects[0].id));
+      }
+    }
+  }, [allProjects, selectedProjectId, importProjectId]);
+
   // Selected project object for vault view
   const activeVaultProject = useMemo(() => {
     if (!selectedProjectVaultId) return null;
-    return projects.find((p) => String(p.id) === String(selectedProjectVaultId)) || null;
-  }, [projects, selectedProjectVaultId]);
+    return allProjects.find((p) => String(p.id) === String(selectedProjectVaultId)) || null;
+  }, [allProjects, selectedProjectVaultId]);
 
   // Switch preset in modal
   const handleSelectPreset = (preset: ServicePreset) => {
@@ -436,7 +469,7 @@ function ThirdPartyCredentialsContent() {
       })));
     }
 
-    const projId = targetProjectId || selectedProjectVaultId || (projects.length > 0 ? String(projects[0].id) : "");
+    const projId = targetProjectId || selectedProjectVaultId || (allProjects.length > 0 ? String(allProjects[0].id) : "");
     setSelectedProjectId(projId);
     setModalOpen(true);
   };
@@ -568,7 +601,7 @@ function ThirdPartyCredentialsContent() {
   const handleOpenImportModal = (targetProjId?: string) => {
     setRawEnvText("");
     setParsedEnvServices([]);
-    const projId = targetProjId || selectedProjectVaultId || (projects.length > 0 ? String(projects[0].id) : "");
+    const projId = targetProjId || selectedProjectVaultId || (allProjects.length > 0 ? String(allProjects[0].id) : "");
     setImportProjectId(projId);
     setImportModalOpen(true);
   };
@@ -830,7 +863,7 @@ function ThirdPartyCredentialsContent() {
 
   // Metric counts
   const totalCount = credentials.length;
-  const projectCount = projects.length;
+  const projectCount = allProjects.length;
   const storageCount = credentials.filter((c) => (c.service_category || "").includes("Storage") || (c.service_name || "").includes("Cloudinary") || (c.service_name || "").includes("S3")).length;
   const messagingCount = credentials.filter((c) => (c.service_category || "").includes("Messaging") || (c.service_name || "").includes("WhatsApp") || (c.service_name || "").includes("Twilio")).length;
   const paymentsCount = credentials.filter((c) => (c.service_category || "").includes("Payment") || (c.service_name || "").includes("Razorpay") || (c.service_name || "").includes("Stripe")).length;
@@ -961,7 +994,7 @@ function ThirdPartyCredentialsContent() {
 
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-500">
-                {projects.length} Assigned Project(s)
+                {allProjects.length} Assigned Project(s)
               </span>
             </div>
           </div>
@@ -971,7 +1004,7 @@ function ThirdPartyCredentialsContent() {
               <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-indigo-600 border-t-transparent" />
               <p className="text-sm font-bold text-slate-500">Loading project vaults...</p>
             </div>
-          ) : projects.length === 0 ? (
+          ) : allProjects.length === 0 ? (
             <div className="bg-white p-12 rounded-2xl border border-slate-200 text-center space-y-4 shadow-xs">
               <div className="h-16 w-16 mx-auto rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shadow-inner">
                 <Layers className="h-8 w-8" />
@@ -985,7 +1018,7 @@ function ThirdPartyCredentialsContent() {
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {projects.map((proj) => {
+              {allProjects.map((proj) => {
                 const projCreds = credentialsByProject[proj.id] || [];
                 const serviceCount = projCreds.length;
                 const members = proj.members || [];
@@ -1413,7 +1446,7 @@ function ThirdPartyCredentialsContent() {
                 className="w-full text-xs font-semibold bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
                 <option value="" disabled>-- Select Project --</option>
-                {projects.map((p) => (
+                {allProjects.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
                   </option>
@@ -1647,7 +1680,7 @@ function ThirdPartyCredentialsContent() {
                   onChange={(e) => setImportProjectId(e.target.value)}
                   className="w-full text-xs font-semibold bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 h-10"
                 >
-                  {projects.map((p) => (
+                  {allProjects.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name}
                     </option>
