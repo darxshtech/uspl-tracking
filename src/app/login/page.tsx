@@ -229,7 +229,7 @@ function LoginForm() {
   );
 }
 
-export default function LoginPage() {
+function LoginPageContent() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-black p-4 relative overflow-hidden selection:bg-sky-500/30 selection:text-white">
       {/* Interactive Molten Metal Canvas Background */}
@@ -275,5 +275,13 @@ export default function LoginPage() {
         </Suspense>
       </BorderGlow>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-black flex items-center justify-center text-white text-sm">Loading...</div>}>
+      <LoginPageContent />
+    </Suspense>
   );
 }
