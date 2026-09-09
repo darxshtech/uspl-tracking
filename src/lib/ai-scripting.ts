@@ -31,27 +31,192 @@ export interface IntentResult {
   comparativeData?: ComparativeData;
 }
 
-export async function resolveIntentAsync(query: string, role: string): Promise<IntentResult> {
-  const q = query.toLowerCase().trim();
+export function levenshteinDistance(str1: string, str2: string): number {
+  const m = str1.length;
+  const n = str2.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
 
-  // 1. Check if query is asking for multi-employee comparative speech
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (str1[i - 1] === str2[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1];
+      } else {
+        dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+      }
+    }
+  }
+
+  return dp[m][n];
+}
+
+export function normalizePhonetic(str: string): string {
+  return str
+    .toLowerCase()
+    .replace(/ck|c|q/g, "k")
+    .replace(/ph/g, "f")
+    .replace(/th/g, "t")
+    .replace(/ee|ea|i|y/g, "i")
+    .replace(/oo|ou/g, "u")
+    .replace(/v/g, "w")
+    .replace(/ia|ya/g, "a")
+    .replace(/ks|x/g, "x");
+}
+
+export function matchEmployeeFuzzy(targetToken: string, emp: any): boolean {
+  if (!targetToken || targetToken.length < 2) return false;
+  const t = targetToken.toLowerCase().trim();
+  const empName = (emp.name || "").toLowerCase().trim();
+  const empEmail = (emp.email || "").toLowerCase().trim();
+  const empRole = (emp.role || "").toLowerCase().trim();
+
+  // Ignore matching short roles like 'pm', 'qa', 'dev' if t is a generic system query token
+  const isGenericToken = ["project", "projects", "list", "task", "tasks", "policy", "policies", "leave", "rules", "analytics", "kpi", "show", "open"].includes(t);
+  if (isGenericToken) return false;
+
+  // 1. Direct exact or substring match on Name or Email
+  if (empName.includes(t) || empEmail.includes(t) || (t.length >= 3 && empRole === t)) {
+    return true;
+  }
+
+  // 2. Phonetic normalized comparison (e.g. "carthick" -> "kartik", "chaitania" -> "chaitanya", "sara" -> "sarah")
+  const tPhonetic = normalizePhonetic(t);
+  const nameParts = empName.split(/\s+/);
+
+  for (const part of nameParts) {
+    const partPhonetic = normalizePhonetic(part);
+    if (partPhonetic.includes(tPhonetic) || tPhonetic.includes(partPhonetic)) {
+      return true;
+    }
+    const maxDist = Math.max(2, Math.floor(partPhonetic.length * 0.35));
+    if (Math.abs(partPhonetic.length - tPhonetic.length) <= maxDist) {
+      if (levenshteinDistance(tPhonetic, partPhonetic) <= maxDist) {
+        return true;
+      }
+    }
+  }
+
+  // Also check full name
+  const fullNamePhonetic = normalizePhonetic(empName);
+  if (fullNamePhonetic.includes(tPhonetic) || tPhonetic.includes(fullNamePhonetic)) {
+    return true;
+  }
+  const fullNameMaxDist = Math.max(2, Math.floor(fullNamePhonetic.length * 0.35));
+  if (Math.abs(fullNamePhonetic.length - tPhonetic.length) <= fullNameMaxDist) {
+    if (levenshteinDistance(tPhonetic, fullNamePhonetic) <= fullNameMaxDist) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function normalizeEmployeeData(emp: any): EmployeeData {
+  const completed = Number(emp.completed_tasks ?? emp.completedTasks ?? 0);
+  const total = Number(emp.total_tasks ?? emp.totalTasks ?? 0);
+  let eff = Number(emp.completion_ratio ?? emp.efficiency ?? 0);
+  if (!eff && total > 0) {
+    eff = Math.round((completed / total) * 100);
+  }
+
+  return {
+    id: emp.id,
+    name: emp.name || "Employee",
+    role: emp.role || "Staff",
+    email: emp.email || "",
+    phone: emp.phone || "N/A",
+    monthly_salary: emp.monthly_salary ? Number(emp.monthly_salary) : undefined,
+    total_leaves_allowed: emp.total_leaves_allowed !== undefined && emp.total_leaves_allowed !== null ? Number(emp.total_leaves_allowed) : 2,
+    totalTasks: total,
+    completedTasks: completed,
+    efficiency: eff,
+    is_active: emp.is_active !== false && emp.is_active !== 0
+  };
+}
+
+const cleanPunctuationAndNoise = (str: string) => {
+  return str
+    .replace(/[^\w\s]/g, " ") // replace punctuation with space
+    .replace(/\s+/g, " ") // collapse spaces
+    .trim();
+};
+
+function stripConversationalFillers(str: string): string {
+  return str
+    .replace(/hey can you please|hey can you|could you please|could you|can you please|can you tell me|can you|please show me|please tell me|please check|please|i want to see|i want to know|i would like to see|tell me the|tell me|show me|check|what is the|what is|who is|how is|is doing|comparison please|comparison|right now|today|monthly|current|in the office|for me|the details for|details for|the data for|data for|the info for|info for|the report for|report for|salary of|salary for|profile of|profile for|data of|details of|info of|report of|details|data|info|stats|report|productivity|performance/gi, "")
+    .replace(/(?:['’]s|\s+s)\s*(?:profile|details|data|salary|tasks|info|stats|performance)?/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const cleanNameToken = (token: string) => {
+  return stripConversationalFillers(token)
+    .replace(/employee|employees|staff|dev|developer|manager|pm|qa|person|member/gi, "")
+    .trim();
+};
+
+export async function resolveIntentAsync(query: string, role: string): Promise<IntentResult> {
+  const rawQ = query.toLowerCase().trim();
+  const q = cleanPunctuationAndNoise(rawQ);
+
+  if (!q) {
+    return {
+      matched: false,
+      intent: "empty",
+      redirectUrl: "",
+      speechSummary: "Please state your command or query.",
+      displayText: "Please enter or speak a query."
+    };
+  }
+
+  // 0. PRIORITY 0: Specific attendance / late warning phrase checks BEFORE general "who is" employee queries
+  if (
+    q.includes("who was late") || 
+    q.includes("who is late") || 
+    q.includes("who came late") || 
+    q.includes("who arrived late") ||
+    q.includes("who checked in late") ||
+    q.includes("late check in") ||
+    q.includes("late arrival")
+  ) {
+    return resolveIntent("shift_warnings", role);
+  }
+
+  if (
+    q.includes("who is present") || 
+    q.includes("who is checked in") || 
+    q.includes("who checked in") || 
+    q.includes("who is in the office") ||
+    q.includes("who is working today")
+  ) {
+    return resolveIntent("attendance", role);
+  }
+
+  // 1. PRIORITY 1: Check if query is asking for multi-employee comparative speech
   const isComparativeQuery = 
     q.includes("compare") || 
     q.includes("versus") || 
     q.includes(" vs ") || 
-    q.includes("difference between");
+    q.includes("difference") ||
+    q.includes("between") ||
+    q.includes("performing better") ||
+    q.includes("efficiency between") ||
+    q.includes("more tasks") ||
+    q.includes("comparison");
 
   if (isComparativeQuery && typeof window !== "undefined") {
     let cleanQuery = q
-      .replace(/compare productivity of|compare performance of|compare tasks of|compare efficiency of|compare data of|compare|versus|difference between/g, "")
-      .replace(/employee|staff|dev|developer|manager|pm|qa/g, "")
+      .replace(/can you please|could you|please|compare productivity of|compare performance of|compare tasks of|compare efficiency of|compare data of|compare|who is performing better between|who has done more tasks|check difference in efficiency between|difference in efficiency between|difference between|comparison please|comparison|right now/gi, " ")
+      .replace(/\s+/g, " ")
       .trim();
 
-    // Split names by 'and', 'vs', 'with', 'to'
-    const parts = cleanQuery.split(/\s+(?:and|vs|with|to)\s+/i);
+    // Split names by 'and', 'vs', 'versus', 'with', 'to', 'or'
+    const parts = cleanQuery.split(/\s+(?:and|vs|versus|with|to|or)\s+/i);
     if (parts.length >= 2) {
-      const targetName1 = parts[0].trim();
-      const targetName2 = parts[1].trim();
+      const targetName1 = cleanNameToken(parts[0]);
+      const targetName2 = cleanNameToken(parts[1]);
 
       if (targetName1.length >= 2 && targetName2.length >= 2) {
         try {
@@ -60,72 +225,43 @@ export async function resolveIntentAsync(query: string, role: string): Promise<I
             const data = await res.json();
             const employeesList = Array.isArray(data) ? data : (data.employees || []);
 
-            const emp1 = employeesList.find((e: any) => 
-              e.name?.toLowerCase().includes(targetName1) ||
-              e.email?.toLowerCase().includes(targetName1) ||
-              e.role?.toLowerCase() === targetName1
-            );
+            const emp1Raw = employeesList.find((e: any) => matchEmployeeFuzzy(targetName1, e));
+            const emp2Raw = employeesList.find((e: any) => matchEmployeeFuzzy(targetName2, e));
 
-            const emp2 = employeesList.find((e: any) => 
-              e.name?.toLowerCase().includes(targetName2) ||
-              e.email?.toLowerCase().includes(targetName2) ||
-              e.role?.toLowerCase() === targetName2
-            );
+            if (emp1Raw && emp2Raw) {
+              const mappedEmp1 = normalizeEmployeeData(emp1Raw);
+              const mappedEmp2 = normalizeEmployeeData(emp2Raw);
 
-            if (emp1 && emp2) {
-              const eff1 = emp1.efficiency || 0;
-              const eff2 = emp2.efficiency || 0;
-              const comp1 = emp1.completedTasks || 0;
-              const comp2 = emp2.completedTasks || 0;
-              const tot1 = emp1.totalTasks || 0;
-              const tot2 = emp2.totalTasks || 0;
+              const eff1 = mappedEmp1.efficiency || 0;
+              const eff2 = mappedEmp2.efficiency || 0;
+              const comp1 = mappedEmp1.completedTasks || 0;
+              const comp2 = mappedEmp2.completedTasks || 0;
+              const tot1 = mappedEmp1.totalTasks || 0;
+              const tot2 = mappedEmp2.totalTasks || 0;
 
               let leaderName = "";
               let effDiff = Math.abs(eff1 - eff2);
               if (eff1 > eff2) {
-                leaderName = emp1.name;
+                leaderName = mappedEmp1.name;
               } else if (eff2 > eff1) {
-                leaderName = emp2.name;
+                leaderName = mappedEmp2.name;
               }
 
               let leadSentence = "";
               if (leaderName) {
                 leadSentence = `${leaderName} currently leads in overall efficiency by ${effDiff}%.`;
+              } else if (eff1 > 0) {
+                leadSentence = `Both ${mappedEmp1.name} and ${mappedEmp2.name} have an identical efficiency rating of ${eff1}%.`;
               } else {
-                leadSentence = `Both ${emp1.name} and ${emp2.name} have an identical efficiency rating of ${eff1}%.`;
+                leadSentence = `Both team members are actively assigned in the system.`;
               }
 
-              const speech = `Executive Performance Comparison between ${emp1.name} and ${emp2.name}: ${emp1.name} has completed ${comp1} of ${tot1} tasks with ${eff1}% efficiency. ${emp2.name} has completed ${comp2} of ${tot2} tasks with ${eff2}% efficiency. ${leadSentence}`;
+              const salStr1 = mappedEmp1.monthly_salary ? `Monthly Salary: ₹${mappedEmp1.monthly_salary.toLocaleString("en-IN")}.` : "";
+              const salStr2 = mappedEmp2.monthly_salary ? `Monthly Salary: ₹${mappedEmp2.monthly_salary.toLocaleString("en-IN")}.` : "";
 
-              const display = `Executive Comparison: ${emp1.name} (${eff1}% efficiency, ${comp1}/${tot1} tasks) vs ${emp2.name} (${eff2}% efficiency, ${comp2}/${tot2} tasks). ${leadSentence}`;
+              const speech = `Executive Performance Comparison between ${mappedEmp1.name} and ${mappedEmp2.name}: ${mappedEmp1.name} (${mappedEmp1.role}) has completed ${comp1} of ${tot1} assigned tasks with ${eff1}% efficiency rating. ${salStr1} ${mappedEmp2.name} (${mappedEmp2.role}) has completed ${comp2} of ${tot2} assigned tasks with ${eff2}% efficiency rating. ${salStr2} ${leadSentence}`;
 
-              const mappedEmp1: EmployeeData = {
-                id: emp1.id,
-                name: emp1.name,
-                role: emp1.role,
-                email: emp1.email,
-                phone: emp1.phone || "N/A",
-                monthly_salary: emp1.monthly_salary,
-                total_leaves_allowed: emp1.total_leaves_allowed,
-                totalTasks: tot1,
-                completedTasks: comp1,
-                efficiency: eff1,
-                is_active: emp1.is_active !== false
-              };
-
-              const mappedEmp2: EmployeeData = {
-                id: emp2.id,
-                name: emp2.name,
-                role: emp2.role,
-                email: emp2.email,
-                phone: emp2.phone || "N/A",
-                monthly_salary: emp2.monthly_salary,
-                total_leaves_allowed: emp2.total_leaves_allowed,
-                totalTasks: tot2,
-                completedTasks: comp2,
-                efficiency: eff2,
-                is_active: emp2.is_active !== false
-              };
+              const display = `Executive Comparison: ${mappedEmp1.name} (${eff1}% efficiency, ${comp1}/${tot1} tasks) vs ${mappedEmp2.name} (${eff2}% efficiency, ${comp2}/${tot2} tasks). ${leadSentence}`;
 
               return {
                 matched: true,
@@ -141,6 +277,21 @@ export async function resolveIntentAsync(query: string, role: string): Promise<I
                   tasksDiff: Math.abs(comp1 - comp2)
                 }
               };
+            } else if (emp1Raw || emp2Raw) {
+              const foundEmp = normalizeEmployeeData(emp1Raw || emp2Raw);
+              const missingName = emp1Raw ? targetName2 : targetName1;
+              const salStr = foundEmp.monthly_salary ? `Monthly Salary: ₹${foundEmp.monthly_salary.toLocaleString("en-IN")}.` : "";
+
+              const speech = `Executive Brief for ${foundEmp.name}: Role is ${foundEmp.role}, completed ${foundEmp.completedTasks} of ${foundEmp.totalTasks} tasks (${foundEmp.efficiency}% efficiency). ${salStr} Note: I searched system records for ${missingName}, but no matching employee was found.`;
+
+              return {
+                matched: true,
+                intent: "employee_partial_comparison",
+                redirectUrl: `/dashboard/employees?highlight=${encodeURIComponent(foundEmp.name)}`,
+                speechSummary: speech,
+                displayText: `Found record for ${foundEmp.name} (${foundEmp.efficiency}% efficiency). "${missingName}" was not found in records.`,
+                employeeData: foundEmp
+              };
             }
           }
         } catch (err) {
@@ -150,90 +301,104 @@ export async function resolveIntentAsync(query: string, role: string): Promise<I
     }
   }
 
-  // 2. Check if query is asking for specific single employee data
+  // 2. PRIORITY 2: Check if query is asking for specific single employee data
   const isEmployeeDataQuery = 
     q.includes("data of") || 
+    q.includes("data for") ||
     q.includes("tell me about") || 
     q.includes("tell me data") || 
     q.includes("info of") || 
+    q.includes("info for") ||
     q.includes("details of") || 
+    q.includes("details for") ||
     q.includes("report of") || 
     q.includes("report for") || 
     q.includes("salary of") || 
+    q.includes("salary for") ||
     q.includes("profile of") || 
-    q.includes("who is");
+    q.includes("profile for") ||
+    q.includes("who is") ||
+    q.includes("how is") ||
+    q.includes("is doing") ||
+    q.includes("'s profile") ||
+    q.includes("s profile") ||
+    q.includes("'s details") ||
+    q.includes("s details") ||
+    q.includes("'s data") ||
+    q.includes("s data") ||
+    q.includes("'s salary") ||
+    q.includes("s salary");
 
-  if (isEmployeeDataQuery) {
-    let targetName = q
-      .replace(/tell me data of|tell me about employee|tell me about|data of employee|data of|info of employee|info of|details of employee|details of|report of employee|report for employee|report for|salary of employee|salary of|profile of employee|profile of|who is employee|who is/g, "")
-      .replace(/employee|staff|dev|developer|manager|pm|qa|user/g, "")
-      .trim();
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch("/api/employees");
+      if (res.ok) {
+        const data = await res.json();
+        const employeesList = Array.isArray(data) ? data : (data.employees || []);
 
-    if (targetName.length >= 2 && typeof window !== "undefined") {
-      try {
-        const res = await fetch("/api/employees");
-        if (res.ok) {
-          const data = await res.json();
-          const employeesList = Array.isArray(data) ? data : (data.employees || []);
+        let targetName = cleanNameToken(q);
 
-          // Match by name or email or role
-          const emp = employeesList.find((e: any) => 
-            e.name?.toLowerCase().includes(targetName) ||
-            e.email?.toLowerCase().includes(targetName) ||
-            e.role?.toLowerCase() === targetName
-          );
+        // Find match using matchEmployeeFuzzy
+        let empRaw = employeesList.find((e: any) => matchEmployeeFuzzy(targetName, e));
 
-          if (emp) {
-            const salaryFormatted = emp.monthly_salary ? `₹${Number(emp.monthly_salary).toLocaleString("en-IN")}` : "Not Disclosed";
-            const tasksInfo = (emp.totalTasks !== undefined && emp.totalTasks > 0)
-              ? `${emp.completedTasks || 0} of ${emp.totalTasks} tasks completed (${emp.efficiency || 0}% efficiency)`
-              : "No tasks assigned currently";
-
-            const speech = `Executive Brief for ${emp.name}: Role is ${emp.role}. Monthly Salary is ${salaryFormatted}. Task Progress: ${tasksInfo}. Status: ${emp.is_active !== false ? "Active Employee" : "Inactive"}.`;
-            const display = `Executive Summary for ${emp.name}: Role: ${emp.role} | Salary: ${salaryFormatted} | Tasks: ${emp.completedTasks || 0}/${emp.totalTasks || 0} (${emp.efficiency || 0}% efficiency).`;
-
-            return {
-              matched: true,
-              intent: "employee_data",
-              redirectUrl: `/dashboard/employees?highlight=${encodeURIComponent(emp.name)}`,
-              speechSummary: speech,
-              displayText: display,
-              highlightKey: emp.name,
-              employeeData: {
-                id: emp.id,
-                name: emp.name,
-                role: emp.role,
-                email: emp.email,
-                phone: emp.phone || "N/A",
-                monthly_salary: emp.monthly_salary,
-                total_leaves_allowed: emp.total_leaves_allowed,
-                totalTasks: emp.totalTasks,
-                completedTasks: emp.completedTasks,
-                efficiency: emp.efficiency,
-                is_active: emp.is_active !== false
-              }
-            };
-          } else {
-            return {
-              matched: true,
-              intent: "employee_not_found",
-              redirectUrl: `/dashboard/employees?highlight=${encodeURIComponent(targetName)}`,
-              speechSummary: `I searched the system records for ${targetName}, but no matching employee record was found. Redirecting to the Employee Directory.`,
-              displayText: `No employee matching "${targetName}" found in system records. Opening Employee Directory...`,
-              highlightKey: targetName
-            };
-          }
+        if (!empRaw && targetName.length >= 2) {
+          empRaw = employeesList.find((e: any) => {
+            const empFirstName = (e.name || "").split(" ")[0].toLowerCase();
+            const empFullName = (e.name || "").toLowerCase();
+            return (
+              empFirstName.length >= 2 && (q.includes(empFirstName) || levenshteinDistance(targetName, empFirstName) <= 2)
+            );
+          });
         }
-      } catch (err) {
-        console.error("Error fetching employee data for voice assistant:", err);
+
+        const systemCommandWords = [
+          "project", "projects", "list", "task", "tasks", "policy", "policies", "leave", "rules", "rule", 
+          "analytics", "kpi", "show", "open", "where", "log", "logs", "cron", "email", "mail", "vault", 
+          "document", "documents", "password", "passwords", "setting", "settings", "profile", "account", 
+          "payroll", "payouts", "check in", "check out", "attendance", "tardiness", "warning", "warnings", 
+          "qa", "testing", "bug", "bugs", "home", "dashboard"
+        ];
+        const isSystemCommandQuery = systemCommandWords.some(w => q.includes(w));
+
+        // Only return employee_data if we found a matching employee AND (isEmployeeDataQuery is true OR query is not a system route command)
+        if (empRaw && (isEmployeeDataQuery || !isSystemCommandQuery)) {
+          const empData = normalizeEmployeeData(empRaw);
+          const salaryFormatted = empData.monthly_salary ? `₹${empData.monthly_salary.toLocaleString("en-IN")}` : "Not Disclosed";
+          const tasksInfo = (empData.totalTasks || 0) > 0
+            ? `${empData.completedTasks || 0} of ${empData.totalTasks} tasks completed (${empData.efficiency || 0}% efficiency)`
+            : "No tasks assigned currently";
+
+          const speech = `Executive Brief for ${empData.name}: Role is ${empData.role}. Monthly Salary is ${salaryFormatted}. Task Progress: ${tasksInfo}. Status: ${empData.is_active ? "Active Employee" : "Inactive"}.`;
+          const display = `Executive Summary for ${empData.name}: Role: ${empData.role} | Salary: ${salaryFormatted} | Tasks: ${empData.completedTasks}/${empData.totalTasks} (${empData.efficiency}% efficiency).`;
+
+          return {
+            matched: true,
+            intent: "employee_data",
+            redirectUrl: `/dashboard/employees?highlight=${encodeURIComponent(empData.name)}`,
+            speechSummary: speech,
+            displayText: display,
+            highlightKey: empData.name,
+            employeeData: empData
+          };
+        } else if (isEmployeeDataQuery && targetName.length >= 2) {
+          return {
+            matched: true,
+            intent: "employee_not_found",
+            redirectUrl: `/dashboard/employees?highlight=${encodeURIComponent(targetName)}`,
+            speechSummary: `I searched system records for ${targetName}, but no matching employee record was found. Redirecting to the Employee Directory.`,
+            displayText: `No employee matching "${targetName}" found in system records. Opening Employee Directory...`,
+            highlightKey: targetName
+          };
+        }
       }
+    } catch (err) {
+      console.error("Error fetching employee data for voice assistant:", err);
     }
   }
 
   // Fallback to static intent resolution
-  return resolveIntent(query, role);
+  return resolveIntent(rawQ, role);
 }
-
 
 export function resolveIntent(query: string, role: string): IntentResult {
   const q = query.toLowerCase().trim();
@@ -545,11 +710,15 @@ export function resolveIntent(query: string, role: string): IntentResult {
 
   // 15. Profile & Tenure
   if (
-    q.includes("profile") || 
+    q.includes("my profile") || 
+    q.includes("account profile") || 
+    q.includes("user profile") || 
     q.includes("tenure") || 
     q.includes("my account") ||
-    q.includes("my profile") ||
-    q.includes("account settings")
+    q.includes("my settings") ||
+    q.includes("account settings") ||
+    q === "profile" ||
+    q === "my profile"
   ) {
     return {
       matched: true,

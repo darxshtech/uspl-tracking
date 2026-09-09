@@ -48,7 +48,12 @@ export default function VoiceScriptingAssistant() {
   const [micError, setMicError] = useState<string | null>(null);
   const [showLegend, setShowLegend] = useState(false);
 
+  const [speechRate, setSpeechRate] = useState<number>(1.0);
+  const [audioLevels, setAudioLevels] = useState<number[]>([20, 40, 65, 30, 80, 45, 60, 25]);
+
   const recognizerRef = useRef<any>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const animFrameRef = useRef<number | null>(null);
 
   // Restrict feature exclusively to Admin, CEO, PM
   const isExecutive = ["Admin", "CEO", "PM"].includes(userRole);
@@ -58,7 +63,32 @@ export default function VoiceScriptingAssistant() {
       const SpeechRecognition =
         (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       setSpeechSupported(Boolean(SpeechRecognition));
+
+      const savedRate = localStorage.getItem("unitglo_speech_rate");
+      if (savedRate) {
+        setSpeechRate(parseFloat(savedRate) || 1.0);
+      }
     }
+  }, []);
+
+  // Clean up Web Audio API context on unmount or listening stop
+  const stopAudioVisualizer = () => {
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
+    if (audioContextRef.current) {
+      try {
+        audioContextRef.current.close();
+      } catch (_) {}
+      audioContextRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      stopAudioVisualizer();
+    };
   }, []);
 
   // Keyboard shortcut Ctrl+K / Cmd+K to toggle assistant
@@ -75,9 +105,20 @@ export default function VoiceScriptingAssistant() {
 
   if (!isExecutive) return null;
 
+  const cycleSpeechRate = () => {
+    const rates = [1.0, 1.25, 1.5, 2.0];
+    const nextIndex = (rates.indexOf(speechRate) + 1) % rates.length;
+    const nextRate = rates[nextIndex];
+    setSpeechRate(nextRate);
+    try {
+      localStorage.setItem("unitglo_speech_rate", nextRate.toString());
+    } catch (_) {}
+  };
+
   const handleStartListening = async () => {
     setMicError(null);
     if (isListening) {
+      stopAudioVisualizer();
       if (recognizerRef.current) {
         try {
           recognizerRef.current.stop();
@@ -87,10 +128,32 @@ export default function VoiceScriptingAssistant() {
       return;
     }
 
-    // Explicitly request microphone access to trigger browser permission prompt
+    // Request microphone access & initialize Web Audio API AnalyserNode for soundwave visualizer
+    let audioStream: MediaStream | null = null;
     try {
       if (typeof navigator !== "undefined" && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioCtx && audioStream) {
+          const audioCtx = new AudioCtx();
+          audioContextRef.current = audioCtx;
+          const analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 32;
+          const source = audioCtx.createMediaStreamSource(audioStream);
+          source.connect(analyser);
+
+          const bufferLength = analyser.frequencyBinCount;
+          const dataArray = new Uint8Array(bufferLength);
+
+          const updateVisualizer = () => {
+            analyser.getByteFrequencyData(dataArray);
+            const levels = Array.from(dataArray.slice(0, 8)).map(val => Math.max(12, Math.min(100, Math.round((val / 255) * 100))));
+            setAudioLevels(levels);
+            animFrameRef.current = requestAnimationFrame(updateVisualizer);
+          };
+          updateVisualizer();
+        }
       }
     } catch (err: any) {
       console.error("Microphone access error:", err);
@@ -111,6 +174,7 @@ export default function VoiceScriptingAssistant() {
         if (isFinal) {
           setQuery(transcript);
           setInterimText("");
+          stopAudioVisualizer();
           setIsListening(false);
           processQuery(transcript);
         } else {
@@ -120,6 +184,7 @@ export default function VoiceScriptingAssistant() {
       },
       (err) => {
         console.error("Speech recognition error:", err);
+        stopAudioVisualizer();
         setIsListening(false);
         if (err !== "no-speech" && err !== "aborted") {
           const errDetail = `Speech error: ${err}. Try typing or speak clearly.`;
@@ -127,6 +192,7 @@ export default function VoiceScriptingAssistant() {
         }
       },
       () => {
+        stopAudioVisualizer();
         setIsListening(false);
       }
     );
@@ -139,6 +205,7 @@ export default function VoiceScriptingAssistant() {
         recognizer.start();
       } catch (e: any) {
         console.error("Failed to start recognizer:", e);
+        stopAudioVisualizer();
         setIsListening(false);
       }
     } else {
@@ -163,9 +230,9 @@ export default function VoiceScriptingAssistant() {
       }
     } catch (_) {}
 
-    // Speak response using Web Speech synthesis
+    // Speak response using Web Speech synthesis with rate speed control
     if (result.speechSummary) {
-      speakText(result.speechSummary, () => {
+      speakText(result.speechSummary, speechRate, () => {
         // Automatically redirect on speech end if not an detailed data card view
         if (result.matched && result.redirectUrl && result.intent !== "employee_data" && result.intent !== "employee_comparison") {
           router.push(result.redirectUrl);
@@ -235,7 +302,17 @@ export default function VoiceScriptingAssistant() {
                 <p className="text-[10px] text-indigo-200 font-medium">100% Free • Multi-Employee Speech Analysis</p>
               </div>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
+              {/* SPEECH SYNTHESIS SPEED CONTROL TOGGLE */}
+              <button
+                type="button"
+                onClick={cycleSpeechRate}
+                className="text-[10px] font-extrabold px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-amber-300 border border-amber-400/30 font-mono transition-colors cursor-pointer"
+                title="Executive Speech Playback Speed (Click to change: 1.0x, 1.25x, 1.5x, 2.0x)"
+              >
+                {speechRate}x
+              </button>
+
               <button
                 type="button"
                 onClick={() => setShowLegend(!showLegend)}
@@ -256,15 +333,26 @@ export default function VoiceScriptingAssistant() {
             </div>
           </div>
 
-          {/* ACTIVE LISTENING BANNER */}
+          {/* ACTIVE LISTENING BANNER WITH REAL-TIME AUDIO VISUALIZER */}
           {isListening && (
             <div className="bg-rose-600 text-white px-3 py-2 text-xs font-bold flex items-center justify-between animate-pulse shrink-0">
               <div className="flex items-center gap-2">
                 <Mic className="h-4 w-4 text-amber-200 animate-ping" />
-                <span>Listening live... speak now!</span>
+                <span>Listening live...</span>
+
+                {/* SVG Soundwave Real-time Audio Visualizer */}
+                <div className="flex items-center gap-1 h-5 px-1 bg-rose-800/60 rounded-lg border border-rose-400/30">
+                  {audioLevels.map((lvl, idx) => (
+                    <div 
+                      key={idx} 
+                      className="w-1 bg-amber-300 rounded-full transition-all duration-75"
+                      style={{ height: `${Math.max(4, (lvl / 100) * 16)}px` }}
+                    />
+                  ))}
+                </div>
               </div>
-              <span className="text-[10px] bg-rose-800 px-1.5 py-0.5 rounded font-mono truncate max-w-[120px]">
-                {interimText || "Speak command..."}
+              <span className="text-[10px] bg-rose-800 px-1.5 py-0.5 rounded font-mono truncate max-w-[110px]">
+                {interimText || "Speak now..."}
               </span>
             </div>
           )}
