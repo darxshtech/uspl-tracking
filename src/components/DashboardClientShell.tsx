@@ -7,6 +7,7 @@ import UnitgloLogo from "@/components/UnitgloLogo";
 import NotificationBell from "@/components/NotificationBell";
 import AttendanceWidget from "@/components/AttendanceWidget";
 import ActiveTimerBanner from "@/components/ActiveTimerBanner";
+import VoiceScriptingAssistant from "@/components/VoiceScriptingAssistant";
 import { 
   LayoutDashboard, 
   Users, 
@@ -414,6 +415,7 @@ export default function DashboardClientShell({ children, user }: DashboardClient
           </footer>
         </main>
         <ActiveTimerBanner />
+        <VoiceScriptingAssistant />
       </div>
     </div>
   );
