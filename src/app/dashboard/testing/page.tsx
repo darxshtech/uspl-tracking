@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -34,7 +34,7 @@ import { useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 
-export default function TestingQueuePage() {
+function TestingQueueContent() {
   const { data: session } = useSession();
   const searchParams = useSearchParams();
   const highlightParam = searchParams.get("highlight")?.toLowerCase() || "";
@@ -1094,6 +1094,14 @@ export default function TestingQueuePage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function TestingQueuePage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-slate-500 font-semibold animate-pulse">Loading QA Queue...</div>}>
+      <TestingQueueContent />
+    </Suspense>
   );
 }
 
