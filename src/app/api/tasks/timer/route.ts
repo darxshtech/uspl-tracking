@@ -266,7 +266,12 @@ export async function GET(req: Request) {
               t.progress_percentage, t.daily_summary, t.blockers,
               p.name as project_name,
               p.is_fast_track as project_is_fast_track,
-              TIMESTAMPDIFF(SECOND, ttl.started_at, CURRENT_TIMESTAMP) as current_session_seconds
+              TIMESTAMPDIFF(SECOND, ttl.started_at, CURRENT_TIMESTAMP) as current_session_seconds,
+              (
+                SELECT MAX(created_at) 
+                FROM daily_work 
+                WHERE task_id = ttl.task_id AND user_id = ttl.user_id
+              ) as last_progress_checkin_at
        FROM task_time_logs ttl
        JOIN tasks t ON ttl.task_id = t.id
        LEFT JOIN projects p ON t.project_id = p.id
