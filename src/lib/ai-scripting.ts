@@ -181,6 +181,41 @@ export async function resolveIntentAsync(query: string, role: string): Promise<I
     q.includes("late check in") ||
     q.includes("late arrival")
   ) {
+    if (typeof window !== "undefined") {
+      try {
+        const res = await fetch("/api/warnings");
+        if (res.ok) {
+          const data = await res.json();
+          const warningsList = Array.isArray(data) ? data : (data.warnings || []);
+          const lateNames = warningsList.map((w: any) => w.employee_name || w.name || w.user_name).filter(Boolean);
+          const uniqueNames = Array.from(new Set(lateNames));
+          const count = uniqueNames.length;
+
+          let speech = "";
+          let display = "";
+
+          if (count > 0) {
+            const namesStr = uniqueNames.join(", ");
+            speech = `Shift Warnings Briefing: Today ${count} team member${count > 1 ? "s have" : " has"} logged tardiness or late arrival: ${namesStr}. Navigating to Shift Warnings dashboard.`;
+            display = `Late Today (${count}): ${namesStr}.`;
+          } else {
+            speech = `Shift Warnings Briefing: Great news! No team members have recorded tardiness or late arrival warnings today.`;
+            display = `No shift tardiness warnings logged today.`;
+          }
+
+          return {
+            matched: true,
+            intent: "shift_warnings",
+            redirectUrl: "/dashboard/warnings",
+            speechSummary: speech,
+            displayText: display,
+            highlightKey: "warnings"
+          };
+        }
+      } catch (err) {
+        console.error("Error fetching shift warnings for AI assistant:", err);
+      }
+    }
     return resolveIntent("shift_warnings", role);
   }
 
@@ -189,8 +224,52 @@ export async function resolveIntentAsync(query: string, role: string): Promise<I
     q.includes("who is checked in") || 
     q.includes("who checked in") || 
     q.includes("who is in the office") ||
-    q.includes("who is working today")
+    q.includes("who is working today") ||
+    q.includes("present today")
   ) {
+    if (typeof window !== "undefined") {
+      try {
+        const res = await fetch("/api/attendance");
+        if (res.ok) {
+          const data = await res.json();
+          const records = Array.isArray(data) ? data : (data.attendance || []);
+          const todayDateStr = data.currentDate || new Date().toISOString().split("T")[0];
+
+          // Filter records where login_time exists or status is Present
+          const presentRecords = records.filter((r: any) => {
+            const rDate = r.date ? r.date.split("T")[0] : "";
+            return (rDate === todayDateStr || !rDate) && (r.login_time || (r.status && r.status.includes("Present")));
+          });
+
+          const presentNames = presentRecords.map((r: any) => r.employee_name || r.name).filter(Boolean);
+          const uniqueNames = Array.from(new Set(presentNames));
+          const count = uniqueNames.length;
+
+          let speech = "";
+          let display = "";
+
+          if (count > 0) {
+            const namesStr = uniqueNames.join(", ");
+            speech = `Real-Time Attendance Briefing for Today (${todayDateStr}): ${count} team member${count > 1 ? "s are" : " is"} currently present in the office: ${namesStr}. Navigating to Attendance records.`;
+            display = `Present Today (${count}): ${namesStr}.`;
+          } else {
+            speech = `Real-Time Attendance Briefing: No team members have recorded check-ins or attendance for today yet.`;
+            display = `No check-in records for today yet.`;
+          }
+
+          return {
+            matched: true,
+            intent: "attendance",
+            redirectUrl: "/dashboard/attendance",
+            speechSummary: speech,
+            displayText: display,
+            highlightKey: "attendance"
+          };
+        }
+      } catch (err) {
+        console.error("Error fetching attendance for AI assistant:", err);
+      }
+    }
     return resolveIntent("attendance", role);
   }
 

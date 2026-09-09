@@ -23,18 +23,22 @@ export async function GET() {
       );
       rows = result;
     } catch (colErr) {
-      // Fallback query if target_role column does not exist on target database schema
-      const [result]: any = await pool.query(
-        "SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 30",
-        [userId]
-      );
-      rows = result;
+      try {
+        const [result]: any = await pool.query(
+          "SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 30",
+          [userId]
+        );
+        rows = result;
+      } catch (tableErr) {
+        console.warn("Notifications table missing or inaccessible:", tableErr);
+        rows = [];
+      }
     }
 
     return NextResponse.json(rows);
   } catch (error: any) {
     console.error("Notifications GET Error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json([]);
   }
 }
 

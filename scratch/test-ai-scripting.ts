@@ -62,6 +62,28 @@ import { resolveIntent, resolveIntentAsync } from "../src/lib/ai-scripting";
       ]
     };
   }
+  if (url === "/api/attendance") {
+    return {
+      ok: true,
+      json: async () => ({
+        currentDate: "2026-09-09",
+        attendance: [
+          { id: 101, user_id: 1, employee_name: "Kartik Sharma", date: "2026-09-09", status: "Present", login_time: "09:30 AM" },
+          { id: 102, user_id: 2, employee_name: "Chaitanya Patel", date: "2026-09-09", status: "Present", login_time: "09:45 AM" }
+        ]
+      })
+    };
+  }
+  if (url === "/api/warnings") {
+    return {
+      ok: true,
+      json: async () => ({
+        warnings: [
+          { id: 201, user_id: 2, employee_name: "Chaitanya Patel", reason: "Late Arrival (15 mins)" }
+        ]
+      })
+    };
+  }
   return { ok: false, status: 404 };
 };
 
@@ -168,6 +190,14 @@ async function runHumanVoiceTestSuite() {
   console.log(`\n==================================================`);
   console.log(`HUMAN VOICE TEST RESULTS: ${passed}/${humanPhrases.length} PASSED (${failed} FAILED)`);
   console.log(`==================================================\n`);
+
+  const attendanceTest = await resolveIntentAsync("who is present today in the office", "Admin");
+  console.log("🔊 Live Attendance Speech Output:");
+  console.log(`   "${attendanceTest.speechSummary}"\n`);
+
+  const lateTest = await resolveIntentAsync("who checked in late", "Admin");
+  console.log("🔊 Live Shift Warnings Speech Output:");
+  console.log(`   "${lateTest.speechSummary}"\n`);
 }
 
 runHumanVoiceTestSuite();
