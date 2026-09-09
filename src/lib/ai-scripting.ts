@@ -31,6 +31,35 @@ export interface IntentResult {
   comparativeData?: ComparativeData;
 }
 
+function normalizeEmployeeData(emp: any): EmployeeData {
+  const completed = Number(emp.completed_tasks ?? emp.completedTasks ?? 0);
+  const total = Number(emp.total_tasks ?? emp.totalTasks ?? 0);
+  let eff = Number(emp.completion_ratio ?? emp.efficiency ?? 0);
+  if (!eff && total > 0) {
+    eff = Math.round((completed / total) * 100);
+  }
+
+  return {
+    id: emp.id,
+    name: emp.name || "Employee",
+    role: emp.role || "Staff",
+    email: emp.email || "",
+    phone: emp.phone || "N/A",
+    monthly_salary: emp.monthly_salary ? Number(emp.monthly_salary) : undefined,
+    total_leaves_allowed: emp.total_leaves_allowed !== undefined && emp.total_leaves_allowed !== null ? Number(emp.total_leaves_allowed) : 2,
+    totalTasks: total,
+    completedTasks: completed,
+    efficiency: eff,
+    is_active: emp.is_active !== false && emp.is_active !== 0
+  };
+}
+
+const cleanNameToken = (token: string) => {
+  return token
+    .replace(/data|details|info|report|stats|productivity|performance|task|tasks|employee|staff|dev|developer|manager|pm|qa/gi, "")
+    .trim();
+};
+
 export async function resolveIntentAsync(query: string, role: string): Promise<IntentResult> {
   const q = query.toLowerCase().trim();
 
@@ -50,8 +79,8 @@ export async function resolveIntentAsync(query: string, role: string): Promise<I
     // Split names by 'and', 'vs', 'with', 'to'
     const parts = cleanQuery.split(/\s+(?:and|vs|with|to)\s+/i);
     if (parts.length >= 2) {
-      const targetName1 = parts[0].trim();
-      const targetName2 = parts[1].trim();
+      const targetName1 = cleanNameToken(parts[0]);
+      const targetName2 = cleanNameToken(parts[1]);
 
       if (targetName1.length >= 2 && targetName2.length >= 2) {
         try {
@@ -60,72 +89,52 @@ export async function resolveIntentAsync(query: string, role: string): Promise<I
             const data = await res.json();
             const employeesList = Array.isArray(data) ? data : (data.employees || []);
 
-            const emp1 = employeesList.find((e: any) => 
+            const emp1Raw = employeesList.find((e: any) => 
               e.name?.toLowerCase().includes(targetName1) ||
               e.email?.toLowerCase().includes(targetName1) ||
               e.role?.toLowerCase() === targetName1
             );
 
-            const emp2 = employeesList.find((e: any) => 
+            const emp2Raw = employeesList.find((e: any) => 
               e.name?.toLowerCase().includes(targetName2) ||
               e.email?.toLowerCase().includes(targetName2) ||
               e.role?.toLowerCase() === targetName2
             );
 
-            if (emp1 && emp2) {
-              const eff1 = emp1.efficiency || 0;
-              const eff2 = emp2.efficiency || 0;
-              const comp1 = emp1.completedTasks || 0;
-              const comp2 = emp2.completedTasks || 0;
-              const tot1 = emp1.totalTasks || 0;
-              const tot2 = emp2.totalTasks || 0;
+            if (emp1Raw && emp2Raw) {
+              const mappedEmp1 = normalizeEmployeeData(emp1Raw);
+              const mappedEmp2 = normalizeEmployeeData(emp2Raw);
+
+              const eff1 = mappedEmp1.efficiency || 0;
+              const eff2 = mappedEmp2.efficiency || 0;
+              const comp1 = mappedEmp1.completedTasks || 0;
+              const comp2 = mappedEmp2.completedTasks || 0;
+              const tot1 = mappedEmp1.totalTasks || 0;
+              const tot2 = mappedEmp2.totalTasks || 0;
 
               let leaderName = "";
               let effDiff = Math.abs(eff1 - eff2);
               if (eff1 > eff2) {
-                leaderName = emp1.name;
+                leaderName = mappedEmp1.name;
               } else if (eff2 > eff1) {
-                leaderName = emp2.name;
+                leaderName = mappedEmp2.name;
               }
 
               let leadSentence = "";
               if (leaderName) {
                 leadSentence = `${leaderName} currently leads in overall efficiency by ${effDiff}%.`;
+              } else if (eff1 > 0) {
+                leadSentence = `Both ${mappedEmp1.name} and ${mappedEmp2.name} have an identical efficiency rating of ${eff1}%.`;
               } else {
-                leadSentence = `Both ${emp1.name} and ${emp2.name} have an identical efficiency rating of ${eff1}%.`;
+                leadSentence = `Both team members are actively assigned in the system.`;
               }
 
-              const speech = `Executive Performance Comparison between ${emp1.name} and ${emp2.name}: ${emp1.name} has completed ${comp1} of ${tot1} tasks with ${eff1}% efficiency. ${emp2.name} has completed ${comp2} of ${tot2} tasks with ${eff2}% efficiency. ${leadSentence}`;
+              const salStr1 = mappedEmp1.monthly_salary ? `Monthly Salary: ₹${mappedEmp1.monthly_salary.toLocaleString("en-IN")}.` : "";
+              const salStr2 = mappedEmp2.monthly_salary ? `Monthly Salary: ₹${mappedEmp2.monthly_salary.toLocaleString("en-IN")}.` : "";
 
-              const display = `Executive Comparison: ${emp1.name} (${eff1}% efficiency, ${comp1}/${tot1} tasks) vs ${emp2.name} (${eff2}% efficiency, ${comp2}/${tot2} tasks). ${leadSentence}`;
+              const speech = `Executive Performance Comparison between ${mappedEmp1.name} and ${mappedEmp2.name}: ${mappedEmp1.name} (${mappedEmp1.role}) has completed ${comp1} of ${tot1} assigned tasks with ${eff1}% efficiency rating. ${salStr1} ${mappedEmp2.name} (${mappedEmp2.role}) has completed ${comp2} of ${tot2} assigned tasks with ${eff2}% efficiency rating. ${salStr2} ${leadSentence}`;
 
-              const mappedEmp1: EmployeeData = {
-                id: emp1.id,
-                name: emp1.name,
-                role: emp1.role,
-                email: emp1.email,
-                phone: emp1.phone || "N/A",
-                monthly_salary: emp1.monthly_salary,
-                total_leaves_allowed: emp1.total_leaves_allowed,
-                totalTasks: tot1,
-                completedTasks: comp1,
-                efficiency: eff1,
-                is_active: emp1.is_active !== false
-              };
-
-              const mappedEmp2: EmployeeData = {
-                id: emp2.id,
-                name: emp2.name,
-                role: emp2.role,
-                email: emp2.email,
-                phone: emp2.phone || "N/A",
-                monthly_salary: emp2.monthly_salary,
-                total_leaves_allowed: emp2.total_leaves_allowed,
-                totalTasks: tot2,
-                completedTasks: comp2,
-                efficiency: eff2,
-                is_active: emp2.is_active !== false
-              };
+              const display = `Executive Comparison: ${mappedEmp1.name} (${eff1}% efficiency, ${comp1}/${tot1} tasks) vs ${mappedEmp2.name} (${eff2}% efficiency, ${comp2}/${tot2} tasks). ${leadSentence}`;
 
               return {
                 matched: true,
@@ -164,10 +173,10 @@ export async function resolveIntentAsync(query: string, role: string): Promise<I
     q.includes("who is");
 
   if (isEmployeeDataQuery) {
-    let targetName = q
-      .replace(/tell me data of|tell me about employee|tell me about|data of employee|data of|info of employee|info of|details of employee|details of|report of employee|report for employee|report for|salary of employee|salary of|profile of employee|profile of|who is employee|who is/g, "")
-      .replace(/employee|staff|dev|developer|manager|pm|qa|user/g, "")
-      .trim();
+    let targetName = cleanNameToken(
+      q
+        .replace(/tell me data of|tell me about employee|tell me about|data of employee|data of|info of employee|info of|details of employee|details of|report of employee|report for employee|report for|salary of employee|salary of|profile of employee|profile of|who is employee|who is/g, "")
+    );
 
     if (targetName.length >= 2 && typeof window !== "undefined") {
       try {
@@ -177,41 +186,31 @@ export async function resolveIntentAsync(query: string, role: string): Promise<I
           const employeesList = Array.isArray(data) ? data : (data.employees || []);
 
           // Match by name or email or role
-          const emp = employeesList.find((e: any) => 
+          const empRaw = employeesList.find((e: any) => 
             e.name?.toLowerCase().includes(targetName) ||
             e.email?.toLowerCase().includes(targetName) ||
             e.role?.toLowerCase() === targetName
           );
 
-          if (emp) {
-            const salaryFormatted = emp.monthly_salary ? `₹${Number(emp.monthly_salary).toLocaleString("en-IN")}` : "Not Disclosed";
-            const tasksInfo = (emp.totalTasks !== undefined && emp.totalTasks > 0)
-              ? `${emp.completedTasks || 0} of ${emp.totalTasks} tasks completed (${emp.efficiency || 0}% efficiency)`
+          if (empRaw) {
+            const empData = normalizeEmployeeData(empRaw);
+            const salaryFormatted = empData.monthly_salary ? `₹${empData.monthly_salary.toLocaleString("en-IN")}` : "Not Disclosed";
+            const tasksInfo = (empData.totalTasks || 0) > 0
+              ? `${empData.completedTasks || 0} of ${empData.totalTasks} tasks completed (${empData.efficiency || 0}% efficiency)`
               : "No tasks assigned currently";
 
-            const speech = `Executive Brief for ${emp.name}: Role is ${emp.role}. Monthly Salary is ${salaryFormatted}. Task Progress: ${tasksInfo}. Status: ${emp.is_active !== false ? "Active Employee" : "Inactive"}.`;
-            const display = `Executive Summary for ${emp.name}: Role: ${emp.role} | Salary: ${salaryFormatted} | Tasks: ${emp.completedTasks || 0}/${emp.totalTasks || 0} (${emp.efficiency || 0}% efficiency).`;
+
+            const speech = `Executive Brief for ${empData.name}: Role is ${empData.role}. Monthly Salary is ${salaryFormatted}. Task Progress: ${tasksInfo}. Status: ${empData.is_active ? "Active Employee" : "Inactive"}.`;
+            const display = `Executive Summary for ${empData.name}: Role: ${empData.role} | Salary: ${salaryFormatted} | Tasks: ${empData.completedTasks}/${empData.totalTasks} (${empData.efficiency}% efficiency).`;
 
             return {
               matched: true,
               intent: "employee_data",
-              redirectUrl: `/dashboard/employees?highlight=${encodeURIComponent(emp.name)}`,
+              redirectUrl: `/dashboard/employees?highlight=${encodeURIComponent(empData.name)}`,
               speechSummary: speech,
               displayText: display,
-              highlightKey: emp.name,
-              employeeData: {
-                id: emp.id,
-                name: emp.name,
-                role: emp.role,
-                email: emp.email,
-                phone: emp.phone || "N/A",
-                monthly_salary: emp.monthly_salary,
-                total_leaves_allowed: emp.total_leaves_allowed,
-                totalTasks: emp.totalTasks,
-                completedTasks: emp.completedTasks,
-                efficiency: emp.efficiency,
-                is_active: emp.is_active !== false
-              }
+              highlightKey: empData.name,
+              employeeData: empData
             };
           } else {
             return {
@@ -233,6 +232,7 @@ export async function resolveIntentAsync(query: string, role: string): Promise<I
   // Fallback to static intent resolution
   return resolveIntent(query, role);
 }
+
 
 
 export function resolveIntent(query: string, role: string): IntentResult {
