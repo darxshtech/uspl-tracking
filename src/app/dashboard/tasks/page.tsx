@@ -1497,6 +1497,39 @@ export default function DailyTasksPage() {
     });
   }, [tasks, activeTab, filterProject, filterEmployee, filterDateMode, filterCustomDate, filterStatus, searchQuery, todayStr, tomorrowStr, currentUserId]);
 
+  // Priority sorting:
+  // 1. Selected Task from Live Monitor (highlightedTaskId) -> HIGHEST Rank 0 (#1 at top)
+  // 2. All Running Tasks across all employees / Admin / CEO -> Rank 1 (Top section)
+  //    (Tasks with active running_timer, activeUserTimer, or status "In Progress")
+  // 3. Remaining non-running tasks -> Rank 2 (ordered by id DESC)
+  const displayTasks = useMemo(() => {
+    return [...filteredTasks].sort((a, b) => {
+      // 1. Highlighted / Selected task from Live Activity Monitor comes FIRST
+      const aIsHighlighted = highlightedTaskId === a.id;
+      const bIsHighlighted = highlightedTaskId === b.id;
+      if (aIsHighlighted && !bIsHighlighted) return -1;
+      if (!aIsHighlighted && bIsHighlighted) return 1;
+
+      // 2. Active running timer / in progress tasks float to top (for all employees & admin/ceo)
+      const aHasActiveTimer = Boolean(a.running_timer) || (activeUserTimer && activeUserTimer.task_id === a.id);
+      const bHasActiveTimer = Boolean(b.running_timer) || (activeUserTimer && activeUserTimer.task_id === b.id);
+      const aIsRunning = aHasActiveTimer || a.status === "In Progress";
+      const bIsRunning = bHasActiveTimer || b.status === "In Progress";
+
+      if (aIsRunning && !bIsRunning) return -1;
+      if (!aIsRunning && bIsRunning) return 1;
+
+      // Within running tasks group, prioritize tasks with actively running timers over plain "In Progress"
+      if (aIsRunning && bIsRunning) {
+        if (aHasActiveTimer && !bHasActiveTimer) return -1;
+        if (!aHasActiveTimer && bHasActiveTimer) return 1;
+      }
+
+      // 3. Fallback: Default to highest task ID first (newest tasks)
+      return b.id - a.id;
+    });
+  }, [filteredTasks, highlightedTaskId, activeUserTimer]);
+
   const projectFastTrackMap = useMemo(() => {
     const map: Record<number, boolean> = {};
     if (Array.isArray(projects)) {
@@ -1513,7 +1546,7 @@ export default function DailyTasksPage() {
     if (employeeName) setHighlightedEmployeeName(employeeName);
 
     // Ensure the task is visible in the current filtered table
-    const isCurrentlyVisible = filteredTasks.some((t) => t.id === taskId);
+    const isCurrentlyVisible = displayTasks.some((t) => t.id === taskId);
     if (!isCurrentlyVisible) {
       setActiveTab("all");
       setSearchQuery("");
@@ -1521,6 +1554,7 @@ export default function DailyTasksPage() {
       setFilterEmployee("ALL");
       setFilterDateMode("ALL");
       setFilterCustomDate("");
+      setFilterStatus("ALL");
     }
 
     // Smooth scroll down to target task row
@@ -3456,14 +3490,14 @@ export default function DailyTasksPage() {
           <TableBody>
             {loading ? (
               <TableRow><TableCell colSpan={6} className="text-center py-8">Loading daily tasks...</TableCell></TableRow>
-            ) : filteredTasks.length === 0 ? (
+            ) : displayTasks.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="text-center text-slate-500 py-10">
                   No daily tasks found matching your filter selections.
                 </TableCell>
               </TableRow>
             ) : (
-              filteredTasks.map((task) => {
+              displayTasks.map((task) => {
                 const checklists: any[] = task.checklists || [];
                 const completedChecklists = checklists.filter((c) => c.is_completed).length;
                 const checklistPct = checklists.length > 0 ? Math.round((completedChecklists / checklists.length) * 100) : 0;
@@ -3482,6 +3516,9 @@ export default function DailyTasksPage() {
                   : task.task_link ? [task.task_link] : [];
                 const isFastTrack = Boolean(task.project_is_fast_track || projectFastTrackMap[task.project_id]);
 
+                const isTimerActivelyRunning = Boolean(task.running_timer) || (activeUserTimer && activeUserTimer.task_id === task.id);
+                const runnerName = task.running_timer?.runner_name || (activeUserTimer && activeUserTimer.task_id === task.id ? "You" : null);
+
                 return (
                   <TableRow 
                     key={task.id} 
@@ -3489,6 +3526,8 @@ export default function DailyTasksPage() {
                     className={`transition-all duration-500 ${
                       highlightedTaskId === task.id
                         ? "ring-4 ring-emerald-500/90 bg-emerald-50/90 shadow-2xl relative z-20 scale-[1.002]"
+                        : isTimerActivelyRunning
+                        ? "bg-emerald-50/30 hover:bg-emerald-50/60"
                         : "hover:bg-slate-50/80"
                     }`}
                   >
@@ -3506,12 +3545,20 @@ export default function DailyTasksPage() {
 
                     {/* Task Title, Description, and Checklist */}
                     <TableCell className="align-top max-w-md min-w-[240px]">
-                      {highlightedTaskId === task.id && (
+                      {highlightedTaskId === task.id ? (
                         <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-600 text-white shadow-xs animate-bounce mb-2 w-fit">
                           <span className="h-2 w-2 rounded-full bg-white animate-ping" />
-                          <span>Live Ongoing Task Active Now {highlightedEmployeeName ? `(${highlightedEmployeeName})` : ""}</span>
+                          <span>Live Selected Task Active Now {highlightedEmployeeName ? `(${highlightedEmployeeName})` : ""}</span>
                         </div>
-                      )}
+                      ) : isTimerActivelyRunning ? (
+                        <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-300 mb-2 w-fit shadow-2xs">
+                          <span className="relative flex h-2 w-2 shrink-0">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-600"></span>
+                          </span>
+                          <span>Active Timer Running {runnerName ? `(${runnerName})` : ""}</span>
+                        </div>
+                      ) : null}
                       <div className="font-bold text-slate-900 text-sm flex items-center gap-2 flex-wrap">
                         <span className="break-words [overflow-wrap:anywhere] whitespace-pre-wrap min-w-0 max-w-full font-bold text-slate-900 text-sm leading-snug">{task.title}</span>
                         <Badge variant="outline" className="text-[10px] py-0 px-1.5 shrink-0">{task.priority}</Badge>
