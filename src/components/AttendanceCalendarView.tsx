@@ -58,6 +58,11 @@ export default function AttendanceCalendarView({
   const [employeeProductivityMap, setEmployeeProductivityMap] = useState<Record<number, any>>({});
   const [loadingProductivity, setLoadingProductivity] = useState(false);
 
+  // Day detail modal state
+  const [selectedRecord, setSelectedRecord] = useState<any>(null);
+  const [recordDetail, setRecordDetail] = useState<any>(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+
   useEffect(() => {
     setSelectedEmployeeId(initialEmployeeId);
   }, [initialEmployeeId]);
@@ -201,6 +206,22 @@ export default function AttendanceCalendarView({
       showError("Error adding holiday.");
     } finally {
       setSubmittingHoliday(false);
+    }
+  };
+
+  const fetchRecordDetail = async (attendanceId: number) => {
+    setRecordDetail(null);
+    setLoadingDetail(true);
+    try {
+      const res = await fetch(`/api/attendance/record-detail?attendance_id=${attendanceId}&_=` + Date.now());
+      if (res.ok) {
+        const data = await res.json();
+        setRecordDetail(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch record detail:", err);
+    } finally {
+      setLoadingDetail(false);
     }
   };
 
@@ -675,14 +696,27 @@ export default function AttendanceCalendarView({
                       {attendance.map((rec: any) => {
                         const isPresent = rec.status?.includes("Present") || (rec.login_time && !rec.logout_time && !rec.status?.includes("Leave") && rec.status !== "Holiday");
                         const empProd = employeeProductivityMap[rec.user_id];
+
+                        // Net work time derived client-side
+                        const isActiveShift = Boolean(rec.login_time && !rec.logout_time);
+                        const grossHours = isActiveShift
+                          ? calculateHoursDifference(rec.login_time, getCurrentISTTime12())
+                          : parseFloat(rec.total_hours || 0);
+                        const breakMin = parseInt(rec.total_break_minutes || 0, 10);
+                        const netMin = Math.max(0, Math.round(grossHours * 60) - breakMin);
+                        const netHrs = netMin / 60;
+                        const netColor = netHrs >= 9 ? "text-emerald-600" : netHrs >= 4.5 ? "text-amber-600" : grossHours > 0 ? "text-red-500" : "text-slate-400";
+
                         return (
                         <div
                           key={rec.id}
-                          className={`p-1.5 rounded-lg text-[10px] border shadow-xs leading-tight transition-all ${
+                          onClick={() => { setSelectedRecord(rec); fetchRecordDetail(rec.id); }}
+                          title="Click to view daily time breakdown"
+                          className={`p-1.5 rounded-lg text-[10px] border shadow-xs leading-tight transition-all cursor-pointer hover:shadow-md hover:scale-[1.01] ${
                             isPresent
-                              ? "bg-emerald-50 border-emerald-200 text-emerald-900"
+                              ? "bg-emerald-50 border-emerald-200 text-emerald-900 hover:bg-emerald-100"
                               : rec.status === "Half Day"
-                              ? "bg-amber-50 border-amber-200 text-amber-900"
+                              ? "bg-amber-50 border-amber-200 text-amber-900 hover:bg-amber-100"
                               : rec.status === "Absent" && !rec.login_time
                               ? "bg-red-50 border-red-200 text-red-900"
                               : "bg-sky-50 border-sky-200 text-sky-900"
@@ -705,14 +739,30 @@ export default function AttendanceCalendarView({
                               )}
                             </span>
                             <span className="shrink-0 font-semibold text-[9.5px]">
-                              {rec.login_time && !rec.logout_time
-                                ? `${formatHoursAndMinutes(calculateHoursDifference(rec.login_time, getCurrentISTTime12()))} ⏱️`
-                                : formatHoursAndMinutes(rec.total_hours)}
+                              {isActiveShift
+                                ? `${formatHoursAndMinutes(grossHours)} ⏱️`
+                                : formatHoursAndMinutes(grossHours)}
                             </span>
                           </div>
                           <div className="text-[9px] font-mono text-slate-500 mt-0.5 truncate">
-                            {rec.login_time || "--"} &rarr; {rec.logout_time || "--"}
+                            {rec.login_time || "--"} &rarr; {rec.logout_time || (isActiveShift ? "Active" : "--")}
                           </div>
+                          {/* Net work + break inline row */}
+                          {grossHours > 0 && (
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className={`font-bold text-[9px] ${netColor}`}>
+                                Net: {Math.floor(netHrs)}h {(netMin % 60).toString().padStart(2, "0")}m
+                              </span>
+                              {breakMin > 0 && (
+                                <span className="flex items-center gap-0.5 text-[9px] text-slate-400 font-medium">
+                                  <Coffee className="h-2 w-2" />
+                                  {breakMin >= 60
+                                    ? `${Math.floor(breakMin / 60)}h${(breakMin % 60).toString().padStart(2, "0")}m`
+                                    : `${breakMin}m`}
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
                         );
                       })}
@@ -735,6 +785,169 @@ export default function AttendanceCalendarView({
           </div>
         </div>
       </div>
+
+      {/* Day Detail Modal — Daily Time Breakdown */}
+      {selectedRecord && (() => {
+        const isActiveShift = Boolean(selectedRecord.login_time && !selectedRecord.logout_time);
+        const grossHours = isActiveShift
+          ? calculateHoursDifference(selectedRecord.login_time, getCurrentISTTime12())
+          : parseFloat(selectedRecord.total_hours || 0);
+        const breakMin = recordDetail?.total_break_minutes ?? parseInt(selectedRecord.total_break_minutes || 0, 10);
+        const netMin = Math.max(0, Math.round(grossHours * 60) - breakMin);
+        const taskMin = recordDetail?.total_task_minutes ?? 0;
+
+        const fmtMin = (m: number) => {
+          const h = Math.floor(m / 60);
+          const min = m % 60;
+          return h > 0 ? `${h}h ${min.toString().padStart(2, "00")}m` : `${min}m`;
+        };
+
+        const netColorClass = (netMin / 60) >= 9
+          ? "text-emerald-700 bg-emerald-50 border-emerald-200"
+          : (netMin / 60) >= 4.5
+          ? "text-amber-700 bg-amber-50 border-amber-200"
+          : grossHours > 0
+          ? "text-red-700 bg-red-50 border-red-200"
+          : "text-slate-500 bg-slate-50 border-slate-200";
+
+        return (
+          <Dialog open={true} onOpenChange={() => { setSelectedRecord(null); setRecordDetail(null); }}>
+            <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <Clock className="h-5 w-5 text-sky-500" /> Daily Time Breakdown
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 pt-1 text-xs text-slate-700">
+                {/* Employee header */}
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
+                  <div className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                    {selectedRecord.employee_name || "Employee"}
+                    <Badge variant="outline" className="text-[10px]">{selectedRecord.employee_role}</Badge>
+                  </div>
+                  <div className="text-slate-500">
+                    {new Date(selectedRecord.date).toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
+                  </div>
+                  <div>Status: <Badge variant="outline" className="ml-1 text-[10px]">{selectedRecord.status}</Badge></div>
+                </div>
+
+                {/* Office Hours */}
+                {selectedRecord.login_time && (
+                  <div className="p-3 bg-sky-50/60 rounded-xl border border-sky-200">
+                    <span className="text-[10px] text-sky-800 uppercase font-bold block mb-1.5">🕐 Office Hours</span>
+                    <div className="flex items-center gap-3">
+                      <div>
+                        <span className="text-[10px] text-slate-500 block font-semibold">Check-In</span>
+                        <span className="font-mono font-bold text-slate-900">{selectedRecord.login_time}</span>
+                      </div>
+                      <span className="text-slate-400 text-base">&rarr;</span>
+                      <div>
+                        <span className="text-[10px] text-slate-500 block font-semibold">Check-Out</span>
+                        <span className="font-mono font-bold text-slate-900">
+                          {isActiveShift
+                            ? <span className="text-emerald-600 animate-pulse">Active ⏱️</span>
+                            : (selectedRecord.logout_time || "N/A")}
+                        </span>
+                      </div>
+                      <div className="ml-auto">
+                        <span className="text-[10px] text-slate-500 block font-semibold">Gross Shift</span>
+                        <span className="font-bold text-slate-900">{formatHoursAndMinutes(grossHours)}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Time Breakdown */}
+                {grossHours > 0 && (
+                  <div>
+                    <span className="text-[10px] text-slate-500 uppercase font-bold block mb-1.5">⏱️ Time Breakdown</span>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200 text-center">
+                        <span className="text-[10px] text-slate-500 block font-bold uppercase">Gross Shift</span>
+                        <span className="font-black text-slate-900 text-sm">{formatHoursAndMinutes(grossHours)}</span>
+                      </div>
+                      <div className="p-2.5 bg-amber-50/60 rounded-lg border border-amber-200 text-center">
+                        <span className="text-[10px] text-amber-700 block font-bold uppercase">Break Time</span>
+                        <span className="font-black text-amber-800 text-sm">{breakMin > 0 ? fmtMin(breakMin) : "None"}</span>
+                      </div>
+                      <div className={`p-2.5 rounded-lg border text-center ${netColorClass}`}>
+                        <span className="text-[10px] block font-bold uppercase">Net Work Time</span>
+                        <span className="font-black text-sm">{fmtMin(netMin)}</span>
+                        {isActiveShift && <span className="text-[9px] animate-pulse block mt-0.5">Live updating</span>}
+                      </div>
+                      <div className="p-2.5 bg-indigo-50/60 rounded-lg border border-indigo-200 text-center">
+                        <span className="text-[10px] text-indigo-700 block font-bold uppercase">Task Hours</span>
+                        <span className="font-black text-indigo-900 text-sm">
+                          {loadingDetail ? "…" : taskMin > 0 ? fmtMin(taskMin) : "—"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Break Sessions */}
+                <div>
+                  <span className="text-[10px] text-slate-500 uppercase font-bold block mb-1.5">☕ Break Sessions</span>
+                  {loadingDetail ? (
+                    <div className="p-3 bg-slate-50 rounded-xl border text-slate-400 text-center">Loading breaks…</div>
+                  ) : recordDetail?.breaks?.length > 0 ? (
+                    <div className="rounded-xl border border-slate-200 overflow-hidden">
+                      {recordDetail.breaks.map((b: any, i: number) => (
+                        <div key={b.id} className={`flex items-center gap-3 px-3 py-2 text-xs ${i % 2 === 0 ? "bg-white" : "bg-slate-50/60"}`}>
+                          <span className="w-5 h-5 flex items-center justify-center bg-amber-100 text-amber-700 rounded-full font-bold text-[10px] shrink-0">#{i + 1}</span>
+                          <div className="flex-1 min-w-0">
+                            <span className="font-mono font-semibold text-slate-800">
+                              {b.break_start_formatted || "--"}
+                              <span className="text-slate-400 mx-1">&rarr;</span>
+                              {b.break_end_formatted || <span className="text-amber-600 animate-pulse">Active</span>}
+                            </span>
+                            {b.paused_task_title && <span className="block text-[10px] text-indigo-600 truncate">📋 {b.paused_task_title}</span>}
+                          </div>
+                          <span className={`font-bold shrink-0 ${b.is_active ? "text-amber-600 animate-pulse" : "text-slate-600"}`}>
+                            {b.is_active ? "On Break" : b.duration_minutes ? `${b.duration_minutes}m` : "—"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-emerald-50/60 rounded-xl border border-emerald-200 text-emerald-700 text-center font-semibold">
+                      ✅ No breaks taken today
+                    </div>
+                  )}
+                </div>
+
+                {/* Tasks Worked */}
+                <div>
+                  <span className="text-[10px] text-slate-500 uppercase font-bold block mb-1.5">📋 Tasks Worked</span>
+                  {loadingDetail ? (
+                    <div className="p-3 bg-slate-50 rounded-xl border text-slate-400 text-center">Loading tasks…</div>
+                  ) : recordDetail?.task_logs?.length > 0 ? (
+                    <div className="rounded-xl border border-slate-200 overflow-hidden">
+                      {recordDetail.task_logs.map((t: any, i: number) => (
+                        <div key={t.task_id} className={`flex items-center gap-3 px-3 py-2 text-xs ${i % 2 === 0 ? "bg-white" : "bg-slate-50/60"}`}>
+                          <div className="flex-1 min-w-0">
+                            <span className="font-semibold text-slate-800 truncate block">{t.task_title}</span>
+                            {t.project_name && <span className="text-[10px] text-slate-400 truncate block">{t.project_name}</span>}
+                          </div>
+                          <span className="font-bold text-indigo-700 shrink-0">{fmtMin(t.total_minutes)}</span>
+                        </div>
+                      ))}
+                      <div className="flex items-center justify-between px-3 py-2 bg-indigo-50/60 border-t border-indigo-200">
+                        <span className="font-bold text-indigo-800 text-[10px] uppercase">Total Task Hours</span>
+                        <span className="font-black text-indigo-900 text-xs">{fmtMin(taskMin)}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-slate-50 rounded-xl border text-slate-400 text-center">
+                      No task timer data for this day
+                    </div>
+                  )}
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
     </div>
   );
 }

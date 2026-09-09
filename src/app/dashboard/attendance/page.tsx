@@ -93,6 +93,8 @@ export default function AttendancePage() {
 
   // View Record Detail Modal
   const [selectedRecord, setSelectedRecord] = useState<any>(null);
+  const [recordDetail, setRecordDetail] = useState<any>(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
 
   // Edit / Override Record Modal State (for Management: PM, CEO, Admin)
   const [editingRecord, setEditingRecord] = useState<any>(null);
@@ -292,6 +294,22 @@ export default function AttendancePage() {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchRecordDetail = async (attendanceId: number) => {
+    setRecordDetail(null);
+    setLoadingDetail(true);
+    try {
+      const res = await fetch(`/api/attendance/record-detail?attendance_id=${attendanceId}&_=` + Date.now());
+      if (res.ok) {
+        const data = await res.json();
+        setRecordDetail(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch record detail:", err);
+    } finally {
+      setLoadingDetail(false);
     }
   };
 
@@ -1033,10 +1051,9 @@ export default function AttendancePage() {
                     <TableHead className="font-bold">Employee</TableHead>
                     <TableHead className="font-bold">Role</TableHead>
                     <TableHead className="font-bold">Date</TableHead>
-                    <TableHead className="font-bold">Check-In (IST)</TableHead>
-                    <TableHead className="font-bold">Check-Out (IST)</TableHead>
-                    <TableHead className="font-bold">Total Shift Hours</TableHead>
-                    <TableHead className="font-bold">Break Time</TableHead>
+                    <TableHead className="font-bold">Office Hours</TableHead>
+                    <TableHead className="font-bold">Net Work Time</TableHead>
+                    <TableHead className="font-bold">Break</TableHead>
                     <TableHead className="font-bold">Status</TableHead>
                     <TableHead className="font-bold text-right">Action</TableHead>
                   </TableRow>
@@ -1049,46 +1066,86 @@ export default function AttendancePage() {
                   ) : (
                     attendance.map((rec) => {
                       const isActiveShift = Boolean(rec.login_time && !rec.logout_time);
-                      let displayHours = parseFloat(rec.total_hours || 0);
+                      let grossHours = parseFloat(rec.total_hours || 0);
 
                       // If currently active in shift, calculate live elapsed hours
                       if (isActiveShift && rec.login_time) {
-                        displayHours = calculateHoursDifference(rec.login_time, currentISTTime || getCurrentISTTime12());
+                        grossHours = calculateHoursDifference(rec.login_time, currentISTTime || getCurrentISTTime12());
                       }
+
+                      // Net work time = gross hours - break minutes
+                      const breakMin = parseInt(rec.total_break_minutes || 0, 10);
+                      const netMinutes = Math.max(0, Math.round(grossHours * 60) - breakMin);
+                      const netHours = netMinutes / 60;
+
+                      // Color coding for net work time
+                      const netColor = netHours >= 9
+                        ? "text-emerald-700"
+                        : netHours >= 4.5
+                        ? "text-amber-700"
+                        : grossHours > 0
+                        ? "text-red-600"
+                        : "text-slate-400";
 
                       return (
                         <TableRow key={rec.id} className="hover:bg-slate-50/80 transition-colors">
                           <TableCell className="font-bold text-slate-900">{rec.employee_name || "N/A"}</TableCell>
                           <TableCell><Badge variant="outline">{rec.employee_role || "N/A"}</Badge></TableCell>
                           <TableCell className="text-xs text-slate-700 font-medium">{new Date(rec.date).toLocaleDateString()}</TableCell>
-                          <TableCell className="font-mono text-xs text-slate-800 font-semibold">{rec.login_time || "--:--"}</TableCell>
-                          <TableCell className="font-mono text-xs text-slate-800 font-semibold">{rec.logout_time || "--:--"}</TableCell>
-                          <TableCell className="font-bold text-slate-900 text-xs">
-                            {isActiveShift ? (
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-emerald-700 font-black">{formatHoursAndMinutes(displayHours)}</span>
-                                <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300 text-[9px] py-0 px-1 font-bold animate-pulse">
-                                  Live ⏱️
-                                </Badge>
+
+                          {/* Office Hours column — check-in → check-out window */}
+                          <TableCell className="text-xs">
+                            {rec.login_time ? (
+                              <div className="flex flex-col">
+                                <span className="font-mono font-semibold text-slate-800">
+                                  {rec.login_time}
+                                </span>
+                                <span className="flex items-center gap-1 text-slate-400 font-mono text-[10px] mt-0.5">
+                                  <span>→</span>
+                                  {isActiveShift ? (
+                                    <span className="flex items-center gap-1 text-emerald-600 font-bold animate-pulse">
+                                      Active <Clock className="h-2.5 w-2.5" />
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-800 font-semibold">{rec.logout_time || "--:--"}</span>
+                                  )}
+                                </span>
                               </div>
                             ) : (
-                              <span>{formatHoursAndMinutes(displayHours)}</span>
+                              <span className="text-slate-300">—</span>
                             )}
                           </TableCell>
-                          {/* Break Time Column */}
+
+                          {/* Net Work Time column */}
+                          <TableCell className="font-bold text-xs">
+                            {grossHours > 0 ? (
+                              <div className="flex items-center gap-1.5">
+                                <span className={`font-black ${netColor}`}>{formatHoursAndMinutes(netHours)}</span>
+                                {isActiveShift && (
+                                  <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300 text-[9px] py-0 px-1 font-bold animate-pulse">
+                                    Live ⏱️
+                                  </Badge>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-slate-300">—</span>
+                            )}
+                          </TableCell>
+
+                          {/* Break Time column */}
                           <TableCell className="text-xs">
                             {rec.is_currently_on_break ? (
                               <div className="flex items-center gap-1 text-amber-700">
                                 <Coffee className="h-3.5 w-3.5 animate-pulse" />
                                 <span className="font-bold">On Break</span>
                               </div>
-                            ) : rec.total_break_minutes > 0 ? (
+                            ) : breakMin > 0 ? (
                               <div className="flex items-center gap-1 text-slate-500">
                                 <Coffee className="h-3.5 w-3.5" />
                                 <span className="font-semibold">
-                                  {rec.total_break_minutes >= 60
-                                    ? `${Math.floor(rec.total_break_minutes / 60)}h ${(rec.total_break_minutes % 60).toString().padStart(2, "0")}m`
-                                    : `${rec.total_break_minutes}m`}
+                                  {breakMin >= 60
+                                    ? `${Math.floor(breakMin / 60)}h ${(breakMin % 60).toString().padStart(2, "0")}m`
+                                    : `${breakMin}m`}
                                 </span>
                               </div>
                             ) : (
@@ -1271,7 +1328,10 @@ export default function AttendancePage() {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                onClick={() => setSelectedRecord(rec)}
+                                onClick={() => {
+                                  setSelectedRecord(rec);
+                                  fetchRecordDetail(rec.id);
+                                }}
                                 className="text-xs font-semibold gap-1 text-sky-600 hover:bg-sky-50 bg-white"
                               >
                                 <Eye className="h-3.5 w-3.5" /> View
@@ -1289,50 +1349,177 @@ export default function AttendancePage() {
         </>
       )}
 
-      {/* Record Details Dialog */}
-      <Dialog open={!!selectedRecord} onOpenChange={() => setSelectedRecord(null)}>
-        <DialogContent className="max-w-md">
+      {/* Record Details Dialog — Daily Time Breakdown */}
+      <Dialog open={!!selectedRecord} onOpenChange={() => { setSelectedRecord(null); setRecordDetail(null); }}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
-              <Eye className="h-5 w-5 text-sky-500" /> Attendance Record Detail
+              <Clock className="h-5 w-5 text-sky-500" /> Daily Time Breakdown
             </DialogTitle>
           </DialogHeader>
-          {selectedRecord && (
-            <div className="space-y-3 pt-2 text-xs text-slate-700">
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
-                <div className="font-bold text-slate-900 text-sm">{selectedRecord.employee_name} ({selectedRecord.employee_role})</div>
-                <div>Date: <strong>{new Date(selectedRecord.date).toLocaleDateString()}</strong></div>
-                <div>Status: <Badge variant="outline" className="ml-1">{selectedRecord.status}</Badge></div>
-              </div>
+          {selectedRecord && (() => {
+            const isActiveShift = Boolean(selectedRecord.login_time && !selectedRecord.logout_time);
+            const grossHours = isActiveShift
+              ? calculateHoursDifference(selectedRecord.login_time, currentISTTime || getCurrentISTTime12())
+              : parseFloat(selectedRecord.total_hours || 0);
+            const breakMin = recordDetail?.total_break_minutes ?? parseInt(selectedRecord.total_break_minutes || 0, 10);
+            const netMin = Math.max(0, Math.round(grossHours * 60) - breakMin);
+            const taskMin = recordDetail?.total_task_minutes ?? 0;
 
-              <div className="grid grid-cols-2 gap-2">
-                <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200">
-                  <span className="text-[10px] text-slate-500 block uppercase font-bold">Check-In</span>
-                  <span className="font-mono font-bold text-slate-900">{selectedRecord.login_time || "N/A"}</span>
-                </div>
-                <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200">
-                  <span className="text-[10px] text-slate-500 block uppercase font-bold">Check-Out</span>
-                  <span className="font-mono font-bold text-slate-900">{selectedRecord.logout_time || "In Progress"}</span>
-                </div>
-              </div>
+            const fmtMin = (m: number) => {
+              const h = Math.floor(m / 60);
+              const min = m % 60;
+              return h > 0 ? `${h}h ${min.toString().padStart(2, "0")}m` : `${min}m`;
+            };
 
-              <div className="p-2.5 bg-emerald-50/70 rounded-lg border border-emerald-200">
-                <span className="text-[10px] text-emerald-800 block uppercase font-bold">Total Shift Duration</span>
-                <span className="font-bold text-emerald-900 text-sm">
-                  {selectedRecord.login_time && !selectedRecord.logout_time
-                    ? `${formatHoursAndMinutes(calculateHoursDifference(selectedRecord.login_time, currentISTTime || getCurrentISTTime12()))} (Active In Shift)`
-                    : formatHoursAndMinutes(selectedRecord.total_hours)}
-                </span>
-              </div>
+            const netColor = (netMin / 60) >= 9
+              ? "text-emerald-700 bg-emerald-50 border-emerald-200"
+              : (netMin / 60) >= 4.5
+              ? "text-amber-700 bg-amber-50 border-amber-200"
+              : grossHours > 0
+              ? "text-red-700 bg-red-50 border-red-200"
+              : "text-slate-500 bg-slate-50 border-slate-200";
 
-              {selectedRecord.remarks && (
-                <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200">
-                  <span className="text-[10px] text-slate-500 block uppercase font-bold">Notes / Reason</span>
-                  <p className="text-slate-800">{selectedRecord.remarks}</p>
+            return (
+              <div className="space-y-4 pt-1 text-xs text-slate-700">
+                {/* Employee header */}
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
+                  <div className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                    {selectedRecord.employee_name}
+                    <Badge variant="outline" className="text-[10px]">{selectedRecord.employee_role}</Badge>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-slate-500">{new Date(selectedRecord.date).toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</span>
+                  </div>
+                  <div className="pt-0.5">Status: <Badge variant="outline" className="ml-1 text-[10px]">{selectedRecord.status}</Badge></div>
                 </div>
-              )}
-            </div>
-          )}
+
+                {/* Office Hours */}
+                {selectedRecord.login_time && (
+                  <div className="p-3 bg-sky-50/60 rounded-xl border border-sky-200">
+                    <span className="text-[10px] text-sky-800 uppercase font-bold block mb-1.5">🕐 Office Hours</span>
+                    <div className="flex items-center gap-3">
+                      <div>
+                        <span className="text-[10px] text-slate-500 block font-semibold">Check-In</span>
+                        <span className="font-mono font-bold text-slate-900">{selectedRecord.login_time}</span>
+                      </div>
+                      <span className="text-slate-400 text-base font-light">→</span>
+                      <div>
+                        <span className="text-[10px] text-slate-500 block font-semibold">Check-Out</span>
+                        <span className="font-mono font-bold text-slate-900">
+                          {isActiveShift ? (
+                            <span className="text-emerald-600 animate-pulse">Active ⏱️</span>
+                          ) : (selectedRecord.logout_time || "N/A")}
+                        </span>
+                      </div>
+                      <div className="ml-auto">
+                        <span className="text-[10px] text-slate-500 block font-semibold">Gross Shift</span>
+                        <span className="font-bold text-slate-900">{formatHoursAndMinutes(grossHours)}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Time Breakdown Grid */}
+                {grossHours > 0 && (
+                  <div>
+                    <span className="text-[10px] text-slate-500 uppercase font-bold block mb-1.5">⏱️ Time Breakdown</span>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200 text-center">
+                        <span className="text-[10px] text-slate-500 block font-bold uppercase">Gross Shift</span>
+                        <span className="font-black text-slate-900 text-sm">{formatHoursAndMinutes(grossHours)}</span>
+                      </div>
+                      <div className="p-2.5 bg-amber-50/60 rounded-lg border border-amber-200 text-center">
+                        <span className="text-[10px] text-amber-700 block font-bold uppercase flex items-center justify-center gap-1"><Coffee className="h-2.5 w-2.5" /> Break Time</span>
+                        <span className="font-black text-amber-800 text-sm">{breakMin > 0 ? fmtMin(breakMin) : "None"}</span>
+                      </div>
+                      <div className={`p-2.5 rounded-lg border text-center col-span-1 ${netColor}`}>
+                        <span className="text-[10px] block font-bold uppercase">Net Work Time</span>
+                        <span className="font-black text-sm">{fmtMin(netMin)}</span>
+                        {isActiveShift && <span className="text-[9px] animate-pulse block mt-0.5">Live updating</span>}
+                      </div>
+                      <div className="p-2.5 bg-indigo-50/60 rounded-lg border border-indigo-200 text-center">
+                        <span className="text-[10px] text-indigo-700 block font-bold uppercase">Task Hours</span>
+                        <span className="font-black text-indigo-900 text-sm">
+                          {loadingDetail ? "…" : taskMin > 0 ? fmtMin(taskMin) : "—"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Break Sessions */}
+                <div>
+                  <span className="text-[10px] text-slate-500 uppercase font-bold block mb-1.5">☕ Break Sessions</span>
+                  {loadingDetail ? (
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-slate-400 text-center">Loading breaks…</div>
+                  ) : recordDetail?.breaks?.length > 0 ? (
+                    <div className="rounded-xl border border-slate-200 overflow-hidden">
+                      {recordDetail.breaks.map((b: any, i: number) => (
+                        <div key={b.id} className={`flex items-center gap-3 px-3 py-2 text-xs ${i % 2 === 0 ? "bg-white" : "bg-slate-50/60"}`}>
+                          <span className="w-5 h-5 flex items-center justify-center bg-amber-100 text-amber-700 rounded-full font-bold text-[10px] shrink-0">#{i + 1}</span>
+                          <div className="flex-1 min-w-0">
+                            <span className="font-mono font-semibold text-slate-800">
+                              {b.break_start_formatted || "--"}
+                              <span className="text-slate-400 mx-1">→</span>
+                              {b.break_end_formatted ? b.break_end_formatted : <span className="text-amber-600 animate-pulse">Active</span>}
+                            </span>
+                            {b.paused_task_title && (
+                              <span className="block text-[10px] text-indigo-600 truncate">📋 {b.paused_task_title}</span>
+                            )}
+                          </div>
+                          <span className={`font-bold shrink-0 ${b.is_active ? "text-amber-600 animate-pulse" : "text-slate-600"}`}>
+                            {b.is_active ? "On Break" : b.duration_minutes ? `${b.duration_minutes}m` : "—"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : !loadingDetail ? (
+                    <div className="p-3 bg-emerald-50/60 rounded-xl border border-emerald-200 text-emerald-700 text-center font-semibold">
+                      ✅ No breaks taken today
+                    </div>
+                  ) : null}
+                </div>
+
+                {/* Task Logs */}
+                <div>
+                  <span className="text-[10px] text-slate-500 uppercase font-bold block mb-1.5">📋 Tasks Worked</span>
+                  {loadingDetail ? (
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-slate-400 text-center">Loading tasks…</div>
+                  ) : recordDetail?.task_logs?.length > 0 ? (
+                    <div className="rounded-xl border border-slate-200 overflow-hidden">
+                      {recordDetail.task_logs.map((t: any, i: number) => (
+                        <div key={t.task_id} className={`flex items-center gap-3 px-3 py-2 text-xs ${i % 2 === 0 ? "bg-white" : "bg-slate-50/60"}`}>
+                          <div className="flex-1 min-w-0">
+                            <span className="font-semibold text-slate-800 truncate block">{t.task_title}</span>
+                            {t.project_name && <span className="text-[10px] text-slate-400 truncate block">{t.project_name}</span>}
+                          </div>
+                          <span className="font-bold text-indigo-700 shrink-0">{fmtMin(t.total_minutes)}</span>
+                        </div>
+                      ))}
+                      {recordDetail.task_logs.length > 0 && (
+                        <div className="flex items-center justify-between px-3 py-2 bg-indigo-50/60 border-t border-indigo-200">
+                          <span className="font-bold text-indigo-800 text-[10px] uppercase">Total Task Hours</span>
+                          <span className="font-black text-indigo-900 text-xs">{fmtMin(taskMin)}</span>
+                        </div>
+                      )}
+                    </div>
+                  ) : !loadingDetail ? (
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-slate-400 text-center">
+                      No task timer data for this day
+                    </div>
+                  ) : null}
+                </div>
+
+                {selectedRecord.notes && (
+                  <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200">
+                    <span className="text-[10px] text-slate-500 block uppercase font-bold">Notes / Reason</span>
+                    <p className="text-slate-800 mt-0.5">{selectedRecord.notes}</p>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </DialogContent>
       </Dialog>
 
