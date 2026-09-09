@@ -1,8 +1,32 @@
+import {
+  handleProjectsIntent,
+  handleTasksIntent,
+  handlePayrollIntent,
+  handleTestingQueueIntent,
+  handleCredentialsIntent,
+  handleDocumentsIntent,
+  handlePoliciesIntent,
+  handleCronLogsIntent,
+  handleAnalyticsIntent
+} from "./ai-intents";
+
+export interface GenericCardItem {
+  id: string | number;
+  title: string;
+  subtitle?: string;
+  badge?: string;
+  badgeColor?: string;
+  detailKey1?: string;
+  detailVal1?: string;
+  detailKey2?: string;
+  detailVal2?: string;
+}
+
 export interface EmployeeData {
-  id?: number;
+  id: number | string;
   name: string;
   role: string;
-  email: string;
+  email?: string;
   phone?: string;
   monthly_salary?: number;
   total_leaves_allowed?: number;
@@ -15,9 +39,9 @@ export interface EmployeeData {
 export interface ComparativeData {
   emp1: EmployeeData;
   emp2: EmployeeData;
-  leaderName?: string;
-  efficiencyDiff?: number;
-  tasksDiff?: number;
+  leaderName: string;
+  efficiencyDiff: number;
+  tasksDiff: number;
 }
 
 export interface IntentResult {
@@ -29,6 +53,12 @@ export interface IntentResult {
   highlightKey?: string;
   employeeData?: EmployeeData;
   comparativeData?: ComparativeData;
+  cardData?: {
+    type: "projects" | "tasks" | "payroll" | "testing" | "credentials" | "documents" | "policies" | "cron" | "generic";
+    title: string;
+    items: GenericCardItem[];
+    statsSummary?: string;
+  };
 }
 
 export function levenshteinDistance(str1: string, str2: string): number {
@@ -181,6 +211,41 @@ export async function resolveIntentAsync(query: string, role: string): Promise<I
     q.includes("late check in") ||
     q.includes("late arrival")
   ) {
+    if (typeof window !== "undefined") {
+      try {
+        const res = await fetch("/api/warnings");
+        if (res.ok) {
+          const data = await res.json();
+          const warningsList = Array.isArray(data) ? data : (data.warnings || []);
+          const lateNames = warningsList.map((w: any) => w.employee_name || w.name || w.user_name).filter(Boolean);
+          const uniqueNames = Array.from(new Set(lateNames));
+          const count = uniqueNames.length;
+
+          let speech = "";
+          let display = "";
+
+          if (count > 0) {
+            const namesStr = uniqueNames.join(", ");
+            speech = `Shift Warnings Briefing: Today ${count} team member${count > 1 ? "s have" : " has"} logged tardiness or late arrival: ${namesStr}. Navigating to Shift Warnings dashboard.`;
+            display = `Late Today (${count}): ${namesStr}.`;
+          } else {
+            speech = `Shift Warnings Briefing: Great news! No team members have recorded tardiness or late arrival warnings today.`;
+            display = `No shift tardiness warnings logged today.`;
+          }
+
+          return {
+            matched: true,
+            intent: "shift_warnings",
+            redirectUrl: "/dashboard/warnings",
+            speechSummary: speech,
+            displayText: display,
+            highlightKey: "warnings"
+          };
+        }
+      } catch (err) {
+        console.error("Error fetching shift warnings for AI assistant:", err);
+      }
+    }
     return resolveIntent("shift_warnings", role);
   }
 
@@ -189,8 +254,52 @@ export async function resolveIntentAsync(query: string, role: string): Promise<I
     q.includes("who is checked in") || 
     q.includes("who checked in") || 
     q.includes("who is in the office") ||
-    q.includes("who is working today")
+    q.includes("who is working today") ||
+    q.includes("present today")
   ) {
+    if (typeof window !== "undefined") {
+      try {
+        const res = await fetch("/api/attendance");
+        if (res.ok) {
+          const data = await res.json();
+          const records = Array.isArray(data) ? data : (data.attendance || []);
+          const todayDateStr = data.currentDate || new Date().toISOString().split("T")[0];
+
+          // Filter records where login_time exists or status is Present
+          const presentRecords = records.filter((r: any) => {
+            const rDate = r.date ? r.date.split("T")[0] : "";
+            return (rDate === todayDateStr || !rDate) && (r.login_time || (r.status && r.status.includes("Present")));
+          });
+
+          const presentNames = presentRecords.map((r: any) => r.employee_name || r.name).filter(Boolean);
+          const uniqueNames = Array.from(new Set(presentNames));
+          const count = uniqueNames.length;
+
+          let speech = "";
+          let display = "";
+
+          if (count > 0) {
+            const namesStr = uniqueNames.join(", ");
+            speech = `Real-Time Attendance Briefing for Today (${todayDateStr}): ${count} team member${count > 1 ? "s are" : " is"} currently present in the office: ${namesStr}. Navigating to Attendance records.`;
+            display = `Present Today (${count}): ${namesStr}.`;
+          } else {
+            speech = `Real-Time Attendance Briefing: No team members have recorded check-ins or attendance for today yet.`;
+            display = `No check-in records for today yet.`;
+          }
+
+          return {
+            matched: true,
+            intent: "attendance",
+            redirectUrl: "/dashboard/attendance",
+            speechSummary: speech,
+            displayText: display,
+            highlightKey: "attendance"
+          };
+        }
+      } catch (err) {
+        console.error("Error fetching attendance for AI assistant:", err);
+      }
+    }
     return resolveIntent("attendance", role);
   }
 
@@ -367,7 +476,6 @@ export async function resolveIntentAsync(query: string, role: string): Promise<I
           const tasksInfo = (empData.totalTasks || 0) > 0
             ? `${empData.completedTasks || 0} of ${empData.totalTasks} tasks completed (${empData.efficiency || 0}% efficiency)`
             : "No tasks assigned currently";
-
           const speech = `Executive Brief for ${empData.name}: Role is ${empData.role}. Monthly Salary is ${salaryFormatted}. Task Progress: ${tasksInfo}. Status: ${empData.is_active ? "Active Employee" : "Inactive"}.`;
           const display = `Executive Summary for ${empData.name}: Role: ${empData.role} | Salary: ${salaryFormatted} | Tasks: ${empData.completedTasks}/${empData.totalTasks} (${empData.efficiency}% efficiency).`;
 
@@ -394,6 +502,38 @@ export async function resolveIntentAsync(query: string, role: string): Promise<I
     } catch (err) {
       console.error("Error fetching employee data for voice assistant:", err);
     }
+  }
+
+  // 3. PRIORITY 3: Dispatch modular domain intent handlers for section queries
+  if (q.includes("testing") || q.includes("qa") || q.includes("bug")) {
+    return handleTestingQueueIntent();
+  }
+  if (q.includes("3rd party") || q.includes("third party") || q.includes("cloudinary") || q.includes("stripe") || q.includes("whatsapp") || q.includes("firebase")) {
+    return handleCredentialsIntent(true);
+  }
+  if (q.includes("document") || q.includes("documents") || q.includes("contract") || q.includes("contracts")) {
+    return handleDocumentsIntent();
+  }
+  if (q.includes("credential") || q.includes("password") || (q.includes("vault") && !q.includes("document"))) {
+    return handleCredentialsIntent(false);
+  }
+  if (q.includes("analytics") || q.includes("productivity") || q.includes("metrics") || q.includes("kpi")) {
+    return handleAnalyticsIntent();
+  }
+  if (q.includes("project") || q.includes("projects")) {
+    return handleProjectsIntent();
+  }
+  if (q.includes("daily task") || q.includes("task board") || q.includes("tasks") || q.includes("task")) {
+    return handleTasksIntent();
+  }
+  if (q.includes("salary payouts") || q.includes("payroll")) {
+    return handlePayrollIntent();
+  }
+  if (q.includes("policy") || q.includes("policies") || q.includes("leave rules")) {
+    return handlePoliciesIntent();
+  }
+  if (q.includes("cron") || q.includes("email log") || q.includes("server logs")) {
+    return handleCronLogsIntent();
   }
 
   // Fallback to static intent resolution
