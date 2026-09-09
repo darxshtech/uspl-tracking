@@ -61,9 +61,17 @@ const cleanPunctuationAndNoise = (str: string) => {
     .trim();
 };
 
+function stripConversationalFillers(str: string): string {
+  return str
+    .replace(/hey can you please|hey can you|could you please|could you|can you please|can you tell me|can you|please show me|please tell me|please check|please|i want to see|i want to know|i would like to see|tell me the|tell me|show me|check|what is the|what is|who is|how is|is doing|comparison please|comparison|right now|today|monthly|current|in the office|for me|the details for|details for|the data for|data for|the info for|info for|the report for|report for|salary of|salary for|profile of|profile for|data of|details of|info of|report of|details|data|info|stats|report|productivity|performance/gi, "")
+    .replace(/['’]s\s*(?:profile|details|data|salary|tasks|info|stats|performance)?/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 const cleanNameToken = (token: string) => {
-  return token
-    .replace(/can you please|could you|please|tell me|show me|about|data|details|info|report|stats|productivity|performance|task|tasks|employee|employees|staff|dev|developer|manager|pm|qa|right now/gi, "")
+  return stripConversationalFillers(token)
+    .replace(/employee|employees|staff|dev|developer|manager|pm|qa|person|member/gi, "")
     .trim();
 };
 
@@ -81,20 +89,49 @@ export async function resolveIntentAsync(query: string, role: string): Promise<I
     };
   }
 
-  // 1. PRIORITIZED: Check if query is asking for multi-employee comparative speech
+  // 0. PRIORITY 0: Specific attendance / late warning phrase checks BEFORE general "who is" employee queries
+  if (
+    q.includes("who was late") || 
+    q.includes("who is late") || 
+    q.includes("who came late") || 
+    q.includes("who arrived late") ||
+    q.includes("who checked in late") ||
+    q.includes("late check in") ||
+    q.includes("late arrival")
+  ) {
+    return resolveIntent("shift_warnings", role);
+  }
+
+  if (
+    q.includes("who is present") || 
+    q.includes("who is checked in") || 
+    q.includes("who checked in") || 
+    q.includes("who is in the office") ||
+    q.includes("who is working today")
+  ) {
+    return resolveIntent("attendance", role);
+  }
+
+  // 1. PRIORITY 1: Check if query is asking for multi-employee comparative speech
   const isComparativeQuery = 
     q.includes("compare") || 
     q.includes("versus") || 
     q.includes(" vs ") || 
-    q.includes("difference between");
+    q.includes("difference") ||
+    q.includes("between") ||
+    q.includes("performing better") ||
+    q.includes("efficiency between") ||
+    q.includes("more tasks") ||
+    q.includes("comparison");
 
   if (isComparativeQuery && typeof window !== "undefined") {
     let cleanQuery = q
-      .replace(/can you please|could you|please|compare productivity of|compare performance of|compare tasks of|compare efficiency of|compare data of|compare|versus|difference between|right now/gi, "")
+      .replace(/can you please|could you|please|compare productivity of|compare performance of|compare tasks of|compare efficiency of|compare data of|compare|who is performing better between|who has done more tasks|check difference in efficiency between|difference in efficiency between|difference between|comparison please|comparison|right now/gi, " ")
+      .replace(/\s+/g, " ")
       .trim();
 
-    // Split names by 'and', 'vs', 'with', 'to'
-    const parts = cleanQuery.split(/\s+(?:and|vs|with|to)\s+/i);
+    // Split names by 'and', 'vs', 'versus', 'with', 'to', 'or'
+    const parts = cleanQuery.split(/\s+(?:and|vs|versus|with|to|or)\s+/i);
     if (parts.length >= 2) {
       const targetName1 = cleanNameToken(parts[0]);
       const targetName2 = cleanNameToken(parts[1]);
@@ -191,72 +228,83 @@ export async function resolveIntentAsync(query: string, role: string): Promise<I
     }
   }
 
-  // 2. PRIORITIZED: Check if query is asking for specific single employee data
+  // 2. PRIORITY 2: Check if query is asking for specific single employee data
   const isEmployeeDataQuery = 
     q.includes("data of") || 
+    q.includes("data for") ||
     q.includes("tell me about") || 
     q.includes("tell me data") || 
     q.includes("info of") || 
+    q.includes("info for") ||
     q.includes("details of") || 
+    q.includes("details for") ||
     q.includes("report of") || 
     q.includes("report for") || 
     q.includes("salary of") || 
+    q.includes("salary for") ||
     q.includes("profile of") || 
-    q.includes("who is");
+    q.includes("profile for") ||
+    q.includes("who is") ||
+    q.includes("how is") ||
+    q.includes("is doing") ||
+    q.includes("'s profile") ||
+    q.includes("'s details") ||
+    q.includes("'s data") ||
+    q.includes("'s salary");
 
-  if (isEmployeeDataQuery && typeof window !== "undefined") {
-    let targetName = cleanNameToken(
-      q
-        .replace(/tell me data of|tell me about employee|tell me about|data of employee|data of|info of employee|info of|details of employee|details of|report of employee|report for employee|report for|salary of employee|salary of|profile of employee|profile of|who is employee|who is/gi, "")
-    );
+  if ((isEmployeeDataQuery || typeof window !== "undefined") && typeof window !== "undefined") {
+    // Try fetching employees to match by name token or by presence of employee name in query
+    try {
+      const res = await fetch("/api/employees");
+      if (res.ok) {
+        const data = await res.json();
+        const employeesList = Array.isArray(data) ? data : (data.employees || []);
 
-    if (targetName.length >= 2) {
-      try {
-        const res = await fetch("/api/employees");
-        if (res.ok) {
-          const data = await res.json();
-          const employeesList = Array.isArray(data) ? data : (data.employees || []);
+        let targetName = cleanNameToken(q);
 
-          // Match by name or email or role
-          const empRaw = employeesList.find((e: any) => 
-            e.name?.toLowerCase().includes(targetName) ||
-            e.email?.toLowerCase().includes(targetName) ||
-            e.role?.toLowerCase() === targetName
+        // Find match by name or email or role
+        let empRaw = employeesList.find((e: any) => {
+          const empFirstName = (e.name || "").split(" ")[0].toLowerCase();
+          const empFullName = (e.name || "").toLowerCase();
+          return (
+            (targetName.length >= 2 && (empFullName.includes(targetName) || e.email?.toLowerCase().includes(targetName) || e.role?.toLowerCase() === targetName)) ||
+            (empFirstName.length >= 2 && q.includes(empFirstName)) ||
+            (empFullName.length >= 3 && q.includes(empFullName))
           );
+        });
 
-          if (empRaw) {
-            const empData = normalizeEmployeeData(empRaw);
-            const salaryFormatted = empData.monthly_salary ? `₹${empData.monthly_salary.toLocaleString("en-IN")}` : "Not Disclosed";
-            const tasksInfo = (empData.totalTasks || 0) > 0
-              ? `${empData.completedTasks || 0} of ${empData.totalTasks} tasks completed (${empData.efficiency || 0}% efficiency)`
-              : "No tasks assigned currently";
+        if (empRaw) {
+          const empData = normalizeEmployeeData(empRaw);
+          const salaryFormatted = empData.monthly_salary ? `₹${empData.monthly_salary.toLocaleString("en-IN")}` : "Not Disclosed";
+          const tasksInfo = (empData.totalTasks || 0) > 0
+            ? `${empData.completedTasks || 0} of ${empData.totalTasks} tasks completed (${empData.efficiency || 0}% efficiency)`
+            : "No tasks assigned currently";
 
-            const speech = `Executive Brief for ${empData.name}: Role is ${empData.role}. Monthly Salary is ${salaryFormatted}. Task Progress: ${tasksInfo}. Status: ${empData.is_active ? "Active Employee" : "Inactive"}.`;
-            const display = `Executive Summary for ${empData.name}: Role: ${empData.role} | Salary: ${salaryFormatted} | Tasks: ${empData.completedTasks}/${empData.totalTasks} (${empData.efficiency}% efficiency).`;
+          const speech = `Executive Brief for ${empData.name}: Role is ${empData.role}. Monthly Salary is ${salaryFormatted}. Task Progress: ${tasksInfo}. Status: ${empData.is_active ? "Active Employee" : "Inactive"}.`;
+          const display = `Executive Summary for ${empData.name}: Role: ${empData.role} | Salary: ${salaryFormatted} | Tasks: ${empData.completedTasks}/${empData.totalTasks} (${empData.efficiency}% efficiency).`;
 
-            return {
-              matched: true,
-              intent: "employee_data",
-              redirectUrl: `/dashboard/employees?highlight=${encodeURIComponent(empData.name)}`,
-              speechSummary: speech,
-              displayText: display,
-              highlightKey: empData.name,
-              employeeData: empData
-            };
-          } else {
-            return {
-              matched: true,
-              intent: "employee_not_found",
-              redirectUrl: `/dashboard/employees?highlight=${encodeURIComponent(targetName)}`,
-              speechSummary: `I searched system records for ${targetName}, but no matching employee record was found. Redirecting to the Employee Directory.`,
-              displayText: `No employee matching "${targetName}" found in system records. Opening Employee Directory...`,
-              highlightKey: targetName
-            };
-          }
+          return {
+            matched: true,
+            intent: "employee_data",
+            redirectUrl: `/dashboard/employees?highlight=${encodeURIComponent(empData.name)}`,
+            speechSummary: speech,
+            displayText: display,
+            highlightKey: empData.name,
+            employeeData: empData
+          };
+        } else if (isEmployeeDataQuery && targetName.length >= 2) {
+          return {
+            matched: true,
+            intent: "employee_not_found",
+            redirectUrl: `/dashboard/employees?highlight=${encodeURIComponent(targetName)}`,
+            speechSummary: `I searched system records for ${targetName}, but no matching employee record was found. Redirecting to the Employee Directory.`,
+            displayText: `No employee matching "${targetName}" found in system records. Opening Employee Directory...`,
+            highlightKey: targetName
+          };
         }
-      } catch (err) {
-        console.error("Error fetching employee data for voice assistant:", err);
       }
+    } catch (err) {
+      console.error("Error fetching employee data for voice assistant:", err);
     }
   }
 
@@ -578,6 +626,7 @@ export function resolveIntent(query: string, role: string): IntentResult {
     q.includes("tenure") || 
     q.includes("my account") ||
     q.includes("my profile") ||
+    q.includes("settings") ||
     q.includes("account settings")
   ) {
     return {
