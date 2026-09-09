@@ -1,3 +1,17 @@
+export interface EmployeeData {
+  id?: number;
+  name: string;
+  role: string;
+  email: string;
+  phone?: string;
+  monthly_salary?: number;
+  total_leaves_allowed?: number;
+  totalTasks?: number;
+  completedTasks?: number;
+  efficiency?: number;
+  is_active?: boolean;
+}
+
 export interface IntentResult {
   matched: boolean;
   intent: string;
@@ -5,6 +19,94 @@ export interface IntentResult {
   speechSummary: string;
   displayText: string;
   highlightKey?: string;
+  employeeData?: EmployeeData;
+}
+
+export async function resolveIntentAsync(query: string, role: string): Promise<IntentResult> {
+  const q = query.toLowerCase().trim();
+
+  // Check if query is asking for specific employee data
+  const isEmployeeDataQuery = 
+    q.includes("data of") || 
+    q.includes("tell me about") || 
+    q.includes("tell me data") || 
+    q.includes("info of") || 
+    q.includes("details of") || 
+    q.includes("report of") || 
+    q.includes("report for") || 
+    q.includes("salary of") || 
+    q.includes("profile of") || 
+    q.includes("who is");
+
+  if (isEmployeeDataQuery) {
+    let targetName = q
+      .replace(/tell me data of|tell me about employee|tell me about|data of employee|data of|info of employee|info of|details of employee|details of|report of employee|report for employee|report for|salary of employee|salary of|profile of employee|profile of|who is employee|who is/g, "")
+      .replace(/employee|staff|dev|developer|manager|pm|qa|user/g, "")
+      .trim();
+
+    if (targetName.length >= 2 && typeof window !== "undefined") {
+      try {
+        const res = await fetch("/api/employees");
+        if (res.ok) {
+          const data = await res.json();
+          const employeesList = Array.isArray(data) ? data : (data.employees || []);
+
+          // Match by name or email or role
+          const emp = employeesList.find((e: any) => 
+            e.name?.toLowerCase().includes(targetName) ||
+            e.email?.toLowerCase().includes(targetName) ||
+            e.role?.toLowerCase() === targetName
+          );
+
+          if (emp) {
+            const salaryFormatted = emp.monthly_salary ? `₹${Number(emp.monthly_salary).toLocaleString("en-IN")}` : "Not Disclosed";
+            const tasksInfo = (emp.totalTasks !== undefined && emp.totalTasks > 0)
+              ? `${emp.completedTasks || 0} of ${emp.totalTasks} tasks completed (${emp.efficiency || 0}% efficiency)`
+              : "No tasks assigned currently";
+
+            const speech = `Executive Brief for ${emp.name}: Role is ${emp.role}. Monthly Salary is ${salaryFormatted}. Task Progress: ${tasksInfo}. Status: ${emp.is_active !== false ? "Active Employee" : "Inactive"}.`;
+            const display = `Executive Summary for ${emp.name}: Role: ${emp.role} | Salary: ${salaryFormatted} | Tasks: ${emp.completedTasks || 0}/${emp.totalTasks || 0} (${emp.efficiency || 0}% efficiency).`;
+
+            return {
+              matched: true,
+              intent: "employee_data",
+              redirectUrl: `/dashboard/employees?highlight=${encodeURIComponent(emp.name)}`,
+              speechSummary: speech,
+              displayText: display,
+              highlightKey: emp.name,
+              employeeData: {
+                id: emp.id,
+                name: emp.name,
+                role: emp.role,
+                email: emp.email,
+                phone: emp.phone || "N/A",
+                monthly_salary: emp.monthly_salary,
+                total_leaves_allowed: emp.total_leaves_allowed,
+                totalTasks: emp.totalTasks,
+                completedTasks: emp.completedTasks,
+                efficiency: emp.efficiency,
+                is_active: emp.is_active !== false
+              }
+            };
+          } else {
+            return {
+              matched: true,
+              intent: "employee_not_found",
+              redirectUrl: `/dashboard/employees?highlight=${encodeURIComponent(targetName)}`,
+              speechSummary: `I searched the system records for ${targetName}, but no matching employee record was found. Redirecting to the Employee Directory.`,
+              displayText: `No employee matching "${targetName}" found in system records. Opening Employee Directory...`,
+              highlightKey: targetName
+            };
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching employee data for voice assistant:", err);
+      }
+    }
+  }
+
+  // Fallback to static intent resolution
+  return resolveIntent(query, role);
 }
 
 export function resolveIntent(query: string, role: string): IntentResult {
@@ -355,8 +457,9 @@ export function resolveIntent(query: string, role: string): IntentResult {
     matched: false,
     intent: "unknown",
     redirectUrl: "",
-    speechSummary: "I didn't recognize that command. Try asking about testing queue, employees, projects, 3rd party credentials, attendance, or analytics.",
-    displayText: "Unrecognized query. Try: \"show testing queue\", \"analytics\", \"3rd party credentials\", \"employees\", \"attendance\""
+    speechSummary: "I didn't recognize that command. Try asking about employee data, testing queue, credentials, attendance, or analytics.",
+    displayText: "Unrecognized query. Try: \"tell me data of Alex\", \"show testing queue\", \"3rd party credentials\", \"attendance\""
   };
 }
+
 

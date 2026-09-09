@@ -3,11 +3,31 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { resolveIntent, IntentResult } from "@/lib/ai-scripting";
+import { resolveIntentAsync, IntentResult, EmployeeData } from "@/lib/ai-scripting";
 import { speakText, createSpeechRecognizer } from "@/lib/speech";
-import { Bot, Mic, MicOff, Send, X, Sparkles, Navigation, Volume2, AlertCircle, ShieldAlert } from "lucide-react";
+import { 
+  Bot, 
+  Mic, 
+  MicOff, 
+  Send, 
+  X, 
+  Sparkles, 
+  Navigation, 
+  Volume2, 
+  AlertCircle, 
+  User, 
+  Briefcase, 
+  CreditCard, 
+  CheckCircle2, 
+  Mail, 
+  Phone, 
+  Calendar,
+  ExternalLink,
+  ChevronRight
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 
 export default function VoiceScriptingAssistant() {
   const { data: session } = useSession();
@@ -17,6 +37,7 @@ export default function VoiceScriptingAssistant() {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [isListening, setIsListening] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [interimText, setInterimText] = useState("");
   const [lastResult, setLastResult] = useState<IntentResult | null>(null);
   const [speechSupported, setSpeechSupported] = useState(true);
@@ -97,7 +118,7 @@ export default function VoiceScriptingAssistant() {
         console.error("Speech recognition error:", err);
         setIsListening(false);
         if (err !== "no-speech" && err !== "aborted") {
-          const errDetail = `Speech recognition error: ${err}. Please try typing or speak clearly.`;
+          const errDetail = `Speech error: ${err}. Try typing or speak clearly.`;
           setMicError(errDetail);
         }
       },
@@ -121,9 +142,11 @@ export default function VoiceScriptingAssistant() {
     }
   };
 
-  const processQuery = (inputQuery: string) => {
-    const result = resolveIntent(inputQuery, userRole);
+  const processQuery = async (inputQuery: string) => {
+    setIsProcessing(true);
+    const result = await resolveIntentAsync(inputQuery, userRole);
     setLastResult(result);
+    setIsProcessing(false);
 
     // Cache last successful query in localStorage for offline availability
     try {
@@ -139,15 +162,15 @@ export default function VoiceScriptingAssistant() {
     // Speak response using Web Speech synthesis
     if (result.speechSummary) {
       speakText(result.speechSummary, () => {
-        // Redirection on speech end
-        if (result.matched && result.redirectUrl) {
+        // Automatically redirect on speech end if not an detailed employee card view
+        if (result.matched && result.redirectUrl && result.intent !== "employee_data") {
           router.push(result.redirectUrl);
           setIsOpen(false);
         }
       });
     }
 
-    if (result.matched && result.redirectUrl && !result.speechSummary) {
+    if (result.matched && result.redirectUrl && !result.speechSummary && result.intent !== "employee_data") {
       router.push(result.redirectUrl);
       setIsOpen(false);
     }
@@ -166,14 +189,14 @@ export default function VoiceScriptingAssistant() {
 
   return (
     <>
-      {/* Floating Trigger Badge */}
+      {/* Floating Trigger Badge - Responsive for mobile & desktop */}
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className={`fixed bottom-5 right-5 z-50 flex items-center gap-2 px-3.5 py-2.5 rounded-full text-white font-extrabold shadow-xl hover:scale-105 transition-all cursor-pointer border-2 border-white/20 ${
+        className={`fixed bottom-4 right-4 sm:bottom-5 sm:right-5 z-50 flex items-center gap-2 px-3.5 py-2.5 rounded-full text-white font-extrabold shadow-2xl hover:scale-105 transition-all cursor-pointer border-2 border-white/20 ${
           isListening 
             ? "bg-gradient-to-r from-rose-600 to-red-600 animate-pulse ring-4 ring-rose-300/50" 
-            : "bg-gradient-to-r from-indigo-600 to-purple-600 hover:shadow-indigo-500/25"
+            : "bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-700 hover:shadow-indigo-500/30"
         }`}
         title="Open Executive AI Voice Assistant (Ctrl+K)"
       >
@@ -185,23 +208,27 @@ export default function VoiceScriptingAssistant() {
         <span className="text-xs tracking-wide">
           {isListening ? "Listening..." : "AI Assistant"}
         </span>
-        <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded font-mono">Ctrl+K</span>
+        <span className="hidden sm:inline-block text-[10px] bg-white/20 px-1.5 py-0.5 rounded font-mono">Ctrl+K</span>
       </button>
 
-      {/* Floating Assistant Drawer */}
+      {/* Floating Assistant Drawer - Fully Responsive Bottom Sheet on Mobile */}
       {isOpen && (
-        <div className="fixed bottom-20 right-5 z-50 w-80 sm:w-96 rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-5">
+        <div className="fixed inset-x-0 bottom-0 sm:inset-auto sm:bottom-20 sm:right-5 z-50 w-full sm:w-[420px] rounded-t-3xl sm:rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-5 max-h-[88vh] sm:max-h-[640px] flex flex-col">
+          
+          {/* Mobile Handle Bar */}
+          <div className="w-12 h-1 bg-slate-300 rounded-full mx-auto my-1.5 sm:hidden shrink-0" />
+
           {/* Header */}
-          <div className="bg-gradient-to-r from-indigo-950 via-slate-900 to-purple-950 p-4 text-white flex items-center justify-between">
+          <div className="bg-gradient-to-r from-indigo-950 via-slate-900 to-purple-950 p-3.5 sm:p-4 text-white flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2.5">
               <div className="h-8 w-8 rounded-full bg-indigo-500/30 flex items-center justify-center border border-indigo-400/40">
                 <Sparkles className="h-4 w-4 text-amber-300" />
               </div>
               <div>
-                <h3 className="font-extrabold text-sm flex items-center gap-1.5">
+                <h3 className="font-extrabold text-xs sm:text-sm flex items-center gap-1.5">
                   Executive Voice Assistant
                 </h3>
-                <p className="text-[10px] text-indigo-200 font-medium">100% Free • All Pages & Data Actions</p>
+                <p className="text-[10px] text-indigo-200 font-medium">100% Free • Verbal Briefings & Data</p>
               </div>
             </div>
             <div className="flex items-center gap-1">
@@ -227,20 +254,28 @@ export default function VoiceScriptingAssistant() {
 
           {/* ACTIVE LISTENING BANNER */}
           {isListening && (
-            <div className="bg-rose-600 text-white px-3 py-2 text-xs font-bold flex items-center justify-between animate-pulse">
+            <div className="bg-rose-600 text-white px-3 py-2 text-xs font-bold flex items-center justify-between animate-pulse shrink-0">
               <div className="flex items-center gap-2">
                 <Mic className="h-4 w-4 text-amber-200 animate-ping" />
                 <span>Listening live... speak now!</span>
               </div>
-              <span className="text-[10px] bg-rose-800 px-1.5 py-0.5 rounded font-mono">
-                {interimText ? "Detecting speech..." : "Speak command..."}
+              <span className="text-[10px] bg-rose-800 px-1.5 py-0.5 rounded font-mono truncate max-w-[120px]">
+                {interimText || "Speak command..."}
               </span>
+            </div>
+          )}
+
+          {/* PROCESSING BANNER */}
+          {isProcessing && (
+            <div className="bg-indigo-600 text-white px-3 py-1.5 text-xs font-bold flex items-center gap-2 shrink-0 animate-pulse">
+              <Sparkles className="h-3.5 w-3.5 text-amber-300 animate-spin" />
+              <span>Fetching live system data...</span>
             </div>
           )}
 
           {/* MIC ERROR BANNER */}
           {micError && (
-            <div className="bg-amber-500 text-slate-950 px-3 py-2 text-xs font-bold flex items-center gap-1.5">
+            <div className="bg-amber-500 text-slate-950 px-3 py-2 text-xs font-bold flex items-center gap-1.5 shrink-0">
               <AlertCircle className="h-4 w-4 shrink-0" />
               <span>{micError}</span>
             </div>
@@ -248,26 +283,25 @@ export default function VoiceScriptingAssistant() {
 
           {/* VOICE COMMAND SHORTCUTS LEGEND CHEAT SHEET */}
           {showLegend ? (
-            <div className="p-3 bg-slate-900 text-white space-y-2.5 text-xs max-h-[280px] overflow-y-auto">
+            <div className="p-3 bg-slate-900 text-white space-y-2.5 text-xs flex-1 overflow-y-auto max-h-[320px]">
               <div className="text-[11px] font-bold text-amber-300 flex items-center gap-1">
-                <Sparkles className="h-3.5 w-3.5" /> All System Pages Voice Commands (Click to Run):
+                <Sparkles className="h-3.5 w-3.5" /> All Voice Commands (Click to Run):
               </div>
               <div className="space-y-2 text-[11px]">
                 <div>
-                  <div className="font-bold text-indigo-300 mb-1">🧪 Testing & QA Queue:</div>
+                  <div className="font-bold text-indigo-300 mb-1">🗣️ Executive Data Briefing:</div>
                   <div className="flex flex-wrap gap-1">
-                    <button onClick={() => handleShortcutClick("show testing queue")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"show testing queue"</button>
-                    <button onClick={() => handleShortcutClick("show QA for car and bike")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"show QA for car and bike"</button>
-                    <button onClick={() => handleShortcutClick("bug reports")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"bug reports"</button>
+                    <button onClick={() => handleShortcutClick("tell me data of Alex")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"tell me data of Alex"</button>
+                    <button onClick={() => handleShortcutClick("tell me about employee Sarah")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"data of Sarah"</button>
+                    <button onClick={() => handleShortcutClick("salary of John")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"salary of John"</button>
                   </div>
                 </div>
 
                 <div>
-                  <div className="font-bold text-indigo-300 mb-1">👥 Employees & Staff:</div>
+                  <div className="font-bold text-indigo-300 mb-1">🧪 Testing & QA Queue:</div>
                   <div className="flex flex-wrap gap-1">
-                    <button onClick={() => handleShortcutClick("show employee list")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"show employee list"</button>
-                    <button onClick={() => handleShortcutClick("find developer team")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"find developer team"</button>
-                    <button onClick={() => handleShortcutClick("who works here")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"who works here"</button>
+                    <button onClick={() => handleShortcutClick("show testing queue")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"show testing queue"</button>
+                    <button onClick={() => handleShortcutClick("show QA for car and bike")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"QA for car and bike"</button>
                   </div>
                 </div>
 
@@ -275,85 +309,167 @@ export default function VoiceScriptingAssistant() {
                   <div className="font-bold text-indigo-300 mb-1">🔑 Credentials & API Keys:</div>
                   <div className="flex flex-wrap gap-1">
                     <button onClick={() => handleShortcutClick("open 3rd party credentials")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"3rd party credentials"</button>
-                    <button onClick={() => handleShortcutClick("credentials for cloudinary")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"Cloudinary credentials"</button>
-                    <button onClick={() => handleShortcutClick("project passwords")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"project passwords"</button>
+                    <button onClick={() => handleShortcutClick("credentials for Cloudinary")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"Cloudinary keys"</button>
                   </div>
                 </div>
 
                 <div>
-                  <div className="font-bold text-indigo-300 mb-1">📊 Analytics & Productivity:</div>
+                  <div className="font-bold text-indigo-300 mb-1">📊 Analytics & Attendance:</div>
                   <div className="flex flex-wrap gap-1">
                     <button onClick={() => handleShortcutClick("show analytics")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"show analytics"</button>
-                    <button onClick={() => handleShortcutClick("developer productivity")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"developer productivity"</button>
-                    <button onClick={() => handleShortcutClick("executive summary")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"executive overview"</button>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="font-bold text-indigo-300 mb-1">⏰ Attendance & Warnings:</div>
-                  <div className="flex flex-wrap gap-1">
                     <button onClick={() => handleShortcutClick("who is present today")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"who is present today"</button>
-                    <button onClick={() => handleShortcutClick("show shift warnings")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"show shift warnings"</button>
-                    <button onClick={() => handleShortcutClick("who was late")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"who was late"</button>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="font-bold text-indigo-300 mb-1">📁 Projects, Tasks & Docs:</div>
-                  <div className="flex flex-wrap gap-1">
-                    <button onClick={() => handleShortcutClick("show active projects")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"show active projects"</button>
-                    <button onClick={() => handleShortcutClick("show daily tasks")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"show daily tasks"</button>
-                    <button onClick={() => handleShortcutClick("salary payouts")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"salary payouts"</button>
-                    <button onClick={() => handleShortcutClick("document vault")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"document vault"</button>
-                    <button onClick={() => handleShortcutClick("company policies")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"company policies"</button>
-                    <button onClick={() => handleShortcutClick("cron logs")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"cron logs"</button>
+                    <button onClick={() => handleShortcutClick("show shift warnings")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"shift warnings"</button>
                   </div>
                 </div>
               </div>
             </div>
           ) : (
             /* Response Output Panel */
-            <div className="p-4 space-y-3 bg-slate-50/70 min-h-[140px] max-h-[220px] overflow-y-auto">
+            <div className="p-3.5 sm:p-4 space-y-3 bg-slate-50/70 flex-1 overflow-y-auto max-h-[360px] sm:max-h-[320px]">
               {lastResult ? (
-                <div className="space-y-2 text-xs">
-                  <div className="p-2.5 rounded-xl bg-white border border-indigo-100 shadow-xs space-y-1">
-                    <div className="flex items-center gap-1.5 text-indigo-700 font-bold text-[11px]">
-                      <Volume2 className="h-3.5 w-3.5 text-purple-600" />
-                      <span>Executive Response:</span>
+                <div className="space-y-3 text-xs">
+                  
+                  {/* VERBAL SPEECH SUMMARY DISPLAY */}
+                  <div className="p-3 rounded-xl bg-white border border-indigo-100 shadow-sm space-y-1.5">
+                    <div className="flex items-center gap-1.5 text-indigo-700 font-extrabold text-[11px]">
+                      <Volume2 className="h-3.5 w-3.5 text-purple-600 animate-pulse" />
+                      <span>Executive Briefing Speech:</span>
                     </div>
                     <p className="text-slate-800 font-medium leading-relaxed">
-                      {lastResult.displayText}
+                      {lastResult.speechSummary || lastResult.displayText}
                     </p>
                   </div>
 
-                  {lastResult.redirectUrl && (
-                    <div className="flex items-center gap-1.5 text-[11px] text-emerald-700 font-bold bg-emerald-50 p-2 rounded-lg border border-emerald-200">
-                      <Navigation className="h-3.5 w-3.5" />
-                      Target: {lastResult.redirectUrl}
+                  {/* STRUCTURED VIP EMPLOYEE DATA CARD */}
+                  {lastResult.employeeData && (
+                    <div className="p-3.5 rounded-xl bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-950 text-white shadow-md border border-indigo-500/30 space-y-3 animate-in fade-in zoom-in-95">
+                      {/* Card Header */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2.5">
+                          <div className="h-9 w-9 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center font-black text-sm text-white shadow-inner border border-white/20">
+                            {lastResult.employeeData.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="font-extrabold text-sm text-white flex items-center gap-1.5">
+                              {lastResult.employeeData.name}
+                            </div>
+                            <div className="text-[10px] text-indigo-200 flex items-center gap-1 font-mono">
+                              <Mail className="h-3 w-3 text-indigo-300 shrink-0" />
+                              <span className="truncate max-w-[160px]">{lastResult.employeeData.email}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <Badge className={`text-[9px] font-extrabold px-2 py-0.5 ${
+                          lastResult.employeeData.role === "Admin" ? "bg-purple-500 text-white" :
+                          lastResult.employeeData.role === "CEO" ? "bg-amber-500 text-slate-950" :
+                          lastResult.employeeData.role === "PM" ? "bg-indigo-500 text-white" :
+                          lastResult.employeeData.role === "QA" || lastResult.employeeData.role === "Tester" ? "bg-emerald-500 text-white" :
+                          "bg-sky-500 text-white"
+                        }`}>
+                          {lastResult.employeeData.role}
+                        </Badge>
+                      </div>
+
+                      {/* Card Metrics Grid */}
+                      <div className="grid grid-cols-2 gap-2 text-[11px]">
+                        <div className="bg-white/10 p-2 rounded-lg border border-white/10 space-y-0.5">
+                          <div className="text-[10px] text-indigo-200 flex items-center gap-1">
+                            <CreditCard className="h-3 w-3 text-emerald-400" /> Monthly Salary
+                          </div>
+                          <div className="font-bold text-emerald-300">
+                            {lastResult.employeeData.monthly_salary 
+                              ? `₹${Number(lastResult.employeeData.monthly_salary).toLocaleString("en-IN")}`
+                              : "N/A"}
+                          </div>
+                        </div>
+
+                        <div className="bg-white/10 p-2 rounded-lg border border-white/10 space-y-0.5">
+                          <div className="text-[10px] text-indigo-200 flex items-center gap-1">
+                            <CheckCircle2 className="h-3 w-3 text-amber-400" /> Tasks / Efficiency
+                          </div>
+                          <div className="font-bold text-amber-300">
+                            {lastResult.employeeData.completedTasks || 0}/{lastResult.employeeData.totalTasks || 0} ({lastResult.employeeData.efficiency || 0}%)
+                          </div>
+                        </div>
+
+                        <div className="bg-white/10 p-2 rounded-lg border border-white/10 space-y-0.5">
+                          <div className="text-[10px] text-indigo-200 flex items-center gap-1">
+                            <Calendar className="h-3 w-3 text-sky-400" /> Leaves Allowed
+                          </div>
+                          <div className="font-bold text-sky-300">
+                            {lastResult.employeeData.total_leaves_allowed || 2} days / mo
+                          </div>
+                        </div>
+
+                        <div className="bg-white/10 p-2 rounded-lg border border-white/10 space-y-0.5">
+                          <div className="text-[10px] text-indigo-200 flex items-center gap-1">
+                            <Phone className="h-3 w-3 text-purple-400" /> Phone
+                          </div>
+                          <div className="font-bold text-purple-200 truncate">
+                            {lastResult.employeeData.phone || "N/A"}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Direct Page Action Button */}
+                      {lastResult.redirectUrl && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            router.push(lastResult.redirectUrl);
+                            setIsOpen(false);
+                          }}
+                          className="w-full mt-1 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-extrabold py-2 px-3 rounded-lg text-xs flex items-center justify-center gap-1.5 transition-all shadow-md cursor-pointer"
+                        >
+                          <span>Open Employee Profile Record</span>
+                          <ChevronRight className="h-4 w-4" />
+                        </button>
+                      )}
                     </div>
+                  )}
+
+                  {/* NAV TARGET LINK BUTTON (If no employee card) */}
+                  {lastResult.redirectUrl && !lastResult.employeeData && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        router.push(lastResult.redirectUrl);
+                        setIsOpen(false);
+                      }}
+                      className="w-full flex items-center justify-between text-xs text-emerald-700 font-bold bg-emerald-50 hover:bg-emerald-100 p-2.5 rounded-lg border border-emerald-200 transition-colors cursor-pointer"
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <Navigation className="h-3.5 w-3.5 text-emerald-600" />
+                        Go to: {lastResult.redirectUrl}
+                      </span>
+                      <ExternalLink className="h-3.5 w-3.5 text-emerald-600" />
+                    </button>
                   )}
                 </div>
               ) : (
-                <div className="text-center py-6 text-slate-500 text-xs space-y-2">
-                  <Bot className="h-8 w-8 text-indigo-400 mx-auto opacity-70" />
-                  <p className="font-bold text-slate-700">Ask or speak any command:</p>
-                  <div className="flex flex-wrap gap-1 justify-center text-[10px] text-indigo-600">
-                    <button onClick={() => handleShortcutClick("show testing queue")} className="bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 px-2 py-0.5 rounded">"Testing Queue"</button>
-                    <button onClick={() => handleShortcutClick("3rd party credentials")} className="bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 px-2 py-0.5 rounded">"3rd Party Creds"</button>
-                    <button onClick={() => handleShortcutClick("employees")} className="bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 px-2 py-0.5 rounded">"Employees"</button>
-                    <button onClick={() => handleShortcutClick("attendance")} className="bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 px-2 py-0.5 rounded">"Attendance"</button>
+                <div className="text-center py-6 text-slate-500 text-xs space-y-2.5">
+                  <Bot className="h-9 w-9 text-indigo-500 mx-auto opacity-80" />
+                  <div>
+                    <p className="font-bold text-slate-800 text-xs">Speak or ask about any employee or data:</p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">"tell me data of Alex", "salary of John", "testing queue"</p>
+                  </div>
+                  <div className="flex flex-wrap gap-1 justify-center text-[10px]">
+                    <button onClick={() => handleShortcutClick("tell me data of Alex")} className="bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 px-2 py-1 rounded font-medium">"data of Alex"</button>
+                    <button onClick={() => handleShortcutClick("show testing queue")} className="bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 px-2 py-1 rounded font-medium">"Testing Queue"</button>
+                    <button onClick={() => handleShortcutClick("who is present today")} className="bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 px-2 py-1 rounded font-medium">"Who is present"</button>
                   </div>
                 </div>
               )}
             </div>
           )}
 
-          {/* Input & Voice Controls */}
-          <form onSubmit={handleSubmit} className="p-3 bg-white border-t border-slate-100 flex items-center gap-2">
+          {/* Input & Voice Controls Footer */}
+          <form onSubmit={handleSubmit} className="p-3 bg-white border-t border-slate-100 flex items-center gap-2 shrink-0">
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={isListening ? (interimText || "Listening to speech...") : "Type or speak command..."}
+              placeholder={isListening ? (interimText || "Listening to your voice...") : "Ask 'tell me data of Alex'..."}
               className={`text-xs flex-1 h-9 rounded-xl focus-visible:ring-indigo-500 ${
                 isListening ? "bg-rose-50 border-rose-300 text-rose-900 font-medium animate-pulse" : ""
               }`}
@@ -379,6 +495,7 @@ export default function VoiceScriptingAssistant() {
             <Button
               type="submit"
               size="icon"
+              disabled={isProcessing}
               className="h-9 w-9 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shrink-0"
               title="Submit command"
             >
@@ -390,4 +507,5 @@ export default function VoiceScriptingAssistant() {
     </>
   );
 }
+
 
