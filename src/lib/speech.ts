@@ -1,5 +1,5 @@
 // Browser Text-to-Speech (window.speechSynthesis)
-export function speakText(text: string, onEnd?: () => void) {
+export function speakText(text: string, rate: number = 1.0, onEnd?: () => void) {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) {
     if (onEnd) onEnd();
     return;
@@ -8,7 +8,7 @@ export function speakText(text: string, onEnd?: () => void) {
   try {
     window.speechSynthesis.cancel(); // Stop any active audio
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1.0;
+    utterance.rate = Math.max(0.5, Math.min(2.0, rate));
     utterance.pitch = 1.0;
     utterance.volume = 1.0;
 

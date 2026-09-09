@@ -78,7 +78,7 @@ async function runHumanVoiceTestSuite() {
     { category: "Comparison", phrase: "compare chaitanya with sarah", expected: "employee_comparison" },
     { category: "Comparison", phrase: "who has done more tasks alex or kartik", expected: "employee_comparison" },
 
-    // 2. SINGLE EMPLOYEE DATA HUMAN SPEECH
+    // 2. SINGLE EMPLOYEE DATA HUMAN SPEECH & STT LEVENSHTEIN PHONETIC NOISE
     { category: "Employee Data", phrase: "hey can you tell me the details for alex", expected: "employee_data" },
     { category: "Employee Data", phrase: "what is the monthly salary of kartik", expected: "employee_data" },
     { category: "Employee Data", phrase: "show me sarah's profile", expected: "employee_data" },
@@ -87,6 +87,12 @@ async function runHumanVoiceTestSuite() {
     { category: "Employee Data", phrase: "how is alex performing", expected: "employee_data" },
     { category: "Employee Data", phrase: "can you give me sarah's salary", expected: "employee_data" },
     { category: "Employee Data", phrase: "what is the role of chaitanya", expected: "employee_data" },
+
+    // STT Phonetic Levenshtein Noise Cases
+    { category: "Phonetic Levenshtein STT", phrase: "compare carthick and chaitania", expected: "employee_comparison" },
+    { category: "Phonetic Levenshtein STT", phrase: "tell me data of carthick", expected: "employee_data" },
+    { category: "Phonetic Levenshtein STT", phrase: "show me sara's profile", expected: "employee_data" },
+    { category: "Phonetic Levenshtein STT", phrase: "details for aleks", expected: "employee_data" },
 
     // 3. TESTING & QA QUEUE HUMAN SPEECH
     { category: "Testing Queue", phrase: "show me the testing queue", expected: "testing_queue" },

@@ -31,6 +31,88 @@ export interface IntentResult {
   comparativeData?: ComparativeData;
 }
 
+export function levenshteinDistance(str1: string, str2: string): number {
+  const m = str1.length;
+  const n = str2.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (str1[i - 1] === str2[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1];
+      } else {
+        dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+      }
+    }
+  }
+
+  return dp[m][n];
+}
+
+export function normalizePhonetic(str: string): string {
+  return str
+    .toLowerCase()
+    .replace(/ck|c|q/g, "k")
+    .replace(/ph/g, "f")
+    .replace(/th/g, "t")
+    .replace(/ee|ea|i|y/g, "i")
+    .replace(/oo|ou/g, "u")
+    .replace(/v/g, "w")
+    .replace(/ia|ya/g, "a")
+    .replace(/ks|x/g, "x");
+}
+
+export function matchEmployeeFuzzy(targetToken: string, emp: any): boolean {
+  if (!targetToken || targetToken.length < 2) return false;
+  const t = targetToken.toLowerCase().trim();
+  const empName = (emp.name || "").toLowerCase().trim();
+  const empEmail = (emp.email || "").toLowerCase().trim();
+  const empRole = (emp.role || "").toLowerCase().trim();
+
+  // Ignore matching short roles like 'pm', 'qa', 'dev' if t is a generic system query token
+  const isGenericToken = ["project", "projects", "list", "task", "tasks", "policy", "policies", "leave", "rules", "analytics", "kpi", "show", "open"].includes(t);
+  if (isGenericToken) return false;
+
+  // 1. Direct exact or substring match on Name or Email
+  if (empName.includes(t) || empEmail.includes(t) || (t.length >= 3 && empRole === t)) {
+    return true;
+  }
+
+  // 2. Phonetic normalized comparison (e.g. "carthick" -> "kartik", "chaitania" -> "chaitanya", "sara" -> "sarah")
+  const tPhonetic = normalizePhonetic(t);
+  const nameParts = empName.split(/\s+/);
+
+  for (const part of nameParts) {
+    const partPhonetic = normalizePhonetic(part);
+    if (partPhonetic.includes(tPhonetic) || tPhonetic.includes(partPhonetic)) {
+      return true;
+    }
+    const maxDist = Math.max(2, Math.floor(partPhonetic.length * 0.35));
+    if (Math.abs(partPhonetic.length - tPhonetic.length) <= maxDist) {
+      if (levenshteinDistance(tPhonetic, partPhonetic) <= maxDist) {
+        return true;
+      }
+    }
+  }
+
+  // Also check full name
+  const fullNamePhonetic = normalizePhonetic(empName);
+  if (fullNamePhonetic.includes(tPhonetic) || tPhonetic.includes(fullNamePhonetic)) {
+    return true;
+  }
+  const fullNameMaxDist = Math.max(2, Math.floor(fullNamePhonetic.length * 0.35));
+  if (Math.abs(fullNamePhonetic.length - tPhonetic.length) <= fullNameMaxDist) {
+    if (levenshteinDistance(tPhonetic, fullNamePhonetic) <= fullNameMaxDist) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function normalizeEmployeeData(emp: any): EmployeeData {
   const completed = Number(emp.completed_tasks ?? emp.completedTasks ?? 0);
   const total = Number(emp.total_tasks ?? emp.totalTasks ?? 0);
@@ -64,7 +146,7 @@ const cleanPunctuationAndNoise = (str: string) => {
 function stripConversationalFillers(str: string): string {
   return str
     .replace(/hey can you please|hey can you|could you please|could you|can you please|can you tell me|can you|please show me|please tell me|please check|please|i want to see|i want to know|i would like to see|tell me the|tell me|show me|check|what is the|what is|who is|how is|is doing|comparison please|comparison|right now|today|monthly|current|in the office|for me|the details for|details for|the data for|data for|the info for|info for|the report for|report for|salary of|salary for|profile of|profile for|data of|details of|info of|report of|details|data|info|stats|report|productivity|performance/gi, "")
-    .replace(/['’]s\s*(?:profile|details|data|salary|tasks|info|stats|performance)?/gi, "")
+    .replace(/(?:['’]s|\s+s)\s*(?:profile|details|data|salary|tasks|info|stats|performance)?/gi, "")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -143,17 +225,8 @@ export async function resolveIntentAsync(query: string, role: string): Promise<I
             const data = await res.json();
             const employeesList = Array.isArray(data) ? data : (data.employees || []);
 
-            const emp1Raw = employeesList.find((e: any) => 
-              e.name?.toLowerCase().includes(targetName1) ||
-              e.email?.toLowerCase().includes(targetName1) ||
-              e.role?.toLowerCase() === targetName1
-            );
-
-            const emp2Raw = employeesList.find((e: any) => 
-              e.name?.toLowerCase().includes(targetName2) ||
-              e.email?.toLowerCase().includes(targetName2) ||
-              e.role?.toLowerCase() === targetName2
-            );
+            const emp1Raw = employeesList.find((e: any) => matchEmployeeFuzzy(targetName1, e));
+            const emp2Raw = employeesList.find((e: any) => matchEmployeeFuzzy(targetName2, e));
 
             if (emp1Raw && emp2Raw) {
               const mappedEmp1 = normalizeEmployeeData(emp1Raw);
@@ -248,12 +321,15 @@ export async function resolveIntentAsync(query: string, role: string): Promise<I
     q.includes("how is") ||
     q.includes("is doing") ||
     q.includes("'s profile") ||
+    q.includes("s profile") ||
     q.includes("'s details") ||
+    q.includes("s details") ||
     q.includes("'s data") ||
-    q.includes("'s salary");
+    q.includes("s data") ||
+    q.includes("'s salary") ||
+    q.includes("s salary");
 
-  if ((isEmployeeDataQuery || typeof window !== "undefined") && typeof window !== "undefined") {
-    // Try fetching employees to match by name token or by presence of employee name in query
+  if (typeof window !== "undefined") {
     try {
       const res = await fetch("/api/employees");
       if (res.ok) {
@@ -262,18 +338,30 @@ export async function resolveIntentAsync(query: string, role: string): Promise<I
 
         let targetName = cleanNameToken(q);
 
-        // Find match by name or email or role
-        let empRaw = employeesList.find((e: any) => {
-          const empFirstName = (e.name || "").split(" ")[0].toLowerCase();
-          const empFullName = (e.name || "").toLowerCase();
-          return (
-            (targetName.length >= 2 && (empFullName.includes(targetName) || e.email?.toLowerCase().includes(targetName) || e.role?.toLowerCase() === targetName)) ||
-            (empFirstName.length >= 2 && q.includes(empFirstName)) ||
-            (empFullName.length >= 3 && q.includes(empFullName))
-          );
-        });
+        // Find match using matchEmployeeFuzzy
+        let empRaw = employeesList.find((e: any) => matchEmployeeFuzzy(targetName, e));
 
-        if (empRaw) {
+        if (!empRaw && targetName.length >= 2) {
+          empRaw = employeesList.find((e: any) => {
+            const empFirstName = (e.name || "").split(" ")[0].toLowerCase();
+            const empFullName = (e.name || "").toLowerCase();
+            return (
+              empFirstName.length >= 2 && (q.includes(empFirstName) || levenshteinDistance(targetName, empFirstName) <= 2)
+            );
+          });
+        }
+
+        const systemCommandWords = [
+          "project", "projects", "list", "task", "tasks", "policy", "policies", "leave", "rules", "rule", 
+          "analytics", "kpi", "show", "open", "where", "log", "logs", "cron", "email", "mail", "vault", 
+          "document", "documents", "password", "passwords", "setting", "settings", "profile", "account", 
+          "payroll", "payouts", "check in", "check out", "attendance", "tardiness", "warning", "warnings", 
+          "qa", "testing", "bug", "bugs", "home", "dashboard"
+        ];
+        const isSystemCommandQuery = systemCommandWords.some(w => q.includes(w));
+
+        // Only return employee_data if we found a matching employee AND (isEmployeeDataQuery is true OR query is not a system route command)
+        if (empRaw && (isEmployeeDataQuery || !isSystemCommandQuery)) {
           const empData = normalizeEmployeeData(empRaw);
           const salaryFormatted = empData.monthly_salary ? `₹${empData.monthly_salary.toLocaleString("en-IN")}` : "Not Disclosed";
           const tasksInfo = (empData.totalTasks || 0) > 0
@@ -622,12 +710,15 @@ export function resolveIntent(query: string, role: string): IntentResult {
 
   // 15. Profile & Tenure
   if (
-    q.includes("profile") || 
+    q.includes("my profile") || 
+    q.includes("account profile") || 
+    q.includes("user profile") || 
     q.includes("tenure") || 
     q.includes("my account") ||
-    q.includes("my profile") ||
-    q.includes("settings") ||
-    q.includes("account settings")
+    q.includes("my settings") ||
+    q.includes("account settings") ||
+    q === "profile" ||
+    q === "my profile"
   ) {
     return {
       matched: true,
