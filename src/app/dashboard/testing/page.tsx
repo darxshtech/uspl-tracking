@@ -31,10 +31,13 @@ import {
 } from "lucide-react";
 
 import { useSession } from "next-auth/react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 
 export default function TestingQueuePage() {
   const { data: session } = useSession();
+  const searchParams = useSearchParams();
+  const highlightParam = searchParams.get("highlight")?.toLowerCase() || "";
   const role = (session?.user as any)?.role;
   const isAuthorized = ["Tester", "Admin", "CEO", "PM"].includes(role);
   const isManagement = ["Admin", "CEO", "PM"].includes(role);
@@ -589,8 +592,23 @@ export default function TestingQueuePage() {
                     ? task.task_links
                     : task.task_link ? [task.task_link] : [];
 
+                  const isHighlighted = Boolean(
+                    highlightParam && (
+                      task.title?.toLowerCase().includes(highlightParam) ||
+                      task.project_name?.toLowerCase().includes(highlightParam) ||
+                      task.developer_name?.toLowerCase().includes(highlightParam)
+                    )
+                  );
+
                   return (
-                    <TableRow key={task.id} className="hover:bg-slate-50/80 transition-colors">
+                    <TableRow
+                      key={task.id}
+                      className={`transition-all duration-500 ${
+                        isHighlighted
+                          ? "bg-indigo-50/90 ring-2 ring-indigo-500 ring-offset-1 animate-pulse font-semibold shadow-md"
+                          : "hover:bg-slate-50/80"
+                      }`}
+                    >
                       <TableCell className="align-top max-w-xs sm:max-w-sm md:max-w-md break-words whitespace-normal">
                         <div className="font-bold text-slate-900 text-sm whitespace-pre-wrap break-words leading-snug">{task.title}</div>
                         {task.description && (

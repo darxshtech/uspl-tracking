@@ -4,6 +4,7 @@ export interface IntentResult {
   redirectUrl: string;
   speechSummary: string;
   displayText: string;
+  highlightKey?: string;
 }
 
 export function resolveIntent(query: string, role: string): IntentResult {
@@ -18,6 +19,15 @@ export function resolveIntent(query: string, role: string): IntentResult {
     };
   }
 
+  // Helper to extract specific target search terms (e.g., "credentials for cloudinary" -> "cloudinary")
+  const extractSearchTerm = (text: string, triggers: string[]) => {
+    let cleaned = text;
+    triggers.forEach((trig) => {
+      cleaned = cleaned.replace(trig, "");
+    });
+    return cleaned.replace(/for|for project|project|key|keys|task|tasks|show|open/g, "").trim();
+  };
+
   // 1. Testing Queue & QA Status
   if (
     q.includes("testing") || 
@@ -26,12 +36,19 @@ export function resolveIntent(query: string, role: string): IntentResult {
     q.includes("test sheet") || 
     q.includes("ready for testing")
   ) {
+    const term = extractSearchTerm(q, ["testing queue", "qa queue", "testing", "qa", "ready for testing"]);
+    const highlightQuery = term ? `?highlight=${encodeURIComponent(term)}` : "";
     return {
       matched: true,
       intent: "testing_queue",
-      redirectUrl: "/dashboard/testing",
-      speechSummary: "Opening QA Verification and Testing Queue.",
-      displayText: "Redirecting to QA Verification & Testing Queue..."
+      redirectUrl: `/dashboard/testing${highlightQuery}`,
+      speechSummary: term 
+        ? `Opening QA Verification for ${term}.`
+        : "Opening QA Verification and Testing Queue.",
+      displayText: term 
+        ? `Redirecting to QA Queue (Highlighting "${term}")...`
+        : "Redirecting to QA Verification & Testing Queue...",
+      highlightKey: term
     };
   }
 
@@ -44,12 +61,19 @@ export function resolveIntent(query: string, role: string): IntentResult {
     q.includes("whatsapp") || 
     q.includes("secret")
   ) {
+    const term = extractSearchTerm(q, ["credential", "credentials", "password", "api key", "secret"]);
+    const highlightQuery = term ? `?highlight=${encodeURIComponent(term)}` : "";
     return {
       matched: true,
       intent: "credentials",
-      redirectUrl: "/dashboard/credentials",
-      speechSummary: "Navigating to 3rd-Party Credentials vault.",
-      displayText: "Redirecting to 3rd-Party Credentials Vault..."
+      redirectUrl: `/dashboard/credentials${highlightQuery}`,
+      speechSummary: term 
+        ? `Opening 3rd-Party Credentials vault for ${term}.`
+        : "Navigating to 3rd-Party Credentials vault.",
+      displayText: term 
+        ? `Redirecting to Credentials (Highlighting "${term}")...`
+        : "Redirecting to 3rd-Party Credentials Vault...",
+      highlightKey: term
     };
   }
 
@@ -59,12 +83,15 @@ export function resolveIntent(query: string, role: string): IntentResult {
     q.includes("active project") || 
     q.includes("client project")
   ) {
+    const term = extractSearchTerm(q, ["active project", "client project", "project", "projects"]);
+    const highlightQuery = term ? `?highlight=${encodeURIComponent(term)}` : "";
     return {
       matched: true,
       intent: "projects",
-      redirectUrl: "/dashboard/projects",
-      speechSummary: "Opening Projects overview board.",
-      displayText: "Redirecting to Projects..."
+      redirectUrl: `/dashboard/projects${highlightQuery}`,
+      speechSummary: term ? `Opening Project ${term}.` : "Opening Projects overview board.",
+      displayText: term ? `Redirecting to Projects (Highlighting "${term}")...` : "Redirecting to Projects...",
+      highlightKey: term
     };
   }
 
@@ -173,6 +200,6 @@ export function resolveIntent(query: string, role: string): IntentResult {
     intent: "unknown",
     redirectUrl: "",
     speechSummary: "I didn't recognize that command. Try asking about testing queue, credentials, projects, attendance, or daily tasks.",
-    displayText: "Unrecognized query. Try: \"show testing queue\", \"open credentials\", \"show attendance\""
+    displayText: "Unrecognized query. Try: \"show testing queue\", \"open credentials for Cloudinary\", \"show attendance\""
   };
 }
