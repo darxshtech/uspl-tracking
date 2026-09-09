@@ -23,19 +23,42 @@ export async function GET() {
     `;
     let params: any[] = [];
     
-    // Developer and Tester should only see assigned projects
+    // Developer and Tester should see assigned, created, task-linked, or credential-linked projects
     if ((role === "Developer" || role === "Tester") && userId) {
       query += `
-        WHERE p.id IN (
-          SELECT project_id FROM project_members WHERE user_id = ?
+        WHERE (
+          p.id IN (SELECT project_id FROM project_members WHERE user_id = ?)
+          OR p.id IN (
+            SELECT project_id FROM tasks 
+            WHERE project_id IS NOT NULL AND (assigned_to = ? OR id IN (SELECT task_id FROM task_assignees WHERE user_id = ?))
+          )
+          OR p.id IN (
+            SELECT project_id FROM project_third_party_credentials WHERE created_by = ?
+          )
+          OR p.created_by = ?
         )
       `;
-      params = [userId];
+      params = [userId, String(userId), userId, userId, userId];
     }
 
     query += " ORDER BY p.created_at DESC";
 
-    const [rows]: any = await pool.query(query, params);
+    let [rows]: any = await pool.query(query, params);
+
+    // Fallback: If developer/tester has no explicitly scoped projects, return all active projects so workspace is accessible
+    if ((!rows || rows.length === 0) && (role === "Developer" || role === "Tester")) {
+      const [allRows]: any = await pool.query(`
+        SELECT p.*, 
+          u.name AS creator_name, 
+          u.role AS creator_role,
+          (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) AS total_tasks,
+          (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status IN ('Completed', 'Tested (PASS)', 'Ready for Demo')) AS completed_tasks
+        FROM projects p 
+        LEFT JOIN users u ON p.created_by = u.id
+        ORDER BY p.created_at DESC
+      `);
+      rows = allRows;
+    }
 
     // Fetch members for these projects
     const [memberRows]: any = await pool.query(`

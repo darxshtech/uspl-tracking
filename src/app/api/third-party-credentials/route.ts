@@ -56,7 +56,7 @@ export async function GET(req: Request) {
     const params: any[] = [];
     const conditions: string[] = [];
 
-    // STRICT SECURITY: Developers & Testers only see credentials for projects they are assigned to
+    // SECURITY & ACCESS: Developers & Testers see credentials for projects they are assigned to, have tasks in, or created credentials for
     if (!isExecutive) {
       conditions.push(`(
         c.project_id IN (SELECT project_id FROM project_members WHERE user_id = ?)
@@ -64,8 +64,9 @@ export async function GET(req: Request) {
           SELECT project_id FROM tasks 
           WHERE assigned_to = ? OR id IN (SELECT task_id FROM task_assignees WHERE user_id = ?)
         )
+        OR c.created_by = ?
       )`);
-      params.push(userId, String(userId), userId);
+      params.push(userId, String(userId), userId, userId);
     }
 
     if (filterProjectId && filterProjectId !== "0" && filterProjectId !== "ALL") {
