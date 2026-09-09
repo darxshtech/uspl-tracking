@@ -31,6 +31,20 @@ async function ensureTestingColumns() {
     }
   } catch (_) {}
 
+  try {
+    const [colsDead]: any = await pool.query("SHOW COLUMNS FROM tasks LIKE 'testing_deadline'");
+    if (!colsDead || colsDead.length === 0) {
+      await pool.query("ALTER TABLE tasks ADD COLUMN testing_deadline DATETIME NULL");
+    }
+  } catch (_) {}
+
+  try {
+    const [colsAlerted]: any = await pool.query("SHOW COLUMNS FROM tasks LIKE 'testing_overdue_alerted'");
+    if (!colsAlerted || colsAlerted.length === 0) {
+      await pool.query("ALTER TABLE tasks ADD COLUMN testing_overdue_alerted TINYINT(1) DEFAULT 0");
+    }
+  } catch (_) {}
+
   // Speed-up indexes on tasks & time logs
   try { await pool.query("CREATE INDEX idx_tasks_status ON tasks(status)"); } catch (_) {}
   try { await pool.query("CREATE INDEX idx_tasks_assigned_status ON tasks(assigned_to, status)"); } catch (_) {}
@@ -38,6 +52,57 @@ async function ensureTestingColumns() {
   try { await pool.query("CREATE INDEX idx_ttl_task_user ON task_time_logs(task_id, user_id)"); } catch (_) {}
 
   isSchemaInitialized = true;
+}
+
+async function checkAndNotifyOverdueTestingTasks() {
+  try {
+    const [overdueTasks]: any = await pool.query(`
+      SELECT t.id, t.title, t.testing_deadline, p.name as project_name, u.name as dev_name
+      FROM tasks t
+      LEFT JOIN projects p ON t.project_id = p.id
+      LEFT JOIN users u ON t.assigned_to = u.id
+      WHERE t.status IN ('Ready for Testing', 'Testing')
+        AND t.testing_deadline IS NOT NULL
+        AND t.testing_deadline < NOW()
+        AND (t.testing_overdue_alerted IS NULL OR t.testing_overdue_alerted = 0)
+    `);
+
+    if (Array.isArray(overdueTasks) && overdueTasks.length > 0) {
+      const [managementUsers]: any = await pool.query(
+        "SELECT id FROM users WHERE role IN ('Admin', 'CEO', 'PM') AND is_active = 1"
+      );
+      const mgmtUserIds = Array.isArray(managementUsers) ? managementUsers.map((m: any) => m.id) : [];
+
+      for (const t of overdueTasks) {
+        const formattedDeadline = new Date(t.testing_deadline).toLocaleString("en-US", {
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: true
+        });
+
+        const alertTitle = `🚨 QA Testing Overdue: ${t.title}`;
+        const alertMsg = `QA testing deadline (${formattedDeadline}) for task "${t.title}" in project "${t.project_name || 'General'}" (Developer: ${t.dev_name || 'Dev'}) has passed and testing is still incomplete.`;
+
+        for (const uId of mgmtUserIds) {
+          await pool.query(
+            `INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'warning')`,
+            [uId, alertTitle, alertMsg]
+          );
+        }
+
+        await pool.query(
+          `INSERT INTO notifications (target_role, title, message, type) VALUES ('Admin', ?, ?, 'warning')`,
+          [alertTitle, alertMsg]
+        );
+
+        await pool.query("UPDATE tasks SET testing_overdue_alerted = 1 WHERE id = ?", [t.id]);
+      }
+    }
+  } catch (err) {
+    console.error("Error checking overdue testing tasks:", err);
+  }
 }
 
 export async function GET(req: Request) {
@@ -152,6 +217,8 @@ export async function GET(req: Request) {
       } catch (_) {}
     }
 
+    await checkAndNotifyOverdueTestingTasks();
+
     const formatted = rows.map((r: any) => {
       let parsedLinks: string[] = [];
       if (typeof r.task_links === "string") {
@@ -169,11 +236,18 @@ export async function GET(req: Request) {
         parsedAttachments = r.attachments;
       }
 
+      const isTestingOverdue = Boolean(
+        r.testing_deadline && 
+        new Date(r.testing_deadline).getTime() < Date.now() && 
+        ["Ready for Testing", "Testing"].includes(r.status)
+      );
+
       return {
         ...r,
         task_links: parsedLinks,
         attachments: parsedAttachments,
         checklists: checklistMap[r.id] || [],
+        is_testing_overdue: isTestingOverdue,
       };
     });
 

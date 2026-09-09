@@ -135,6 +135,12 @@ export async function GET() {
       const rawStartDate = r.start_date ? (typeof r.start_date === 'string' ? r.start_date.split("T")[0] : new Date(r.start_date).toISOString().split("T")[0]) : (r.created_at ? new Date(r.created_at).toISOString().split("T")[0] : null);
       const rawExpectedDate = r.expected_date ? (typeof r.expected_date === 'string' ? r.expected_date.split("T")[0] : new Date(r.expected_date).toISOString().split("T")[0]) : (r.target_date ? (typeof r.target_date === 'string' ? r.target_date.split("T")[0] : new Date(r.target_date).toISOString().split("T")[0]) : (r.due_date ? (typeof r.due_date === 'string' ? r.due_date.split("T")[0] : new Date(r.due_date).toISOString().split("T")[0]) : null));
 
+      const isTestingOverdue = Boolean(
+        r.testing_deadline && 
+        new Date(r.testing_deadline).getTime() < Date.now() && 
+        ["Ready for Testing", "Testing"].includes(r.status)
+      );
+
       return {
         ...r,
         start_date: rawStartDate,
@@ -146,6 +152,7 @@ export async function GET() {
         checklists: checklistMap[r.id] || [],
         assignees: taskAssignees,
         running_timer: runningTimersMap[r.id] || null,
+        is_testing_overdue: isTestingOverdue,
       };
     });
 
@@ -541,6 +548,8 @@ export async function PATCH(req: Request) {
         await pool.query("UPDATE tasks SET sent_to_testing_at = IFNULL(sent_to_testing_at, NOW()) WHERE id = ?", [id]);
       }
 
+      const editTestingDeadline = body.testing_deadline !== undefined ? body.testing_deadline : undefined;
+
       await pool.query(
         `UPDATE tasks 
          SET title = IFNULL(?, title),
@@ -552,6 +561,7 @@ export async function PATCH(req: Request) {
              expected_date = IFNULL(?, expected_date),
              target_date = IFNULL(?, target_date),
              due_date = IFNULL(?, due_date),
+             testing_deadline = ${editTestingDeadline !== undefined ? "?" : "testing_deadline"},
              status = IFNULL(?, status),
              assigned_by_type = IFNULL(?, assigned_by_type),
              progress_percentage = IFNULL(?, progress_percentage),
@@ -561,43 +571,14 @@ export async function PATCH(req: Request) {
              attachments = ${attachmentsJson !== undefined ? "?" : "attachments"}
          WHERE id = ?`,
         attachmentsJson !== undefined
-          ? [
-              title !== undefined ? title : null,
-              description !== undefined ? description : null,
-              project_id !== undefined ? project_id : null,
-              primaryAssignee,
-              priority !== undefined ? priority : null,
-              start_date !== undefined ? start_date : null,
-              expected_date !== undefined ? expected_date : null,
-              finalTargetDate,
-              finalDueDate,
-              editStatus,
-              assigned_by_type !== undefined ? assigned_by_type : null,
-              editProgress,
-              hours_spent !== undefined ? hours_spent : null,
-              blockers !== undefined ? blockers : null,
-              remarks !== undefined ? remarks : null,
-              attachmentsJson,
-              id
-            ]
-          : [
-              title !== undefined ? title : null,
-              description !== undefined ? description : null,
-              project_id !== undefined ? project_id : null,
-              primaryAssignee,
-              priority !== undefined ? priority : null,
-              start_date !== undefined ? start_date : null,
-              expected_date !== undefined ? expected_date : null,
-              finalTargetDate,
-              finalDueDate,
-              editStatus,
-              assigned_by_type !== undefined ? assigned_by_type : null,
-              editProgress,
-              hours_spent !== undefined ? hours_spent : null,
-              blockers !== undefined ? blockers : null,
-              remarks !== undefined ? remarks : null,
-              id
-            ]
+          ? (editTestingDeadline !== undefined 
+              ? [title !== undefined ? title : null, description !== undefined ? description : null, project_id !== undefined ? project_id : null, primaryAssignee, priority !== undefined ? priority : null, start_date !== undefined ? start_date : null, expected_date !== undefined ? expected_date : null, finalTargetDate, finalDueDate, editTestingDeadline, editStatus, assigned_by_type !== undefined ? assigned_by_type : null, editProgress, hours_spent !== undefined ? hours_spent : null, blockers !== undefined ? blockers : null, remarks !== undefined ? remarks : null, attachmentsJson, id]
+              : [title !== undefined ? title : null, description !== undefined ? description : null, project_id !== undefined ? project_id : null, primaryAssignee, priority !== undefined ? priority : null, start_date !== undefined ? start_date : null, expected_date !== undefined ? expected_date : null, finalTargetDate, finalDueDate, editStatus, assigned_by_type !== undefined ? assigned_by_type : null, editProgress, hours_spent !== undefined ? hours_spent : null, blockers !== undefined ? blockers : null, remarks !== undefined ? remarks : null, attachmentsJson, id]
+            )
+          : (editTestingDeadline !== undefined
+              ? [title !== undefined ? title : null, description !== undefined ? description : null, project_id !== undefined ? project_id : null, primaryAssignee, priority !== undefined ? priority : null, start_date !== undefined ? start_date : null, expected_date !== undefined ? expected_date : null, finalTargetDate, finalDueDate, editTestingDeadline, editStatus, assigned_by_type !== undefined ? assigned_by_type : null, editProgress, hours_spent !== undefined ? hours_spent : null, blockers !== undefined ? blockers : null, remarks !== undefined ? remarks : null, id]
+              : [title !== undefined ? title : null, description !== undefined ? description : null, project_id !== undefined ? project_id : null, primaryAssignee, priority !== undefined ? priority : null, start_date !== undefined ? start_date : null, expected_date !== undefined ? expected_date : null, finalTargetDate, finalDueDate, editStatus, assigned_by_type !== undefined ? assigned_by_type : null, editProgress, hours_spent !== undefined ? hours_spent : null, blockers !== undefined ? blockers : null, remarks !== undefined ? remarks : null, id]
+            )
       );
 
       // Update junction table for multi-assignees if provided
@@ -724,7 +705,7 @@ export async function PATCH(req: Request) {
       });
     }
 
-    // 5. Action: Send to Testing (Developer submitting preview links)
+    // 5. Action: Send to Testing (Developer submitting preview links & testing deadline)
     if (action === "send_to_testing") {
       let finalLinksArray = task_links;
       if (!finalLinksArray && task_link) finalLinksArray = [task_link];
@@ -735,6 +716,7 @@ export async function PATCH(req: Request) {
       const linksCleaned = finalLinksArray.filter(l => l && l.trim());
       const primaryLink = linksCleaned[0];
       const linksJson = JSON.stringify(linksCleaned);
+      const testingDeadlineVal = body.testing_deadline ? body.testing_deadline : null;
 
       // Auto-stop any active running timer for this task
       await pool.query(
@@ -758,25 +740,35 @@ export async function PATCH(req: Request) {
         `UPDATE tasks 
          SET status = 'Ready for Testing', 
              sent_to_testing_at = CURRENT_TIMESTAMP,
+             testing_deadline = ?,
+             testing_overdue_alerted = 0,
              task_link = ?, 
              task_links = ?, 
              remarks = IFNULL(?, remarks),
              hours_spent = IFNULL(?, hours_spent),
              progress_percentage = 100 
          WHERE id = ?`,
-        [primaryLink, linksJson, remarks || null, updatedTestingHours, id]
+        [testingDeadlineVal, primaryLink, linksJson, remarks || null, updatedTestingHours, id]
       );
+
+      const deadlineNote = testingDeadlineVal ? ` Testing Deadline: ${new Date(testingDeadlineVal).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: true })}.` : "";
 
       // Alert QA testers
       await pool.query(
         `INSERT INTO notifications (target_role, title, message, type) VALUES ('Tester', ?, ?, 'task_ready')`,
         [
           `QA Testing Required: ${currentTask.title || "Task"}`,
-          `${currentTask.assignee_name || "Developer"} submitted "${currentTask.title}" in project "${currentTask.project_name}" for QA verification. ${linksCleaned.length} preview links provided.`
+          `${currentTask.assignee_name || "Developer"} submitted "${currentTask.title}" in project "${currentTask.project_name}" for QA verification.${deadlineNote} ${linksCleaned.length} preview links provided.`
         ]
       );
 
-      return NextResponse.json({ success: true, id, status: "Ready for Testing", task_links: linksCleaned });
+      return NextResponse.json({ 
+        success: true, 
+        id, 
+        status: "Ready for Testing", 
+        task_links: linksCleaned,
+        testing_deadline: testingDeadlineVal 
+      });
     }
 
     // 5b. Action: Direct Submit (Fast-track to Ready for Demo)
