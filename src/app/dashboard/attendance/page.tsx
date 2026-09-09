@@ -1053,6 +1053,7 @@ export default function AttendancePage() {
                     <TableHead className="font-bold">Date</TableHead>
                     <TableHead className="font-bold">Office Hours</TableHead>
                     <TableHead className="font-bold">Net Work Time</TableHead>
+                    <TableHead className="font-bold text-indigo-700">Task Hours</TableHead>
                     <TableHead className="font-bold">Break</TableHead>
                     <TableHead className="font-bold">Status</TableHead>
                     <TableHead className="font-bold text-right">Action</TableHead>
@@ -1078,6 +1079,10 @@ export default function AttendancePage() {
                       const netMinutes = Math.max(0, Math.round(grossHours * 60) - breakMin);
                       const netHours = netMinutes / 60;
 
+                      // Task hours from task_time_logs (API now returns this)
+                      const taskMin = parseInt(rec.task_hours_minutes || 0, 10);
+                      const taskHours = taskMin / 60;
+
                       // Color coding for net work time
                       const netColor = netHours >= 9
                         ? "text-emerald-700"
@@ -1086,6 +1091,15 @@ export default function AttendancePage() {
                         : grossHours > 0
                         ? "text-red-600"
                         : "text-slate-400";
+
+                      // Color coding for task hours
+                      const taskColor = taskHours >= 7
+                        ? "text-indigo-700"
+                        : taskHours >= 4
+                        ? "text-violet-600"
+                        : taskMin > 0
+                        ? "text-purple-500"
+                        : "text-slate-300";
 
                       return (
                         <TableRow key={rec.id} className="hover:bg-slate-50/80 transition-colors">
@@ -1126,6 +1140,24 @@ export default function AttendancePage() {
                                     Live ⏱️
                                   </Badge>
                                 )}
+                              </div>
+                            ) : (
+                              <span className="text-slate-300">—</span>
+                            )}
+                          </TableCell>
+
+                          {/* Task Hours column */}
+                          <TableCell className="text-xs">
+                            {taskMin > 0 ? (
+                              <div className="flex flex-col">
+                                <span className={`font-black ${taskColor}`}>
+                                  {taskHours >= 1
+                                    ? `${Math.floor(taskHours)}h ${(taskMin % 60).toString().padStart(2, "0")}m`
+                                    : `${taskMin}m`}
+                                </span>
+                                <span className="text-[9px] text-slate-400 font-medium mt-0.5">
+                                  {Math.round((taskMin / Math.max(netMinutes, 1)) * 100)}% of work
+                                </span>
                               </div>
                             ) : (
                               <span className="text-slate-300">—</span>
