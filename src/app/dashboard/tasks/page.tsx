@@ -143,6 +143,7 @@ export default function DailyTasksPage() {
   const [selectedTaskForTesting, setSelectedTaskForTesting] = useState<any>(null);
   const [taskLinks, setTaskLinks] = useState<string[]>([""]);
   const [testingNotes, setTestingNotes] = useState<string>("");
+  const [testingDeadline, setTestingDeadline] = useState<string>("");
   const [submittingTesting, setSubmittingTesting] = useState(false);
 
   // Dedicated Direct Submit to Demo Modal state
@@ -1122,6 +1123,36 @@ export default function DailyTasksPage() {
       : task.task_link ? [task.task_link] : [""];
     setTaskLinks(existingLinks);
     setTestingNotes("");
+
+    // Prefill default testing deadline: Today at 6:00 PM or 4 hours from now
+    const now = new Date();
+    now.setHours(18, 0, 0, 0);
+    if (now.getTime() <= Date.now() + 3600000) {
+      now.setDate(now.getDate() + 1);
+    }
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
+    const hours = String(now.getHours()).padStart(2, "0");
+    const mins = String(now.getMinutes()).padStart(2, "0");
+    const defaultVal = `${year}-${month}-${day}T${hours}:${mins}`;
+
+    if (task.testing_deadline) {
+      try {
+        const d = new Date(task.testing_deadline);
+        const dy = d.getFullYear();
+        const dm = String(d.getMonth() + 1).padStart(2, "0");
+        const dd = String(d.getDate()).padStart(2, "0");
+        const dh = String(d.getHours()).padStart(2, "0");
+        const dmi = String(d.getMinutes()).padStart(2, "0");
+        setTestingDeadline(`${dy}-${dm}-${dd}T${dh}:${dmi}`);
+      } catch (_) {
+        setTestingDeadline(defaultVal);
+      }
+    } else {
+      setTestingDeadline(defaultVal);
+    }
+
     setTestingModalOpen(true);
   };
 
@@ -1179,6 +1210,7 @@ export default function DailyTasksPage() {
           id: selectedTaskForTesting.id,
           action: "send_to_testing",
           task_links: validLinks,
+          testing_deadline: testingDeadline ? testingDeadline : undefined,
           remarks: testingNotes.trim() || undefined,
         }),
       });
@@ -1349,7 +1381,14 @@ export default function DailyTasksPage() {
     }
   };
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string, task?: any) => {
+    if (task?.is_testing_overdue) {
+      return (
+        <Badge className="bg-red-600 text-white font-extrabold border border-red-400 animate-pulse flex items-center gap-1 shadow-xs">
+          <AlertTriangle className="h-3 w-3 text-red-100" /> 🚨 QA OVERDUE
+        </Badge>
+      );
+    }
     switch (status) {
       case "Planning":
         return <Badge className="bg-purple-600 text-white font-bold">Planning</Badge>;
@@ -2700,6 +2739,24 @@ export default function DailyTasksPage() {
                   </div>
                 ))}
               </div>
+            </div>
+
+            <div className="space-y-1.5 bg-amber-50/80 p-3 rounded-xl border border-amber-200">
+              <Label htmlFor="testingDeadline" className="font-bold text-amber-950 text-xs flex items-center gap-1.5">
+                <Clock className="h-4 w-4 text-amber-600 shrink-0" />
+                🎯 QA Testing Deadline (Separate Due Date for Tester) *
+              </Label>
+              <Input
+                id="testingDeadline"
+                type="datetime-local"
+                value={testingDeadline}
+                onChange={(e) => setTestingDeadline(e.target.value)}
+                className="bg-white text-xs border-amber-300 font-semibold text-slate-800"
+                required
+              />
+              <p className="text-[11px] text-amber-800 font-medium">
+                Set deadline for QA tester to verify. Admin, CEO, and PM will be automatically alerted if testing is not finished by this time.
+              </p>
             </div>
 
             <div className="space-y-1.5">

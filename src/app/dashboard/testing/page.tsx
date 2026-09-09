@@ -739,27 +739,44 @@ function TestingQueueContent() {
                           Sent: {formatDateSent(task.sent_to_testing_at || task.date_time_sent)}
                         </div>
 
-                        {task.expected_date && (
+                        {task.testing_deadline ? (
+                          <div className={`text-[11px] font-bold px-2 py-1 rounded-lg border mt-1 flex items-center gap-1.5 ${
+                            task.is_testing_overdue
+                              ? "bg-red-100 text-red-800 border-red-300 animate-pulse shadow-xs"
+                              : "bg-amber-50 text-amber-900 border-amber-200"
+                          }`}>
+                            {task.is_testing_overdue ? (
+                              <AlertTriangle className="h-3.5 w-3.5 text-red-600 shrink-0 animate-bounce" />
+                            ) : (
+                              <Clock className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                            )}
+                            <span>
+                              QA Due: {new Date(task.testing_deadline).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: true })}
+                            </span>
+                          </div>
+                        ) : task.expected_date ? (
                           <div className="text-[10px] text-amber-800 font-semibold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200/80 inline-flex items-center gap-1">
                             <span>Expected:</span>
                             <span className="font-mono">{new Date(task.expected_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
                           </div>
-                        )}
+                        ) : null}
 
                         <div>
-                          {task.status === "Ready for Testing" && (
+                          {task.is_testing_overdue ? (
+                            <Badge className="bg-red-600 text-white font-extrabold text-[10px] animate-pulse border border-red-400 flex items-center gap-1 mt-1 shadow-xs">
+                              <AlertTriangle className="h-3 w-3" /> 🚨 QA OVERDUE (Alert Sent)
+                            </Badge>
+                          ) : task.status === "Ready for Testing" ? (
                             <Badge className="bg-amber-500 text-white font-bold animate-pulse text-[10px]">Ready for QA</Badge>
-                          )}
-                          {task.status === "Testing" && (
+                          ) : task.status === "Testing" ? (
                             <Badge className="bg-sky-600 text-white font-bold flex items-center gap-1 animate-pulse text-[10px]">
                               <Clock className="h-3 w-3" /> Testing In Progress
                             </Badge>
-                          )}
-                          {task.status === "In Progress" && (
+                          ) : task.status === "In Progress" ? (
                             <Badge className="bg-purple-600 text-white font-bold text-[10px]">
                               QA In Progress
                             </Badge>
-                          )}
+                          ) : null}
                         </div>
 
                         {task.testing_started_at && (
