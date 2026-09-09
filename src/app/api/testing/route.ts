@@ -79,8 +79,14 @@ export async function GET(req: Request) {
       });
     }
 
+    // Fetch active Testers upfront
+    const [testers]: any = await pool.query(
+      `SELECT id, name, email, role FROM users WHERE role = 'Tester' AND is_active = 1 ORDER BY name ASC`
+    );
+    const testerIds: number[] = testers.map((t: any) => t.id);
+
     // Testing queue: active tasks that are Ready for Testing, currently in Testing, OR assigned to Tester role
-    const [rows]: any = await pool.query(`
+    let mainQueueQuery = `
       SELECT t.*, 
         p.id as project_id,
         p.name as project_name, 
@@ -105,9 +111,16 @@ export async function GET(req: Request) {
       LEFT JOIN users u2 ON t.created_by = u2.id
       LEFT JOIN users u_creator ON t.created_by = u_creator.id
       WHERE t.status IN ('Ready for Testing', 'Testing')
-         OR (t.assigned_to IN (SELECT id FROM users WHERE role = 'Tester') AND t.status NOT IN ('Completed', 'Tested (PASS)', 'Ready for Demo'))
-      ORDER BY t.created_at DESC
-    `);
+    `;
+
+    let queryParams: any[] = [];
+    if (testerIds.length > 0) {
+      mainQueueQuery += ` OR (t.assigned_to IN (?) AND t.status NOT IN ('Completed', 'Tested (PASS)', 'Ready for Demo'))`;
+      queryParams.push(testerIds);
+    }
+    mainQueueQuery += ` ORDER BY t.created_at DESC`;
+
+    const [rows]: any = await pool.query(mainQueueQuery, queryParams);
 
     // FAST & OPTIMIZED: Fetch checklists ONLY for tasks currently in the queue
     const taskIds = rows.map((r: any) => r.id);
@@ -164,14 +177,21 @@ export async function GET(req: Request) {
       };
     });
 
-    // Fetch active Testers
-    const [testers]: any = await pool.query(
-      `SELECT id, name, email, role FROM users WHERE role = 'Tester' AND is_active = 1 ORDER BY name ASC`
-    );
+    // Fetch worked task IDs for testers upfront
+    let workedTaskIds: number[] = [];
+    if (testerIds.length > 0) {
+      try {
+        const [wRows]: any = await pool.query(
+          "SELECT DISTINCT task_id FROM task_time_logs WHERE user_id IN (?)",
+          [testerIds]
+        );
+        if (Array.isArray(wRows)) {
+          workedTaskIds = wRows.map((r: any) => r.task_id);
+        }
+      } catch (_) {}
+    }
 
-    const testerIds = testers.map((t: any) => t.id);
-
-    // BULK FETCH 1: Today's active / worked time logs for all testers (Optimized without correlated subquery)
+    // BULK FETCH 1: Today's active / worked time logs for all testers
     let allTodayLogs: any[] = [];
     if (testerIds.length > 0) {
       const [tLogs]: any = await pool.query(`
@@ -195,9 +215,11 @@ export async function GET(req: Request) {
       allTodayLogs = Array.isArray(tLogs) ? tLogs : [];
     }
 
-    // BULK FETCH 2: Completed tested task records for all testers (Direct query on tasks with LIMIT)
+    // BULK FETCH 2: Completed tested task records (Ultra-fast direct parameter lookup without nested subqueries)
     let allTestedRecords: any[] = [];
-    if (testerIds.length > 0) {
+    if (testerIds.length > 0 || workedTaskIds.length > 0) {
+      const validTesterIds = testerIds.length > 0 ? testerIds : [-1];
+      const validWorkedTaskIds = workedTaskIds.length > 0 ? workedTaskIds : [-1];
       const [tRecs]: any = await pool.query(
         `SELECT t.id as task_id, t.title as task_title, t.project_id, 
                 COALESCE(p.name, 'General') as project_name,
@@ -211,11 +233,11 @@ export async function GET(req: Request) {
          FROM tasks t
          LEFT JOIN projects p ON t.project_id = p.id
          LEFT JOIN users u_creator ON t.created_by = u_creator.id
-         WHERE (t.assigned_to IN (?) OR t.id IN (SELECT DISTINCT task_id FROM task_time_logs WHERE user_id IN (?)))
-           AND t.status IN ('Completed', 'Tested (PASS)', 'Ready for Demo')
+         WHERE t.status IN ('Completed', 'Tested (PASS)', 'Ready for Demo')
+           AND (t.assigned_to IN (?) OR t.id IN (?))
          ORDER BY tested_at DESC
          LIMIT 200`,
-        [testerIds, testerIds]
+        [validTesterIds, validWorkedTaskIds]
       );
       allTestedRecords = Array.isArray(tRecs) ? tRecs : [];
     }
