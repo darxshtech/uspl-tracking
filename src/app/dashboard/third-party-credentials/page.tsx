@@ -33,7 +33,11 @@ import {
   CheckCircle2,
   Lock,
   ChevronRight,
-  Filter
+  Filter,
+  FileUp,
+  Download,
+  Upload,
+  Sparkle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -62,6 +66,21 @@ interface ServicePreset {
 }
 
 const SERVICE_PRESETS: ServicePreset[] = [
+  {
+    id: "custom_new",
+    name: "Custom Service / New API",
+    category: "Other APIs",
+    icon: Plus,
+    color: "text-indigo-600",
+    bgColor: "bg-indigo-500/10",
+    borderColor: "border-indigo-500/30",
+    defaultFields: [
+      { key: "api_key", label: "API Key / Client ID", placeholder: "e.g. key_12345" },
+      { key: "api_secret", label: "API Secret / Client Secret", placeholder: "e.g. secret_98765", isSecret: true },
+      { key: "endpoint_url", label: "Base API Endpoint / URL (Optional)", placeholder: "https://api.yourprovider.com/v1" },
+    ],
+    envPrefix: "CUSTOM"
+  },
   {
     id: "whatsapp",
     name: "WhatsApp Business API",
@@ -231,21 +250,6 @@ const SERVICE_PRESETS: ServicePreset[] = [
     ],
     envPrefix: "GOOGLE_MAPS",
     docsUrl: "https://developers.google.com/maps"
-  },
-  {
-    id: "custom",
-    name: "Custom 3rd-Party API / Webhook",
-    category: "Other APIs",
-    icon: PlugZap,
-    color: "text-purple-500",
-    bgColor: "bg-purple-500/10",
-    borderColor: "border-purple-500/30",
-    defaultFields: [
-      { key: "api_key", label: "API Key / Client ID", placeholder: "e.g. key_12345" },
-      { key: "api_secret", label: "API Secret / Client Secret", placeholder: "e.g. secret_98765", isSecret: true },
-      { key: "endpoint_url", label: "Base API Endpoint / URL", placeholder: "https://api.thirdparty.com/v1" },
-    ],
-    envPrefix: "CUSTOM_API"
   }
 ];
 
@@ -259,6 +263,15 @@ const CATEGORIES = [
   "Email",
   "Other APIs"
 ];
+
+// Parsed item structure for .env import
+interface ParsedEnvService {
+  serviceName: string;
+  category: string;
+  environment: string;
+  credentialsData: Record<string, string>;
+  selected: boolean;
+}
 
 function ThirdPartyCredentialsContent() {
   const { data: session } = useSession();
@@ -279,7 +292,7 @@ function ThirdPartyCredentialsContent() {
   const [selectedCategory, setSelectedCategory] = useState("ALL");
   const [selectedProjectFilter, setSelectedProjectFilter] = useState(queryProjectId || "ALL");
 
-  // Modal State
+  // Add/Edit Modal State
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
@@ -292,6 +305,14 @@ function ThirdPartyCredentialsContent() {
   const [customKey, setCustomKey] = useState("");
   const [customVal, setCustomVal] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // .env Import Modal State
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importProjectId, setImportProjectId] = useState<string>("");
+  const [importEnvironment, setImportEnvironment] = useState<string>("Production");
+  const [rawEnvText, setRawEnvText] = useState<string>("");
+  const [parsedEnvServices, setParsedEnvServices] = useState<ParsedEnvService[]>([]);
+  const [isImporting, setIsImporting] = useState(false);
 
   // Password visibility tracking per card field
   const [visibleSecrets, setVisibleSecrets] = useState<Record<string, boolean>>({});
@@ -310,6 +331,7 @@ function ThirdPartyCredentialsContent() {
         setProjects(data);
         if (data.length > 0 && !selectedProjectId) {
           setSelectedProjectId(String(data[0].id));
+          setImportProjectId(String(data[0].id));
         }
       }
     } catch (err) {
@@ -345,32 +367,58 @@ function ThirdPartyCredentialsContent() {
   // Switch preset in modal
   const handleSelectPreset = (preset: ServicePreset) => {
     setSelectedPresetId(preset.id);
-    setServiceName(preset.name);
-    setServiceCategory(preset.category);
-    setFormFields(preset.defaultFields.map((f) => ({
-      key: f.key,
-      label: f.label,
-      value: "",
-      isSecret: f.isSecret || false,
-    })));
+    if (preset.id === "custom_new") {
+      setServiceName("");
+      setServiceCategory("Other APIs");
+      setFormFields(preset.defaultFields.map((f) => ({
+        key: f.key,
+        label: f.label,
+        value: "",
+        isSecret: f.isSecret || false,
+      })));
+    } else {
+      setServiceName(preset.name);
+      setServiceCategory(preset.category);
+      setFormFields(preset.defaultFields.map((f) => ({
+        key: f.key,
+        label: f.label,
+        value: "",
+        isSecret: f.isSecret || false,
+      })));
+    }
   };
 
   const handleOpenAddModal = (presetId?: string) => {
     setEditingId(null);
-    const chosenPreset = SERVICE_PRESETS.find((p) => p.id === (presetId || "whatsapp")) || SERVICE_PRESETS[0];
-    setSelectedPresetId(chosenPreset.id);
-    setServiceName(chosenPreset.name);
-    setServiceCategory(chosenPreset.category);
-    setEnvironment("Production");
-    setNotes("");
-    setCustomKey("");
-    setCustomVal("");
-    setFormFields(chosenPreset.defaultFields.map((f) => ({
-      key: f.key,
-      label: f.label,
-      value: "",
-      isSecret: f.isSecret || false,
-    })));
+    if (presetId === "custom_new") {
+      setSelectedPresetId("custom_new");
+      setServiceName("");
+      setServiceCategory("Other APIs");
+      setEnvironment("Production");
+      setNotes("");
+      setCustomKey("");
+      setCustomVal("");
+      setFormFields([
+        { key: "api_key", label: "API Key / Client ID", value: "", isSecret: false },
+        { key: "api_secret", label: "API Secret / Key", value: "", isSecret: true },
+      ]);
+    } else {
+      const chosenPreset = SERVICE_PRESETS.find((p) => p.id === (presetId || "whatsapp")) || SERVICE_PRESETS[1];
+      setSelectedPresetId(chosenPreset.id);
+      setServiceName(chosenPreset.name);
+      setServiceCategory(chosenPreset.category);
+      setEnvironment("Production");
+      setNotes("");
+      setCustomKey("");
+      setCustomVal("");
+      setFormFields(chosenPreset.defaultFields.map((f) => ({
+        key: f.key,
+        label: f.label,
+        value: "",
+        isSecret: f.isSecret || false,
+      })));
+    }
+
     if (projects.length > 0) {
       if (selectedProjectFilter !== "ALL") {
         setSelectedProjectId(selectedProjectFilter);
@@ -394,7 +442,7 @@ function ThirdPartyCredentialsContent() {
     // Reconstruct fields from credentials_data
     const dataObj = cred.credentials_data || {};
     const matchedPreset = SERVICE_PRESETS.find((p) => p.name.toLowerCase() === cred.service_name.toLowerCase());
-    setSelectedPresetId(matchedPreset ? matchedPreset.id : "custom");
+    setSelectedPresetId(matchedPreset ? matchedPreset.id : "custom_new");
 
     const fields: { key: string; label: string; value: string; isSecret?: boolean }[] = [];
     Object.entries(dataObj).forEach(([k, v]) => {
@@ -504,6 +552,183 @@ function ThirdPartyCredentialsContent() {
     }
   };
 
+  // =========================================================================
+  // INTELLIGENT .ENV PARSER & IMPORT ENGINE
+  // =========================================================================
+  const handleOpenImportModal = () => {
+    setRawEnvText("");
+    setParsedEnvServices([]);
+    if (projects.length > 0) {
+      if (selectedProjectFilter !== "ALL") {
+        setImportProjectId(selectedProjectFilter);
+      } else {
+        setImportProjectId(String(projects[0].id));
+      }
+    }
+    setImportModalOpen(true);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      if (content) {
+        setRawEnvText(content);
+        parseAndGroupEnvText(content);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const parseAndGroupEnvText = (text: string) => {
+    if (!text.trim()) {
+      setParsedEnvServices([]);
+      return;
+    }
+
+    const lines = text.split("\n");
+    const keyValues: { key: string; value: string }[] = [];
+
+    lines.forEach((line) => {
+      let trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) return; // ignore comments/empty
+
+      if (trimmed.startsWith("export ")) {
+        trimmed = trimmed.substring(7).trim();
+      }
+
+      const eqIdx = trimmed.indexOf("=");
+      if (eqIdx !== -1) {
+        const key = trimmed.substring(0, eqIdx).trim();
+        let val = trimmed.substring(eqIdx + 1).trim();
+
+        // Strip inline comments if not inside quotes
+        if (!val.startsWith('"') && !val.startsWith("'")) {
+          const commentIdx = val.indexOf(" #");
+          if (commentIdx !== -1) {
+            val = val.substring(0, commentIdx).trim();
+          }
+        }
+
+        // Strip quotes
+        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+          val = val.substring(1, val.length - 1);
+        }
+
+        if (key && val) {
+          keyValues.push({ key, value: val });
+        }
+      }
+    });
+
+    // Group keys by service prefix or domain
+    const groups: Record<string, { serviceName: string; category: string; data: Record<string, string> }> = {};
+
+    const getPrefixService = (key: string) => {
+      const u = key.toUpperCase();
+      if (u.startsWith("CLOUDINARY_")) return { name: "Cloudinary Media Storage", category: "Media & Storage", prefix: "CLOUDINARY_" };
+      if (u.startsWith("WHATSAPP_") || u.startsWith("WA_")) return { name: "WhatsApp Business API", category: "Messaging & SMS", prefix: u.startsWith("WHATSAPP_") ? "WHATSAPP_" : "WA_" };
+      if (u.startsWith("RAZORPAY_")) return { name: "Razorpay Payment Gateway", category: "Payments", prefix: "RAZORPAY_" };
+      if (u.startsWith("STRIPE_")) return { name: "Stripe Payments", category: "Payments", prefix: "STRIPE_" };
+      if (u.startsWith("AWS_") || u.startsWith("S3_") || u.startsWith("R2_")) return { name: "AWS S3 / Cloudflare R2", category: "Media & Storage", prefix: u.includes("S3") ? "S3_" : "AWS_" };
+      if (u.startsWith("FIREBASE_") || u.startsWith("SUPABASE_") || u.startsWith("NEXT_PUBLIC_SUPABASE_")) return { name: "Firebase / Supabase", category: "Database & Auth", prefix: u.includes("SUPABASE") ? "SUPABASE_" : "FIREBASE_" };
+      if (u.startsWith("TWILIO_")) return { name: "Twilio / SMS Gateway", category: "Messaging & SMS", prefix: "TWILIO_" };
+      if (u.startsWith("OPENAI_") || u.startsWith("ANTHROPIC_") || u.startsWith("GEMINI_")) return { name: "AI & ML API", category: "AI & ML", prefix: u.split("_")[0] + "_" };
+      if (u.startsWith("MAIL_") || u.startsWith("SMTP_") || u.startsWith("SENDGRID_") || u.startsWith("RESEND_")) return { name: "SendGrid / Resend / SMTP", category: "Email", prefix: u.split("_")[0] + "_" };
+      if (u.startsWith("GOOGLE_MAPS_") || u.startsWith("GMAPS_")) return { name: "Google Maps API", category: "Other APIs", prefix: "GOOGLE_MAPS_" };
+
+      // Detect prefix with at least 3 chars followed by _
+      const match = u.match(/^([A-Z0-9]{3,})_/);
+      if (match) {
+        const prefix = match[1];
+        const formattedName = prefix.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) + " Service";
+        return { name: formattedName, category: "Other APIs", prefix: prefix + "_" };
+      }
+
+      return { name: "Project Environment (.env)", category: "Other APIs", prefix: "" };
+    };
+
+    keyValues.forEach(({ key, value }) => {
+      const match = getPrefixService(key);
+      const groupKey = match.name;
+      if (!groups[groupKey]) {
+        groups[groupKey] = {
+          serviceName: match.name,
+          category: match.category,
+          data: {},
+        };
+      }
+
+      // Strip prefix for field key if matched
+      let fieldKey = key.toLowerCase();
+      if (match.prefix) {
+        fieldKey = fieldKey.replace(match.prefix.toLowerCase(), "");
+      }
+      if (!fieldKey) fieldKey = key.toLowerCase();
+
+      groups[groupKey].data[fieldKey] = value;
+    });
+
+    const parsedList: ParsedEnvService[] = Object.values(groups).map((g) => ({
+      serviceName: g.serviceName,
+      category: g.category,
+      environment: importEnvironment,
+      credentialsData: g.data,
+      selected: true,
+    }));
+
+    setParsedEnvServices(parsedList);
+  };
+
+  const handleConfirmImport = async () => {
+    if (!importProjectId) {
+      showError("Please select a target project to import credentials to.");
+      return;
+    }
+    const selectedServices = parsedEnvServices.filter((s) => s.selected && Object.keys(s.credentialsData).length > 0);
+    if (selectedServices.length === 0) {
+      showError("Please select at least one parsed service to import.");
+      return;
+    }
+
+    setIsImporting(true);
+    try {
+      let importedCount = 0;
+      for (const service of selectedServices) {
+        const payload = {
+          project_id: parseInt(importProjectId, 10),
+          service_name: service.serviceName,
+          service_category: service.category,
+          environment: importEnvironment,
+          credentials_data: service.credentialsData,
+          notes: `Auto-imported from .env configuration file`,
+        };
+
+        const res = await fetch("/api/third-party-credentials", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        if (res.ok) importedCount++;
+      }
+
+      showSuccess(
+        "Import Successful",
+        `Successfully auto-imported ${importedCount} service credential card(s) from .env!`
+      );
+      setImportModalOpen(false);
+      fetchCredentials();
+    } catch (err: any) {
+      console.error(err);
+      showError("Error importing credentials", err.message);
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   const handleDelete = async (id: number, sName: string) => {
     if (!confirm(`Are you sure you want to delete "${sName}" credentials? This action cannot be undone.`)) {
       return;
@@ -608,6 +833,24 @@ function ThirdPartyCredentialsContent() {
 
         <div className="flex items-center gap-2.5 flex-wrap">
           <Button
+            onClick={() => handleOpenImportModal()}
+            variant="outline"
+            className="border-indigo-200 text-indigo-700 hover:bg-indigo-50 font-bold text-xs shadow-2xs flex items-center gap-2 cursor-pointer h-10 px-3.5 rounded-xl"
+          >
+            <FileUp className="h-4 w-4 text-indigo-600" />
+            <span>Import .env Config</span>
+          </Button>
+
+          <Button
+            onClick={() => handleOpenAddModal("custom_new")}
+            variant="outline"
+            className="border-slate-300 text-slate-700 hover:bg-slate-50 font-bold text-xs shadow-2xs flex items-center gap-2 cursor-pointer h-10 px-3.5 rounded-xl"
+          >
+            <Plus className="h-4 w-4 text-purple-600" />
+            <span>Create Custom Name</span>
+          </Button>
+
+          <Button
             onClick={() => handleOpenAddModal()}
             className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-md flex items-center gap-2 cursor-pointer h-10 px-4 rounded-xl"
           >
@@ -673,18 +916,34 @@ function ThirdPartyCredentialsContent() {
       </div>
 
       {/* ========================================================================= */}
-      {/* QUICK PRESET LAUNCH BAR                                                   */}
+      {/* QUICK PRESET LAUNCH BAR WITH CUSTOM CREATION & .ENV IMPORT                 */}
       {/* ========================================================================= */}
       <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 p-4 rounded-2xl text-white shadow-md border border-slate-800 space-y-2.5">
         <div className="flex items-center justify-between">
           <span className="text-xs font-bold text-indigo-300 flex items-center gap-1.5">
-            <Sparkles className="h-3.5 w-3.5 text-amber-400" /> Quick Add Popular 3rd-Party Integrations:
+            <Sparkles className="h-3.5 w-3.5 text-amber-400" /> Quick Add Templates & Auto-Import:
           </span>
-          <span className="text-[10px] text-slate-400">Click a template to configure</span>
+          <span className="text-[10px] text-slate-400">Select template or import .env</span>
         </div>
 
         <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
-          {SERVICE_PRESETS.slice(0, 7).map((preset) => {
+          <button
+            onClick={() => handleOpenAddModal("custom_new")}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 border border-indigo-400 text-xs font-bold whitespace-nowrap transition cursor-pointer shrink-0 text-white shadow-xs"
+          >
+            <Plus className="h-3.5 w-3.5 text-amber-300" />
+            <span>+ Create Custom Service Name</span>
+          </button>
+
+          <button
+            onClick={() => handleOpenImportModal()}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600/80 hover:bg-emerald-500 border border-emerald-400 text-xs font-bold whitespace-nowrap transition cursor-pointer shrink-0 text-white shadow-xs"
+          >
+            <FileUp className="h-3.5 w-3.5 text-emerald-200" />
+            <span>📥 Auto-Import from .env</span>
+          </button>
+
+          {SERVICE_PRESETS.filter((p) => p.id !== "custom_new").slice(0, 6).map((preset) => {
             const Icon = preset.icon;
             return (
               <button
@@ -774,21 +1033,31 @@ function ThirdPartyCredentialsContent() {
             <p className="text-xs text-slate-500">
               {searchQuery || selectedProjectFilter !== "ALL" || selectedCategory !== "ALL"
                 ? "No credentials match your active search or filters. Try adjusting them."
-                : "No third-party API keys or services configured yet. Click below to add WhatsApp, Cloudinary, Razorpay or other project credentials."}
+                : "No third-party API keys or services configured yet. Click below to add a custom service or import from .env file."}
             </p>
           </div>
-          <Button
-            onClick={() => handleOpenAddModal()}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-md rounded-xl h-9 px-4 cursor-pointer inline-flex items-center gap-1.5"
-          >
-            <Plus className="h-4 w-4" /> Add First 3rd-Party Service
-          </Button>
+
+          <div className="flex items-center justify-center gap-2 flex-wrap">
+            <Button
+              onClick={() => handleOpenImportModal()}
+              variant="outline"
+              className="border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-bold text-xs rounded-xl h-9 px-4 cursor-pointer inline-flex items-center gap-1.5"
+            >
+              <FileUp className="h-4 w-4" /> Import from .env File
+            </Button>
+            <Button
+              onClick={() => handleOpenAddModal("custom_new")}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-md rounded-xl h-9 px-4 cursor-pointer inline-flex items-center gap-1.5"
+            >
+              <Plus className="h-4 w-4" /> Add Custom / Preset Service
+            </Button>
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredCredentials.map((cred) => {
-            const matchedPreset = SERVICE_PRESETS.find((p) => p.name.toLowerCase() === cred.service_name.toLowerCase()) || SERVICE_PRESETS.find((p) => p.id === "custom")!;
-            const Icon = matchedPreset.icon;
+            const matchedPreset = SERVICE_PRESETS.find((p) => p.name.toLowerCase() === cred.service_name.toLowerCase()) || SERVICE_PRESETS.find((p) => p.id === "custom_new")!;
+            const Icon = matchedPreset.icon || PlugZap;
             const dataObj = cred.credentials_data || {};
             const teamMembers = cred.team_members || [];
 
@@ -807,8 +1076,8 @@ function ThirdPartyCredentialsContent() {
                 <div className="p-4 space-y-3">
                   <div className="flex items-start justify-between gap-2.5">
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <div className={`p-2.5 rounded-xl ${matchedPreset.bgColor} ${matchedPreset.borderColor} border shrink-0`}>
-                        <Icon className={`h-5 w-5 ${matchedPreset.color}`} />
+                      <div className={`p-2.5 rounded-xl ${matchedPreset.bgColor || 'bg-indigo-50'} ${matchedPreset.borderColor || 'border-indigo-200'} border shrink-0`}>
+                        <Icon className={`h-5 w-5 ${matchedPreset.color || 'text-indigo-600'}`} />
                       </div>
                       <div className="min-w-0">
                         <h4 className="font-extrabold text-sm text-slate-900 truncate" title={cred.service_name}>
@@ -1008,10 +1277,16 @@ function ThirdPartyCredentialsContent() {
             {/* Step 2: Service Presets Carousel / Badges (Only in Add Mode) */}
             {!editingId && (
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  Select Service Template
-                </label>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-40 overflow-y-auto p-1.5 border border-slate-200 rounded-xl bg-slate-50/60 scrollbar-thin">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-slate-700">
+                    Select Service Template or Custom Name
+                  </label>
+                  <span className="text-[10px] font-semibold text-indigo-600">
+                    Can't find your service? Click Custom Service
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-44 overflow-y-auto p-1.5 border border-slate-200 rounded-xl bg-slate-50/60 scrollbar-thin">
                   {SERVICE_PRESETS.map((preset) => {
                     const Icon = preset.icon;
                     const isSelected = selectedPresetId === preset.id;
@@ -1023,6 +1298,8 @@ function ThirdPartyCredentialsContent() {
                         className={`flex items-center gap-2 p-2 rounded-xl text-left border text-xs font-bold transition cursor-pointer ${
                           isSelected
                             ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
+                            : preset.id === "custom_new"
+                            ? "bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-200"
                             : "bg-white hover:bg-slate-100 text-slate-700 border-slate-200"
                         }`}
                       >
@@ -1039,15 +1316,15 @@ function ThirdPartyCredentialsContent() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Service Name <span className="text-rose-500">*</span>
+                  Service / Credential Name <span className="text-rose-500">*</span>
                 </label>
                 <Input
                   type="text"
                   value={serviceName}
                   onChange={(e) => setServiceName(e.target.value)}
-                  placeholder="e.g. WhatsApp Business API"
+                  placeholder="e.g. Algolia Search / WhatsApp"
                   required
-                  className="text-xs h-9 rounded-xl"
+                  className="text-xs h-9 rounded-xl font-bold text-slate-900"
                 />
               </div>
 
@@ -1090,14 +1367,14 @@ function ThirdPartyCredentialsContent() {
                 <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
                   <KeyRound className="h-3.5 w-3.5 text-indigo-600" /> API Keys & Parameter Fields
                 </span>
-                <span className="text-[10px] text-slate-400">Fill in the fields required for your integration</span>
+                <span className="text-[10px] text-slate-400">Fill in keys, tokens, endpoints or secrets</span>
               </div>
 
-              <div className="space-y-2.5 max-h-60 overflow-y-auto p-2 border border-slate-200 rounded-xl bg-slate-50/40">
+              <div className="space-y-2.5 max-h-60 overflow-y-auto p-2.5 border border-slate-200 rounded-xl bg-slate-50/40">
                 {formFields.map((field, idx) => (
                   <div key={idx} className="flex items-center gap-2">
                     <div className="w-1/3 min-w-[120px]">
-                      <span className="text-[11px] font-bold text-slate-600 truncate block" title={field.label}>
+                      <span className="text-[11px] font-bold text-slate-700 truncate block" title={field.label}>
                         {field.label}
                       </span>
                       <span className="text-[9px] font-mono text-slate-400 truncate block">
@@ -1106,7 +1383,7 @@ function ThirdPartyCredentialsContent() {
                     </div>
                     <div className="flex-1 relative">
                       <Input
-                        type={field.isSecret ? "text" : "text"}
+                        type="text"
                         value={field.value}
                         onChange={(e) => handleFieldChange(idx, e.target.value)}
                         placeholder={`Enter ${field.label}...`}
@@ -1130,14 +1407,14 @@ function ThirdPartyCredentialsContent() {
                     type="text"
                     value={customKey}
                     onChange={(e) => setCustomKey(e.target.value)}
-                    placeholder="Custom key (e.g. app_secret)"
+                    placeholder="Custom key (e.g. webhook_secret)"
                     className="w-1/3 text-xs h-8 rounded-lg"
                   />
                   <Input
                     type="text"
                     value={customVal}
                     onChange={(e) => setCustomVal(e.target.value)}
-                    placeholder="Value (e.g. 12345)"
+                    placeholder="Value (e.g. whsec_12345)"
                     className="flex-1 text-xs h-8 rounded-lg"
                   />
                   <Button
@@ -1145,7 +1422,7 @@ function ThirdPartyCredentialsContent() {
                     variant="outline"
                     size="sm"
                     onClick={handleAddCustomField}
-                    className="h-8 text-xs font-bold border-indigo-200 text-indigo-700 hover:bg-indigo-50 cursor-pointer"
+                    className="h-8 text-xs font-bold border-indigo-200 text-indigo-700 hover:bg-indigo-50 cursor-pointer shrink-0"
                   >
                     + Add Field
                   </Button>
@@ -1193,6 +1470,179 @@ function ThirdPartyCredentialsContent() {
               </Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ========================================================================= */}
+      {/* AUTOMATIC .ENV FILE / TEXT IMPORT MODAL                                   */}
+      {/* ========================================================================= */}
+      <Dialog open={importModalOpen} onOpenChange={setImportModalOpen}>
+        <DialogContent className="max-w-3xl max-h-[92vh] overflow-y-auto rounded-2xl p-6 bg-white shadow-2xl space-y-4">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-extrabold text-slate-900 flex items-center gap-2">
+              <FileUp className="h-5 w-5 text-indigo-600" />
+              <span>Auto-Import Credentials from .env Configuration</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500">
+              Paste `.env` configuration file text or upload a `.env` file. Our parser will auto-detect WhatsApp, Cloudinary, Razorpay, S3, Firebase, and custom API keys.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 pt-1">
+            {/* Target Project & Environment Selector */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Import to Project <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={importProjectId}
+                  onChange={(e) => setImportProjectId(e.target.value)}
+                  className="w-full text-xs font-semibold bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 h-10"
+                >
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Environment
+                </label>
+                <select
+                  value={importEnvironment}
+                  onChange={(e) => setImportEnvironment(e.target.value)}
+                  className="w-full text-xs font-semibold bg-slate-50 border border-slate-200 rounded-xl p-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 h-10"
+                >
+                  <option value="Production">Production (Live)</option>
+                  <option value="Staging">Staging (Sandbox)</option>
+                  <option value="Development">Development (Local)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* File Upload & Paste Area */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold text-slate-700">
+                  Paste .env Text or Upload File
+                </label>
+
+                <label className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg border border-indigo-200 transition">
+                  <Upload className="h-3.5 w-3.5" /> Upload .env File
+                  <input
+                    type="file"
+                    accept=".env,.env.*,.txt"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
+              <textarea
+                value={rawEnvText}
+                onChange={(e) => {
+                  setRawEnvText(e.target.value);
+                  parseAndGroupEnvText(e.target.value);
+                }}
+                placeholder={`# Example .env File Content:\nWHATSAPP_PHONE_NUMBER_ID=104829104829104\nWHATSAPP_ACCESS_TOKEN=EAAG...\nCLOUDINARY_CLOUD_NAME=unitglo_assets\nCLOUDINARY_API_KEY=9284019284\nCLOUDINARY_API_SECRET=aBcdEfGhIjKl...\nRAZORPAY_KEY_ID=rzp_live_...\nRAZORPAY_KEY_SECRET=abc123def456`}
+                rows={6}
+                className="w-full text-xs font-mono p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-950 text-emerald-400 placeholder:text-slate-600 resize-none leading-relaxed"
+              />
+            </div>
+
+            {/* Detected Services Preview List */}
+            {parsedEnvServices.length > 0 && (
+              <div className="space-y-2 pt-2 border-t border-slate-200">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-extrabold text-slate-900 flex items-center gap-1.5">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                    Detected Services ({parsedEnvServices.length}):
+                  </span>
+                  <span className="text-[11px] font-bold text-indigo-700">
+                    Uncheck any service you wish to exclude
+                  </span>
+                </div>
+
+                <div className="space-y-2.5 max-h-56 overflow-y-auto p-2 border border-slate-200 rounded-xl bg-slate-50/70 scrollbar-thin">
+                  {parsedEnvServices.map((service, idx) => (
+                    <div
+                      key={idx}
+                      className={`p-3 rounded-xl border transition ${
+                        service.selected
+                          ? "bg-white border-indigo-200 shadow-2xs"
+                          : "bg-slate-100/60 border-slate-200 opacity-60"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <label className="flex items-center gap-2 cursor-pointer min-w-0">
+                          <input
+                            type="checkbox"
+                            checked={service.selected}
+                            onChange={(e) => {
+                              const copy = [...parsedEnvServices];
+                              copy[idx].selected = e.target.checked;
+                              setParsedEnvServices(copy);
+                            }}
+                            className="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4 cursor-pointer"
+                          />
+                          <input
+                            type="text"
+                            value={service.serviceName}
+                            onChange={(e) => {
+                              const copy = [...parsedEnvServices];
+                              copy[idx].serviceName = e.target.value;
+                              setParsedEnvServices(copy);
+                            }}
+                            className="font-extrabold text-xs text-slate-900 bg-transparent border-b border-dashed border-slate-300 focus:outline-none focus:border-indigo-500 px-0.5"
+                          />
+                          <Badge variant="outline" className="text-[9px] font-bold bg-indigo-50 text-indigo-700 border-indigo-200">
+                            {service.category}
+                          </Badge>
+                        </label>
+
+                        <span className="text-[10px] font-bold text-slate-500">
+                          {Object.keys(service.credentialsData).length} key(s) detected
+                        </span>
+                      </div>
+
+                      {/* Display Key Badges */}
+                      <div className="flex items-center gap-1.5 flex-wrap mt-2 pt-2 border-t border-slate-100">
+                        {Object.entries(service.credentialsData).map(([k, v]) => (
+                          <span key={k} className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-slate-700 font-semibold">
+                            {k}: <span className="text-slate-900 font-bold">{v.length > 15 ? v.substring(0, 15) + "..." : v}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setImportModalOpen(false)}
+                className="h-9 text-xs font-semibold text-slate-600 rounded-xl cursor-pointer"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                disabled={isImporting || parsedEnvServices.filter((s) => s.selected).length === 0}
+                onClick={handleConfirmImport}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs h-9 px-5 rounded-xl shadow-md cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {isImporting ? "Importing..." : `Save (${parsedEnvServices.filter((s) => s.selected).length}) Services`}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
