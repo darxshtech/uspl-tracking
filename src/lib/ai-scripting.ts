@@ -54,16 +54,34 @@ function normalizeEmployeeData(emp: any): EmployeeData {
   };
 }
 
+const cleanPunctuationAndNoise = (str: string) => {
+  return str
+    .replace(/[^\w\s]/g, " ") // replace punctuation with space
+    .replace(/\s+/g, " ") // collapse spaces
+    .trim();
+};
+
 const cleanNameToken = (token: string) => {
   return token
-    .replace(/data|details|info|report|stats|productivity|performance|task|tasks|employee|staff|dev|developer|manager|pm|qa/gi, "")
+    .replace(/can you please|could you|please|tell me|show me|about|data|details|info|report|stats|productivity|performance|task|tasks|employee|employees|staff|dev|developer|manager|pm|qa|right now/gi, "")
     .trim();
 };
 
 export async function resolveIntentAsync(query: string, role: string): Promise<IntentResult> {
-  const q = query.toLowerCase().trim();
+  const rawQ = query.toLowerCase().trim();
+  const q = cleanPunctuationAndNoise(rawQ);
 
-  // 1. Check if query is asking for multi-employee comparative speech
+  if (!q) {
+    return {
+      matched: false,
+      intent: "empty",
+      redirectUrl: "",
+      speechSummary: "Please state your command or query.",
+      displayText: "Please enter or speak a query."
+    };
+  }
+
+  // 1. PRIORITIZED: Check if query is asking for multi-employee comparative speech
   const isComparativeQuery = 
     q.includes("compare") || 
     q.includes("versus") || 
@@ -72,8 +90,7 @@ export async function resolveIntentAsync(query: string, role: string): Promise<I
 
   if (isComparativeQuery && typeof window !== "undefined") {
     let cleanQuery = q
-      .replace(/compare productivity of|compare performance of|compare tasks of|compare efficiency of|compare data of|compare|versus|difference between/g, "")
-      .replace(/employee|staff|dev|developer|manager|pm|qa/g, "")
+      .replace(/can you please|could you|please|compare productivity of|compare performance of|compare tasks of|compare efficiency of|compare data of|compare|versus|difference between|right now/gi, "")
       .trim();
 
     // Split names by 'and', 'vs', 'with', 'to'
@@ -150,6 +167,21 @@ export async function resolveIntentAsync(query: string, role: string): Promise<I
                   tasksDiff: Math.abs(comp1 - comp2)
                 }
               };
+            } else if (emp1Raw || emp2Raw) {
+              const foundEmp = normalizeEmployeeData(emp1Raw || emp2Raw);
+              const missingName = emp1Raw ? targetName2 : targetName1;
+              const salStr = foundEmp.monthly_salary ? `Monthly Salary: ₹${foundEmp.monthly_salary.toLocaleString("en-IN")}.` : "";
+
+              const speech = `Executive Brief for ${foundEmp.name}: Role is ${foundEmp.role}, completed ${foundEmp.completedTasks} of ${foundEmp.totalTasks} tasks (${foundEmp.efficiency}% efficiency). ${salStr} Note: I searched system records for ${missingName}, but no matching employee was found.`;
+
+              return {
+                matched: true,
+                intent: "employee_partial_comparison",
+                redirectUrl: `/dashboard/employees?highlight=${encodeURIComponent(foundEmp.name)}`,
+                speechSummary: speech,
+                displayText: `Found record for ${foundEmp.name} (${foundEmp.efficiency}% efficiency). "${missingName}" was not found in records.`,
+                employeeData: foundEmp
+              };
             }
           }
         } catch (err) {
@@ -159,7 +191,7 @@ export async function resolveIntentAsync(query: string, role: string): Promise<I
     }
   }
 
-  // 2. Check if query is asking for specific single employee data
+  // 2. PRIORITIZED: Check if query is asking for specific single employee data
   const isEmployeeDataQuery = 
     q.includes("data of") || 
     q.includes("tell me about") || 
@@ -172,13 +204,13 @@ export async function resolveIntentAsync(query: string, role: string): Promise<I
     q.includes("profile of") || 
     q.includes("who is");
 
-  if (isEmployeeDataQuery) {
+  if (isEmployeeDataQuery && typeof window !== "undefined") {
     let targetName = cleanNameToken(
       q
-        .replace(/tell me data of|tell me about employee|tell me about|data of employee|data of|info of employee|info of|details of employee|details of|report of employee|report for employee|report for|salary of employee|salary of|profile of employee|profile of|who is employee|who is/g, "")
+        .replace(/tell me data of|tell me about employee|tell me about|data of employee|data of|info of employee|info of|details of employee|details of|report of employee|report for employee|report for|salary of employee|salary of|profile of employee|profile of|who is employee|who is/gi, "")
     );
 
-    if (targetName.length >= 2 && typeof window !== "undefined") {
+    if (targetName.length >= 2) {
       try {
         const res = await fetch("/api/employees");
         if (res.ok) {
@@ -199,7 +231,6 @@ export async function resolveIntentAsync(query: string, role: string): Promise<I
               ? `${empData.completedTasks || 0} of ${empData.totalTasks} tasks completed (${empData.efficiency || 0}% efficiency)`
               : "No tasks assigned currently";
 
-
             const speech = `Executive Brief for ${empData.name}: Role is ${empData.role}. Monthly Salary is ${salaryFormatted}. Task Progress: ${tasksInfo}. Status: ${empData.is_active ? "Active Employee" : "Inactive"}.`;
             const display = `Executive Summary for ${empData.name}: Role: ${empData.role} | Salary: ${salaryFormatted} | Tasks: ${empData.completedTasks}/${empData.totalTasks} (${empData.efficiency}% efficiency).`;
 
@@ -217,7 +248,7 @@ export async function resolveIntentAsync(query: string, role: string): Promise<I
               matched: true,
               intent: "employee_not_found",
               redirectUrl: `/dashboard/employees?highlight=${encodeURIComponent(targetName)}`,
-              speechSummary: `I searched the system records for ${targetName}, but no matching employee record was found. Redirecting to the Employee Directory.`,
+              speechSummary: `I searched system records for ${targetName}, but no matching employee record was found. Redirecting to the Employee Directory.`,
               displayText: `No employee matching "${targetName}" found in system records. Opening Employee Directory...`,
               highlightKey: targetName
             };
@@ -230,10 +261,8 @@ export async function resolveIntentAsync(query: string, role: string): Promise<I
   }
 
   // Fallback to static intent resolution
-  return resolveIntent(query, role);
+  return resolveIntent(rawQ, role);
 }
-
-
 
 export function resolveIntent(query: string, role: string): IntentResult {
   const q = query.toLowerCase().trim();
