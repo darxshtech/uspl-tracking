@@ -327,12 +327,18 @@ export async function GET(req: Request) {
         (t: any) => t.status === "Testing" || (t.assigned_to && String(t.assigned_to) === String(tester.id))
       );
 
+      // Distinct active projects currently being tested by this tester
+      const activeProjectsSet = new Set(
+        activeForTester.map((t: any) => t.project_id || 0)
+      );
+
       return {
         id: tester.id,
         name: tester.name,
         email: tester.email,
         role: tester.role,
         active_testing_count: activeForTester.length,
+        active_projects_count: activeProjectsSet.size,
         total_tasks_tested: records.length,
         tested_tasks_count: records.length,
         total_projects_tested: projectsTestedList.length,

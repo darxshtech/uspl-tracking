@@ -591,10 +591,10 @@ export default function TestingQueuePage() {
 
                   return (
                     <TableRow key={task.id} className="hover:bg-slate-50/80 transition-colors">
-                      <TableCell className="align-top max-w-sm">
-                        <div className="font-bold text-slate-900 text-sm">{task.title}</div>
+                      <TableCell className="align-top max-w-xs sm:max-w-sm md:max-w-md break-words whitespace-normal">
+                        <div className="font-bold text-slate-900 text-sm whitespace-pre-wrap break-words leading-snug">{task.title}</div>
                         {task.description && (
-                          <p className="text-xs text-slate-600 whitespace-pre-wrap break-words mt-1 leading-relaxed max-w-md">
+                          <p className="text-xs text-slate-600 whitespace-pre-wrap break-words mt-1 leading-relaxed max-w-full">
                             {task.description}
                           </p>
                         )}
@@ -602,7 +602,7 @@ export default function TestingQueuePage() {
                         {/* Preview Links */}
                         {taskLinksList.length > 0 ? (
                           <div className="mt-2 space-y-1">
-                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Developer Deliverable URLs:</span>
+                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Developer Deliverable URLs:</span>
                             <div className="flex flex-wrap gap-1">
                               {taskLinksList.map((link, lIdx) => (
                                 <a
@@ -610,9 +610,9 @@ export default function TestingQueuePage() {
                                   href={link}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-sky-50 text-sky-700 hover:bg-sky-100 text-[11px] font-bold border border-sky-200 transition-colors"
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-sky-50 text-sky-700 hover:bg-sky-100 text-[11px] font-bold border border-sky-200 transition-colors max-w-full truncate"
                                 >
-                                  <ExternalLink className="h-3 w-3" /> Preview Link {lIdx + 1}
+                                  <ExternalLink className="h-3 w-3 shrink-0" /> Preview Link {lIdx + 1}
                                 </a>
                               ))}
                             </div>
@@ -623,7 +623,7 @@ export default function TestingQueuePage() {
 
                         {/* Developer Sub-tasks / Checklists Passed to Tester */}
                         {Array.isArray(task.checklists) && task.checklists.length > 0 && (
-                          <div className="mt-3 pt-2.5 border-t border-slate-100 space-y-2">
+                          <div className="mt-3 pt-2.5 border-t border-slate-100 space-y-2 max-w-full">
                             <div className="flex items-center justify-between">
                               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
                                 <ListTodo className="h-3.5 w-3.5 text-sky-600" />
@@ -655,7 +655,7 @@ export default function TestingQueuePage() {
                                     className="rounded border-slate-300 text-sky-600 h-3.5 w-3.5 mt-0.5 shrink-0 cursor-pointer"
                                     title="Check off sub-task as tested/verified"
                                   />
-                                  <div className="flex-1 min-w-0">
+                                  <div className="flex-1 min-w-0 break-words whitespace-normal">
                                     <span className={`whitespace-pre-wrap break-words leading-snug block ${
                                       c.is_completed ? "line-through text-slate-400 font-normal" : "font-medium text-slate-800"
                                     }`}>
@@ -671,9 +671,9 @@ export default function TestingQueuePage() {
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             onClick={(e) => e.stopPropagation()}
-                                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white text-[10px] font-semibold text-slate-600 border border-slate-200 hover:text-sky-600"
+                                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white text-[10px] font-semibold text-slate-600 border border-slate-200 hover:text-sky-600 max-w-full"
                                           >
-                                            <Paperclip className="h-2.5 w-2.5" />
+                                            <Paperclip className="h-2.5 w-2.5 shrink-0" />
                                             <span className="truncate max-w-[120px]">{att.title || "File"}</span>
                                           </a>
                                         ))}
@@ -697,22 +697,22 @@ export default function TestingQueuePage() {
                         )}
                       </TableCell>
 
-                      <TableCell className="align-top">
-                        <div className="font-bold text-slate-900 text-xs">{task.project_name || "N/A"}</div>
-                        <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1">
-                          <UserCheck className="h-3 w-3 text-sky-500" />
+                      <TableCell className="align-top max-w-[180px] break-words whitespace-normal">
+                        <div className="font-bold text-slate-900 text-xs break-words">{task.project_name || "N/A"}</div>
+                        <div className="text-[11px] text-slate-500 mt-0.5 flex flex-wrap items-center gap-1 break-words">
+                          <UserCheck className="h-3 w-3 text-sky-500 shrink-0" />
                           <span>
                             Assigned By:{" "}
-                            <strong>
+                            <strong className="break-words">
                               {task.project_creator_name || task.creator_name || "Management"} ({task.project_creator_role || task.creator_role || "PM"})
                             </strong>
                           </span>
                         </div>
                       </TableCell>
 
-                      <TableCell className="align-top text-slate-700 text-xs font-semibold">
-                        <div className="font-bold text-slate-900">{task.developer_name || "Developer"}</div>
-                        <span className="text-[10px] text-slate-400 font-normal">Assigned Developer</span>
+                      <TableCell className="align-top max-w-[150px] break-words whitespace-normal text-slate-700 text-xs font-semibold">
+                        <div className="font-bold text-slate-900 break-words">{task.developer_name || "Developer"}</div>
+                        <span className="text-[10px] text-slate-400 font-normal block">Assigned Developer</span>
                       </TableCell>
 
                       <TableCell className="align-top space-y-1">
@@ -811,18 +811,22 @@ export default function TestingQueuePage() {
                     </div>
                   </div>
 
-                  {/* 4-Column KPI Strip for Executive Briefing */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                  {/* 5-Column KPI Strip for Executive Briefing */}
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
                     <div className="p-2 rounded-xl bg-sky-50 border border-sky-100 text-center">
                       <span className="text-[10px] text-sky-600 font-bold uppercase block">Working Today</span>
                       <span className="text-base font-extrabold text-sky-950">{tester.working_today?.length || 0} tasks</span>
+                    </div>
+                    <div className="p-2 rounded-xl bg-amber-50 border border-amber-100 text-center">
+                      <span className="text-[10px] text-amber-600 font-bold uppercase block">Active QA Projects</span>
+                      <span className="text-base font-extrabold text-amber-950">{tester.active_projects_count || 0} proj</span>
                     </div>
                     <div className="p-2 rounded-xl bg-emerald-50 border border-emerald-100 text-center">
                       <span className="text-[10px] text-emerald-600 font-bold uppercase block">Tasks Tested</span>
                       <span className="text-base font-extrabold text-emerald-950">{tester.total_tasks_tested || 0}</span>
                     </div>
                     <div className="p-2 rounded-xl bg-indigo-50 border border-indigo-100 text-center">
-                      <span className="text-[10px] text-indigo-600 font-bold uppercase block">Projects Tested</span>
+                      <span className="text-[10px] text-indigo-600 font-bold uppercase block">Completed Projects</span>
                       <span className="text-base font-extrabold text-indigo-950">{tester.total_projects_tested || 0}</span>
                     </div>
                     <div className="p-2 rounded-xl bg-purple-50 border border-purple-100 text-center">
