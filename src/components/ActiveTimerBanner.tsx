@@ -68,6 +68,7 @@ export default function ActiveTimerBanner() {
   const snoozeUntilTimestampRef = useRef<number>(0);
   const progressReminderOpenRef = useRef<boolean>(false);
   const activeTimerRef = useRef<ActiveTimerData | null>(null);
+  const lastTaskIdRef = useRef<number | null>(null);
 
   // Keep refs in sync
   useEffect(() => {
@@ -76,28 +77,28 @@ export default function ActiveTimerBanner() {
 
   useEffect(() => {
     activeTimerRef.current = activeTimer;
-    if (activeTimer) {
-      if (activeTimer.progress_percentage !== undefined && activeTimer.progress_percentage !== null) {
-        setProgressPercentage(Number(activeTimer.progress_percentage));
-      }
-      if (activeTimer.daily_summary) {
-        setProgressSummary(activeTimer.daily_summary);
-      }
-      if (activeTimer.blockers) {
-        setProgressBlockers(activeTimer.blockers);
-      }
+    if (!activeTimer) {
+      lastTaskIdRef.current = null;
+      hasSnoozedRef.current = false;
+      setHasSnoozedCurrentCycle(false);
+      return;
+    }
 
-      // Initialize lastCheckinSecs from localStorage if exists
-      const totalSecs = (Number(activeTimer.previous_duration_seconds) || 0) + (Number(activeTimer.current_session_seconds) || 0);
+    const isNewTask = activeTimer.task_id !== lastTaskIdRef.current;
+    if (isNewTask) {
+      lastTaskIdRef.current = activeTimer.task_id;
+
+      // Initialize form fields for new task
+      setProgressPercentage(Number(activeTimer.progress_percentage || 0));
+      setProgressSummary(activeTimer.daily_summary || "");
+      setProgressBlockers(activeTimer.blockers || "");
+
+      // Initialize lastCheckinSecs from localStorage
       const storageKey = `unitglo_task_45m_checkin_${activeTimer.task_id}`;
       const savedSecs = localStorage.getItem(storageKey);
       if (savedSecs !== null) {
         const parsed = parseInt(savedSecs, 10);
-        if (!isNaN(parsed) && parsed <= totalSecs) {
-          lastCheckinSecsRef.current = parsed;
-        } else {
-          lastCheckinSecsRef.current = 0;
-        }
+        lastCheckinSecsRef.current = !isNaN(parsed) && parsed > 0 ? parsed : 0;
       } else {
         lastCheckinSecsRef.current = 0;
       }
@@ -107,6 +108,23 @@ export default function ActiveTimerBanner() {
       const savedSnoozed = localStorage.getItem(snoozeStorageKey) === "true";
       hasSnoozedRef.current = savedSnoozed;
       setHasSnoozedCurrentCycle(savedSnoozed);
+    } else {
+      // Same task: only sync fields if modal is NOT currently open (prevents wiping user input while typing)
+      if (!progressReminderOpenRef.current) {
+        if (activeTimer.progress_percentage !== undefined && activeTimer.progress_percentage !== null) {
+          setProgressPercentage(Number(activeTimer.progress_percentage));
+        }
+      }
+
+      // Synchronize last check-in from localStorage without resetting to 0
+      const storageKey = `unitglo_task_45m_checkin_${activeTimer.task_id}`;
+      const savedSecs = localStorage.getItem(storageKey);
+      if (savedSecs !== null) {
+        const parsed = parseInt(savedSecs, 10);
+        if (!isNaN(parsed) && parsed > 0) {
+          lastCheckinSecsRef.current = Math.max(lastCheckinSecsRef.current, parsed);
+        }
+      }
     }
   }, [activeTimer]);
 
@@ -117,10 +135,10 @@ export default function ActiveTimerBanner() {
     // 1. Play alert chime immediately
     playReminderAlarmSound();
 
-    // 2. Play alert chime continuously every 10 seconds UNTIL developer submits progress or snoozes
+    // 2. Play alert chime once every 5 minutes UNTIL developer submits progress or snoozes
     const soundInterval = setInterval(() => {
       playReminderAlarmSound();
-    }, 10000);
+    }, 5 * 60 * 1000);
 
     // 3. Flash document title to alert developer across browser tabs / windows
     const originalTitle = document.title;
@@ -586,7 +604,7 @@ export default function ActiveTimerBanner() {
                     </span>
                   </h3>
                   <p className="text-xs text-slate-400">
-                    Chiming continuously until progress is updated and saved.
+                    Chiming once every 5 minutes until progress is updated and saved.
                   </p>
                 </div>
               </div>
@@ -604,7 +622,7 @@ export default function ActiveTimerBanner() {
                     🔊 Sound Alarm Active
                   </p>
                   <p className="text-[11px] text-rose-300/80">
-                    Audio chime sounds continuously every 10 seconds until task progress is saved.
+                    Audio chime sounds once every 5 minutes until task progress is saved.
                   </p>
                 </div>
               </div>
