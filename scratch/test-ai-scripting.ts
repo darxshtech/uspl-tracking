@@ -84,6 +84,73 @@ import { resolveIntent, resolveIntentAsync } from "../src/lib/ai-scripting";
       })
     };
   }
+  if (url === "/api/projects") {
+    return {
+      ok: true,
+      json: async () => [
+        { id: 1, title: "FarmersBag E-commerce", client_name: "FarmersBag", status: "Active", progress: 75, completed_tasks: 15, total_tasks: 20 },
+        { id: 2, title: "USPL Tracking System", client_name: "USPL", status: "In Progress", progress: 90, completed_tasks: 45, total_tasks: 50 }
+      ]
+    };
+  }
+  if (url === "/api/tasks") {
+    return {
+      ok: true,
+      json: async () => [
+        { id: 10, title: "Implement Voice Assistant Card UI", assignee_name: "Kartik Sharma", status: "In Progress", priority: "High", project_name: "USPL Tracking System" },
+        { id: 11, title: "Fix Notifications 500 Route", assignee_name: "Chaitanya Patel", status: "Completed", priority: "Urgent", project_name: "USPL Tracking System" }
+      ]
+    };
+  }
+  if (url === "/api/testing") {
+    return {
+      ok: true,
+      json: async () => [
+        { id: 50, title: "QA Check Voice Intent Dispatcher", project_name: "USPL Tracking", status: "Ready for QA" }
+      ]
+    };
+  }
+  if (url === "/api/credentials") {
+    return {
+      ok: true,
+      json: async () => [
+        { id: 1, name: "MySQL DB Production", environment: "Production" }
+      ]
+    };
+  }
+  if (url === "/api/third-party-credentials") {
+    return {
+      ok: true,
+      json: async () => [
+        { id: 1, name: "Stripe API Key", environment: "Live" },
+        { id: 2, name: "Firebase Service Key", environment: "Production" }
+      ]
+    };
+  }
+  if (url === "/api/documents") {
+    return {
+      ok: true,
+      json: async () => [
+        { id: 1, title: "Employee Handbook 2026.pdf", category: "Policies", access_role: "All" }
+      ]
+    };
+  }
+  if (url === "/api/holidays") {
+    return {
+      ok: true,
+      json: async () => [
+        { id: 1, name: "Diwali Official Holiday", date: "2026-11-01" }
+      ]
+    };
+  }
+  if (url === "/api/cron/delayed-tasks") {
+    return {
+      ok: true,
+      json: async () => [
+        { id: 99, name: "Daily Attendance Sync Cron", status: "Success" }
+      ]
+    };
+  }
   return { ok: false, status: 404 };
 };
 
@@ -198,6 +265,23 @@ async function runHumanVoiceTestSuite() {
   const lateTest = await resolveIntentAsync("who checked in late", "Admin");
   console.log("🔊 Live Shift Warnings Speech Output:");
   console.log(`   "${lateTest.speechSummary}"\n`);
+
+  // Domain Card Data Verification
+  console.log("🎴 Verifying Domain Card Data Generation:");
+  const projectTest = await resolveIntentAsync("open active projects board", "Admin");
+  console.log(`   Projects Card Data: ${projectTest.cardData ? "✅ PRESENT (" + projectTest.cardData.title + ")" : "❌ MISSING"}`);
+
+  const taskTest = await resolveIntentAsync("what are my daily tasks for today", "Admin");
+  console.log(`   Tasks Card Data: ${taskTest.cardData ? "✅ PRESENT (" + taskTest.cardData.title + ")" : "❌ MISSING"}`);
+
+  const payrollTest = await resolveIntentAsync("show me monthly payroll overview", "Admin");
+  console.log(`   Payroll Card Data: ${payrollTest.cardData ? "✅ PRESENT (" + payrollTest.cardData.title + ")" : "❌ MISSING"}`);
+
+  const testingTest = await resolveIntentAsync("show me the testing queue", "Admin");
+  console.log(`   Testing Card Data: ${testingTest.cardData ? "✅ PRESENT (" + testingTest.cardData.title + ")" : "❌ MISSING"}`);
+
+  const credsTest = await resolveIntentAsync("where are the cloudinary api keys", "Admin");
+  console.log(`   Credentials Card Data: ${credsTest.cardData ? "✅ PRESENT (" + credsTest.cardData.title + ")" : "❌ MISSING"}`);
 }
 
 runHumanVoiceTestSuite();

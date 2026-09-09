@@ -641,6 +641,54 @@ export default function VoiceScriptingAssistant() {
                     </div>
                   )}
 
+                  {/* DOMAIN SECTION RICH EXECUTIVE MINI-CARD */}
+                  {lastResult.cardData && (
+                    <div className="p-3.5 rounded-xl bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-950 text-white shadow-md border border-indigo-500/30 space-y-3 animate-in fade-in zoom-in-95">
+                      <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                        <div className="font-extrabold text-xs text-amber-300 flex items-center gap-1.5">
+                          {lastResult.cardData.title}
+                        </div>
+                        {lastResult.cardData.statsSummary && (
+                          <Badge className="bg-indigo-500 text-white font-bold text-[9px] px-2 py-0.5 shadow-sm shrink-0">
+                            {lastResult.cardData.statsSummary}
+                          </Badge>
+                        )}
+                      </div>
+
+                      {lastResult.cardData.items && lastResult.cardData.items.length > 0 && (
+                        <div className="space-y-1.5 text-[11px]">
+                          {lastResult.cardData.items.map((item, idx) => (
+                            <div key={idx} className="bg-white/10 p-2 rounded-lg border border-white/10 flex items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="font-bold text-white text-[11px] truncate">{item.title}</div>
+                                {item.subtitle && <div className="text-[9px] text-indigo-300 truncate">{item.subtitle}</div>}
+                              </div>
+                              {item.badge && (
+                                <Badge className={`text-[9px] font-extrabold px-1.5 py-0.5 shrink-0 ${item.badgeColor || "bg-indigo-500"}`}>
+                                  {item.badge}
+                                </Badge>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {lastResult.redirectUrl && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            router.push(lastResult.redirectUrl);
+                            setIsOpen(false);
+                          }}
+                          className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-extrabold py-2 px-3 rounded-lg text-xs flex items-center justify-center gap-1.5 transition-all shadow-md cursor-pointer"
+                        >
+                          <span>Open Full {lastResult.intent.replace("_", " ").toUpperCase()} Board</span>
+                          <ChevronRight className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+
                   {/* NAV TARGET LINK BUTTON */}
                   {lastResult.redirectUrl && !lastResult.employeeData && !lastResult.comparativeData && (
                     <button
