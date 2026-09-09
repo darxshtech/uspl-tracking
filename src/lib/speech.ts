@@ -26,8 +26,9 @@ export function speakText(text: string, onEnd?: () => void) {
 
 // Browser Speech Recognition (webkitSpeechRecognition)
 export function createSpeechRecognizer(
-  onResult: (text: string) => void,
-  onError: (err: any) => void
+  onResult: (text: string, isFinal: boolean) => void,
+  onError: (err: any) => void,
+  onEnd?: () => void
 ) {
   if (typeof window === "undefined") return null;
 
@@ -41,17 +42,29 @@ export function createSpeechRecognizer(
   try {
     const recognition = new SpeechRecognition();
     recognition.continuous = false;
-    recognition.interimResults = false;
+    recognition.interimResults = true;
     recognition.lang = "en-US";
 
     recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      onResult(transcript);
+      let interim = "";
+      let final = "";
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          final += event.results[i][0].transcript;
+        } else {
+          interim += event.results[i][0].transcript;
+        }
+      }
+      onResult(final || interim, Boolean(final));
     };
 
     recognition.onerror = (event: any) => {
       onError(event.error);
     };
+
+    if (onEnd) {
+      recognition.onend = onEnd;
+    }
 
     return recognition;
   } catch (err) {
