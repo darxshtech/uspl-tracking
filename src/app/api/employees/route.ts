@@ -15,18 +15,32 @@ export async function GET() {
   const isManager = ["Admin", "CEO", "PM"].includes(currentRole);
 
   try {
-    const query = isManager
-      ? "SELECT id, name, email, role, phone, bio, is_active, total_leaves_allowed, leaves_carried_forward, monthly_salary, joining_date, created_at FROM users ORDER BY is_active DESC, id ASC"
-      : "SELECT id, name, email, role, phone, bio, is_active, total_leaves_allowed, leaves_carried_forward, monthly_salary, joining_date, created_at FROM users WHERE is_active = 1 ORDER BY id ASC";
+    let rows: any[] = [];
+    try {
+      const query = isManager
+        ? "SELECT id, name, email, role, phone, bio, is_active, total_leaves_allowed, leaves_carried_forward, monthly_salary, joining_date, created_at FROM users ORDER BY is_active DESC, id ASC"
+        : "SELECT id, name, email, role, phone, bio, is_active, total_leaves_allowed, leaves_carried_forward, monthly_salary, joining_date, created_at FROM users WHERE is_active = 1 ORDER BY id ASC";
+      const [uRows]: any = await pool.query(query);
+      rows = Array.isArray(uRows) ? uRows : [];
+    } catch (_) {
+      const fallbackQuery = isManager
+        ? "SELECT id, name, email, role, is_active FROM users ORDER BY is_active DESC, id ASC"
+        : "SELECT id, name, email, role, is_active FROM users WHERE is_active = 1 ORDER BY id ASC";
+      const [uRows]: any = await pool.query(fallbackQuery);
+      rows = Array.isArray(uRows) ? uRows : [];
+    }
 
-    const [rows]: any = await pool.query(query);
+    let tasks: any[] = [];
+    try {
+      const [tRows]: any = await pool.query("SELECT id, assigned_to, status FROM tasks");
+      tasks = Array.isArray(tRows) ? tRows : [];
+    } catch (_) {}
 
-    const [tasks]: any = await pool.query(
-      "SELECT id, assigned_to, status FROM tasks"
-    );
-    const [taskAssignees]: any = await pool.query(
-      "SELECT task_id, user_id FROM task_assignees"
-    );
+    let taskAssignees: any[] = [];
+    try {
+      const [taRows]: any = await pool.query("SELECT task_id, user_id FROM task_assignees");
+      taskAssignees = Array.isArray(taRows) ? taRows : [];
+    } catch (_) {}
 
     const isTaskCompleted = (status: string) => {
       return ["Completed", "Tested (PASS)", "Ready for Demo"].includes(status);
