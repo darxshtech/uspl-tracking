@@ -90,7 +90,26 @@ export async function GET(req: Request) {
     }
 
     let query = `
-      SELECT a.*, u.name as employee_name, u.email as employee_email, u.role as employee_role
+      SELECT a.*,
+             u.name as employee_name, u.email as employee_email, u.role as employee_role,
+             IFNULL((
+               SELECT SUM(ab.duration_minutes)
+               FROM attendance_breaks ab
+               WHERE ab.attendance_id = a.id AND ab.break_end IS NOT NULL
+             ), 0) as total_break_minutes,
+             (
+               SELECT COUNT(*) FROM attendance_breaks ab
+               WHERE ab.attendance_id = a.id AND ab.break_end IS NULL
+             ) > 0 as is_currently_on_break,
+             IFNULL((
+               SELECT SUM(ttl.duration_minutes)
+               FROM task_time_logs ttl
+               WHERE ttl.user_id = a.user_id
+                 AND DATE(ttl.started_at) = DATE(a.date)
+                 AND ttl.is_active = 0
+                 AND ttl.duration_minutes IS NOT NULL
+                 AND ttl.duration_minutes > 0
+             ), 0) as task_hours_minutes
       FROM attendance a
       JOIN users u ON a.user_id = u.id
       WHERE u.role NOT IN ('CEO', 'Admin') AND a.date >= ?

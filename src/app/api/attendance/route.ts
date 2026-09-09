@@ -128,7 +128,16 @@ export async function GET(req: Request) {
              (
                SELECT COUNT(*) FROM attendance_breaks ab
                WHERE ab.attendance_id = a.id AND ab.break_end IS NULL
-             ) > 0 as is_currently_on_break
+             ) > 0 as is_currently_on_break,
+             IFNULL((
+               SELECT SUM(ttl.duration_minutes)
+               FROM task_time_logs ttl
+               WHERE ttl.user_id = a.user_id
+                 AND DATE(ttl.started_at) = DATE(a.date)
+                 AND ttl.is_active = 0
+                 AND ttl.duration_minutes IS NOT NULL
+                 AND ttl.duration_minutes > 0
+             ), 0) as task_hours_minutes
       FROM attendance a
       JOIN users u ON a.user_id = u.id
       WHERE u.role NOT IN ('CEO', 'Admin') AND a.date >= ? AND (a.date <= ? OR a.status LIKE '%Leave%' OR a.status LIKE '%Pending%')

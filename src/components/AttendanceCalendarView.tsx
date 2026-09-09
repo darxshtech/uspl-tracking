@@ -697,7 +697,7 @@ export default function AttendanceCalendarView({
                         const isPresent = rec.status?.includes("Present") || (rec.login_time && !rec.logout_time && !rec.status?.includes("Leave") && rec.status !== "Holiday");
                         const empProd = employeeProductivityMap[rec.user_id];
 
-                        // Net work time derived client-side
+                        // Net work & task time derived client-side
                         const isActiveShift = Boolean(rec.login_time && !rec.logout_time);
                         const grossHours = isActiveShift
                           ? calculateHoursDifference(rec.login_time, getCurrentISTTime12())
@@ -705,6 +705,8 @@ export default function AttendanceCalendarView({
                         const breakMin = parseInt(rec.total_break_minutes || 0, 10);
                         const netMin = Math.max(0, Math.round(grossHours * 60) - breakMin);
                         const netHrs = netMin / 60;
+                        const taskMin = parseInt(rec.task_hours_minutes || 0, 10);
+                        const taskHrs = taskMin / 60;
                         const netColor = netHrs >= 9 ? "text-emerald-600" : netHrs >= 4.5 ? "text-amber-600" : grossHours > 0 ? "text-red-500" : "text-slate-400";
 
                         return (
@@ -747,12 +749,17 @@ export default function AttendanceCalendarView({
                           <div className="text-[9px] font-mono text-slate-500 mt-0.5 truncate">
                             {rec.login_time || "--"} &rarr; {rec.logout_time || (isActiveShift ? "Active" : "--")}
                           </div>
-                          {/* Net work + break inline row */}
+                          {/* Net work + task + break inline row */}
                           {grossHours > 0 && (
-                            <div className="flex items-center gap-1.5 mt-0.5">
+                            <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                               <span className={`font-bold text-[9px] ${netColor}`}>
                                 Net: {Math.floor(netHrs)}h {(netMin % 60).toString().padStart(2, "0")}m
                               </span>
+                              {taskMin > 0 && (
+                                <span className="font-bold text-[9px] text-indigo-700">
+                                  ⚡{taskHrs >= 1 ? `${Math.floor(taskHrs)}h${(taskMin % 60).toString().padStart(2, "0")}m` : `${taskMin}m`}
+                                </span>
+                              )}
                               {breakMin > 0 && (
                                 <span className="flex items-center gap-0.5 text-[9px] text-slate-400 font-medium">
                                   <Coffee className="h-2 w-2" />
