@@ -79,10 +79,25 @@ export async function handleTasksIntent(): Promise<IntentResult> {
       const data = await res.json();
       const tasks = Array.isArray(data) ? data : (data.tasks || []);
       const total = tasks.length;
-      const completed = tasks.filter((t: any) => t.status === "Completed" || t.status === "Done").length;
-      const inProgress = tasks.filter((t: any) => t.status === "In Progress" || t.status === "Active").length;
 
-      const items: GenericCardItem[] = tasks.slice(0, 4).map((t: any) => ({
+      const todayStr = new Date().toISOString().split("T")[0];
+      const todayTasks = tasks.filter((t: any) => {
+        const taskExpDate = t.expected_date ? t.expected_date.split("T")[0] : (t.target_date ? t.target_date.split("T")[0] : (t.due_date ? t.due_date.split("T")[0] : todayStr));
+        const taskStartDate = t.start_date ? t.start_date.split("T")[0] : (t.created_at ? t.created_at.split("T")[0] : todayStr);
+        const isFinished = ["Completed", "Ready for Demo", "Tested (PASS)"].includes(t.status);
+
+        const isScheduledToday = taskExpDate === todayStr || taskStartDate === todayStr;
+        const isUnfinishedPastTask = !isFinished && (taskStartDate <= todayStr || taskExpDate <= todayStr);
+        return isScheduledToday || isUnfinishedPastTask;
+      });
+
+      const todayTotal = todayTasks.length;
+      const todayCompleted = todayTasks.filter((t: any) => t.status === "Completed" || t.status === "Ready for Demo" || t.status === "Tested (PASS)").length;
+      const todayInProgress = todayTasks.filter((t: any) => t.status === "In Progress" || t.status === "Planning" || t.status === "Testing" || t.status === "Ready for Testing" || t.status === "Changes Required").length;
+
+      const displayList = todayTotal > 0 ? todayTasks : tasks;
+
+      const items: GenericCardItem[] = displayList.slice(0, 4).map((t: any) => ({
         id: t.id,
         title: t.title || t.task_name || "Task",
         subtitle: `Assigned: ${t.assignee_name || t.assigned_to || "Staff"}`,
@@ -94,8 +109,8 @@ export async function handleTasksIntent(): Promise<IntentResult> {
         detailVal2: t.project_name || "General"
       }));
 
-      const speech = `Daily Tasks Briefing: ${total} total task${total > 1 ? "s" : ""} logged today. ${completed} completed, ${inProgress} in progress. Navigating to Daily Tasks.`;
-      const display = `Daily Tasks (${total}): ${completed} Completed, ${inProgress} In Progress.`;
+      const speech = `Daily Tasks Briefing: You have ${todayTotal} tasks active for today (${todayCompleted} completed, ${todayInProgress} in progress, out of ${total} total system tasks). Navigating to Daily Tasks.`;
+      const display = `Today's Tasks: ${todayTotal} Tasks (${todayCompleted} Completed, ${todayInProgress} In Progress | ${total} Total System Tasks).`;
 
       return {
         matched: true,
@@ -107,7 +122,7 @@ export async function handleTasksIntent(): Promise<IntentResult> {
           type: "tasks",
           title: "📝 Daily Tasks Board",
           items,
-          statsSummary: `${total} Tasks (${completed} Completed)`
+          statsSummary: `${todayTotal} Today's Tasks (${todayCompleted} Completed)`
         }
       };
     }
