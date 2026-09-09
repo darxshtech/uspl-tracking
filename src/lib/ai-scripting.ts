@@ -12,6 +12,14 @@ export interface EmployeeData {
   is_active?: boolean;
 }
 
+export interface ComparativeData {
+  emp1: EmployeeData;
+  emp2: EmployeeData;
+  leaderName?: string;
+  efficiencyDiff?: number;
+  tasksDiff?: number;
+}
+
 export interface IntentResult {
   matched: boolean;
   intent: string;
@@ -20,12 +28,129 @@ export interface IntentResult {
   displayText: string;
   highlightKey?: string;
   employeeData?: EmployeeData;
+  comparativeData?: ComparativeData;
 }
 
 export async function resolveIntentAsync(query: string, role: string): Promise<IntentResult> {
   const q = query.toLowerCase().trim();
 
-  // Check if query is asking for specific employee data
+  // 1. Check if query is asking for multi-employee comparative speech
+  const isComparativeQuery = 
+    q.includes("compare") || 
+    q.includes("versus") || 
+    q.includes(" vs ") || 
+    q.includes("difference between");
+
+  if (isComparativeQuery && typeof window !== "undefined") {
+    let cleanQuery = q
+      .replace(/compare productivity of|compare performance of|compare tasks of|compare efficiency of|compare data of|compare|versus|difference between/g, "")
+      .replace(/employee|staff|dev|developer|manager|pm|qa/g, "")
+      .trim();
+
+    // Split names by 'and', 'vs', 'with', 'to'
+    const parts = cleanQuery.split(/\s+(?:and|vs|with|to)\s+/i);
+    if (parts.length >= 2) {
+      const targetName1 = parts[0].trim();
+      const targetName2 = parts[1].trim();
+
+      if (targetName1.length >= 2 && targetName2.length >= 2) {
+        try {
+          const res = await fetch("/api/employees");
+          if (res.ok) {
+            const data = await res.json();
+            const employeesList = Array.isArray(data) ? data : (data.employees || []);
+
+            const emp1 = employeesList.find((e: any) => 
+              e.name?.toLowerCase().includes(targetName1) ||
+              e.email?.toLowerCase().includes(targetName1) ||
+              e.role?.toLowerCase() === targetName1
+            );
+
+            const emp2 = employeesList.find((e: any) => 
+              e.name?.toLowerCase().includes(targetName2) ||
+              e.email?.toLowerCase().includes(targetName2) ||
+              e.role?.toLowerCase() === targetName2
+            );
+
+            if (emp1 && emp2) {
+              const eff1 = emp1.efficiency || 0;
+              const eff2 = emp2.efficiency || 0;
+              const comp1 = emp1.completedTasks || 0;
+              const comp2 = emp2.completedTasks || 0;
+              const tot1 = emp1.totalTasks || 0;
+              const tot2 = emp2.totalTasks || 0;
+
+              let leaderName = "";
+              let effDiff = Math.abs(eff1 - eff2);
+              if (eff1 > eff2) {
+                leaderName = emp1.name;
+              } else if (eff2 > eff1) {
+                leaderName = emp2.name;
+              }
+
+              let leadSentence = "";
+              if (leaderName) {
+                leadSentence = `${leaderName} currently leads in overall efficiency by ${effDiff}%.`;
+              } else {
+                leadSentence = `Both ${emp1.name} and ${emp2.name} have an identical efficiency rating of ${eff1}%.`;
+              }
+
+              const speech = `Executive Performance Comparison between ${emp1.name} and ${emp2.name}: ${emp1.name} has completed ${comp1} of ${tot1} tasks with ${eff1}% efficiency. ${emp2.name} has completed ${comp2} of ${tot2} tasks with ${eff2}% efficiency. ${leadSentence}`;
+
+              const display = `Executive Comparison: ${emp1.name} (${eff1}% efficiency, ${comp1}/${tot1} tasks) vs ${emp2.name} (${eff2}% efficiency, ${comp2}/${tot2} tasks). ${leadSentence}`;
+
+              const mappedEmp1: EmployeeData = {
+                id: emp1.id,
+                name: emp1.name,
+                role: emp1.role,
+                email: emp1.email,
+                phone: emp1.phone || "N/A",
+                monthly_salary: emp1.monthly_salary,
+                total_leaves_allowed: emp1.total_leaves_allowed,
+                totalTasks: tot1,
+                completedTasks: comp1,
+                efficiency: eff1,
+                is_active: emp1.is_active !== false
+              };
+
+              const mappedEmp2: EmployeeData = {
+                id: emp2.id,
+                name: emp2.name,
+                role: emp2.role,
+                email: emp2.email,
+                phone: emp2.phone || "N/A",
+                monthly_salary: emp2.monthly_salary,
+                total_leaves_allowed: emp2.total_leaves_allowed,
+                totalTasks: tot2,
+                completedTasks: comp2,
+                efficiency: eff2,
+                is_active: emp2.is_active !== false
+              };
+
+              return {
+                matched: true,
+                intent: "employee_comparison",
+                redirectUrl: `/dashboard/employees`,
+                speechSummary: speech,
+                displayText: display,
+                comparativeData: {
+                  emp1: mappedEmp1,
+                  emp2: mappedEmp2,
+                  leaderName,
+                  efficiencyDiff: effDiff,
+                  tasksDiff: Math.abs(comp1 - comp2)
+                }
+              };
+            }
+          }
+        } catch (err) {
+          console.error("Error running comparative employee analysis:", err);
+        }
+      }
+    }
+  }
+
+  // 2. Check if query is asking for specific single employee data
   const isEmployeeDataQuery = 
     q.includes("data of") || 
     q.includes("tell me about") || 
@@ -108,6 +233,7 @@ export async function resolveIntentAsync(query: string, role: string): Promise<I
   // Fallback to static intent resolution
   return resolveIntent(query, role);
 }
+
 
 export function resolveIntent(query: string, role: string): IntentResult {
   const q = query.toLowerCase().trim();

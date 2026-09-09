@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { resolveIntentAsync, IntentResult, EmployeeData } from "@/lib/ai-scripting";
+import { resolveIntentAsync, IntentResult, EmployeeData, ComparativeData } from "@/lib/ai-scripting";
 import { speakText, createSpeechRecognizer } from "@/lib/speech";
 import { 
   Bot, 
@@ -23,7 +23,11 @@ import {
   Phone, 
   Calendar,
   ExternalLink,
-  ChevronRight
+  ChevronRight,
+  Swords,
+  Trophy,
+  TrendingUp,
+  ArrowRightLeft
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -162,15 +166,15 @@ export default function VoiceScriptingAssistant() {
     // Speak response using Web Speech synthesis
     if (result.speechSummary) {
       speakText(result.speechSummary, () => {
-        // Automatically redirect on speech end if not an detailed employee card view
-        if (result.matched && result.redirectUrl && result.intent !== "employee_data") {
+        // Automatically redirect on speech end if not an detailed data card view
+        if (result.matched && result.redirectUrl && result.intent !== "employee_data" && result.intent !== "employee_comparison") {
           router.push(result.redirectUrl);
           setIsOpen(false);
         }
       });
     }
 
-    if (result.matched && result.redirectUrl && !result.speechSummary && result.intent !== "employee_data") {
+    if (result.matched && result.redirectUrl && !result.speechSummary && result.intent !== "employee_data" && result.intent !== "employee_comparison") {
       router.push(result.redirectUrl);
       setIsOpen(false);
     }
@@ -213,7 +217,7 @@ export default function VoiceScriptingAssistant() {
 
       {/* Floating Assistant Drawer - Fully Responsive Bottom Sheet on Mobile */}
       {isOpen && (
-        <div className="fixed inset-x-0 bottom-0 sm:inset-auto sm:bottom-20 sm:right-5 z-50 w-full sm:w-[420px] rounded-t-3xl sm:rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-5 max-h-[88vh] sm:max-h-[640px] flex flex-col">
+        <div className="fixed inset-x-0 bottom-0 sm:inset-auto sm:bottom-20 sm:right-5 z-50 w-full sm:w-[440px] rounded-t-3xl sm:rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-5 max-h-[88vh] sm:max-h-[640px] flex flex-col">
           
           {/* Mobile Handle Bar */}
           <div className="w-12 h-1 bg-slate-300 rounded-full mx-auto my-1.5 sm:hidden shrink-0" />
@@ -228,7 +232,7 @@ export default function VoiceScriptingAssistant() {
                 <h3 className="font-extrabold text-xs sm:text-sm flex items-center gap-1.5">
                   Executive Voice Assistant
                 </h3>
-                <p className="text-[10px] text-indigo-200 font-medium">100% Free • Verbal Briefings & Data</p>
+                <p className="text-[10px] text-indigo-200 font-medium">100% Free • Multi-Employee Speech Analysis</p>
               </div>
             </div>
             <div className="flex items-center gap-1">
@@ -269,7 +273,7 @@ export default function VoiceScriptingAssistant() {
           {isProcessing && (
             <div className="bg-indigo-600 text-white px-3 py-1.5 text-xs font-bold flex items-center gap-2 shrink-0 animate-pulse">
               <Sparkles className="h-3.5 w-3.5 text-amber-300 animate-spin" />
-              <span>Fetching live system data...</span>
+              <span>Analyzing comparative performance...</span>
             </div>
           )}
 
@@ -289,10 +293,17 @@ export default function VoiceScriptingAssistant() {
               </div>
               <div className="space-y-2 text-[11px]">
                 <div>
-                  <div className="font-bold text-indigo-300 mb-1">🗣️ Executive Data Briefing:</div>
+                  <div className="font-bold text-indigo-300 mb-1">⚔️ Multi-Employee Comparison Speech:</div>
+                  <div className="flex flex-wrap gap-1">
+                    <button onClick={() => handleShortcutClick("compare Alex and John")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"compare Alex and John"</button>
+                    <button onClick={() => handleShortcutClick("compare productivity of Alex and Sarah")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"compare productivity of Alex and Sarah"</button>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="font-bold text-indigo-300 mb-1">🗣️ Single Employee Data Briefing:</div>
                   <div className="flex flex-wrap gap-1">
                     <button onClick={() => handleShortcutClick("tell me data of Alex")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"tell me data of Alex"</button>
-                    <button onClick={() => handleShortcutClick("tell me about employee Sarah")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"data of Sarah"</button>
                     <button onClick={() => handleShortcutClick("salary of John")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"salary of John"</button>
                   </div>
                 </div>
@@ -306,26 +317,17 @@ export default function VoiceScriptingAssistant() {
                 </div>
 
                 <div>
-                  <div className="font-bold text-indigo-300 mb-1">🔑 Credentials & API Keys:</div>
+                  <div className="font-bold text-indigo-300 mb-1">🔑 Credentials & Analytics:</div>
                   <div className="flex flex-wrap gap-1">
                     <button onClick={() => handleShortcutClick("open 3rd party credentials")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"3rd party credentials"</button>
-                    <button onClick={() => handleShortcutClick("credentials for Cloudinary")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"Cloudinary keys"</button>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="font-bold text-indigo-300 mb-1">📊 Analytics & Attendance:</div>
-                  <div className="flex flex-wrap gap-1">
-                    <button onClick={() => handleShortcutClick("show analytics")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"show analytics"</button>
                     <button onClick={() => handleShortcutClick("who is present today")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"who is present today"</button>
-                    <button onClick={() => handleShortcutClick("show shift warnings")} className="bg-slate-800 hover:bg-indigo-600 px-2 py-0.5 rounded text-[10px]">"shift warnings"</button>
                   </div>
                 </div>
               </div>
             </div>
           ) : (
             /* Response Output Panel */
-            <div className="p-3.5 sm:p-4 space-y-3 bg-slate-50/70 flex-1 overflow-y-auto max-h-[360px] sm:max-h-[320px]">
+            <div className="p-3.5 sm:p-4 space-y-3 bg-slate-50/70 flex-1 overflow-y-auto max-h-[360px] sm:max-h-[340px]">
               {lastResult ? (
                 <div className="space-y-3 text-xs">
                   
@@ -333,15 +335,137 @@ export default function VoiceScriptingAssistant() {
                   <div className="p-3 rounded-xl bg-white border border-indigo-100 shadow-sm space-y-1.5">
                     <div className="flex items-center gap-1.5 text-indigo-700 font-extrabold text-[11px]">
                       <Volume2 className="h-3.5 w-3.5 text-purple-600 animate-pulse" />
-                      <span>Executive Briefing Speech:</span>
+                      <span>Executive Speech Output:</span>
                     </div>
                     <p className="text-slate-800 font-medium leading-relaxed">
                       {lastResult.speechSummary || lastResult.displayText}
                     </p>
                   </div>
 
-                  {/* STRUCTURED VIP EMPLOYEE DATA CARD */}
-                  {lastResult.employeeData && (
+                  {/* MULTI-EMPLOYEE COMPARATIVE PERFORMANCE CARD */}
+                  {lastResult.comparativeData && (
+                    <div className="p-3.5 rounded-xl bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-950 text-white shadow-md border border-indigo-500/30 space-y-3 animate-in fade-in zoom-in-95">
+                      {/* Header */}
+                      <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                        <div className="flex items-center gap-2">
+                          <div className="h-7 w-7 rounded-lg bg-amber-500/20 flex items-center justify-center border border-amber-400/30 text-amber-300">
+                            <Swords className="h-4 w-4" />
+                          </div>
+                          <div>
+                            <div className="font-black text-xs text-white">Side-by-Side Comparison</div>
+                            <div className="text-[10px] text-indigo-200">Task Completion & Efficiency Rates</div>
+                          </div>
+                        </div>
+                        {lastResult.comparativeData.leaderName && (
+                          <Badge className="bg-amber-400 text-slate-950 font-extrabold text-[9px] px-2 py-0.5 shadow-sm shrink-0">
+                            🏆 Leader: {lastResult.comparativeData.leaderName}
+                          </Badge>
+                        )}
+                      </div>
+
+                      {/* Side by Side Grid */}
+                      <div className="grid grid-cols-2 gap-2 text-[11px]">
+                        {/* Employee 1 Column */}
+                        <div className={`p-2.5 rounded-lg border space-y-2 ${
+                          lastResult.comparativeData.leaderName === lastResult.comparativeData.emp1.name
+                            ? "bg-indigo-900/40 border-amber-400/50 ring-1 ring-amber-400/30"
+                            : "bg-white/5 border-white/10"
+                        }`}>
+                          <div className="flex items-center gap-1.5">
+                            <div className="h-6 w-6 rounded-full bg-indigo-500 flex items-center justify-center font-bold text-[10px]">
+                              {lastResult.comparativeData.emp1.name.charAt(0)}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="font-extrabold text-white text-[11px] truncate">{lastResult.comparativeData.emp1.name}</div>
+                              <div className="text-[9px] text-indigo-300 truncate">{lastResult.comparativeData.emp1.role}</div>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1 text-[10px]">
+                            <div className="flex items-center justify-between text-slate-300">
+                              <span>Efficiency:</span>
+                              <span className="font-bold text-amber-300">{lastResult.comparativeData.emp1.efficiency}%</span>
+                            </div>
+                            <div className="w-full bg-white/10 rounded-full h-1.5 overflow-hidden">
+                              <div className="bg-gradient-to-r from-indigo-400 to-amber-400 h-full rounded-full" style={{ width: `${Math.min(100, lastResult.comparativeData.emp1.efficiency || 0)}%` }} />
+                            </div>
+
+                            <div className="flex items-center justify-between text-slate-300 pt-1">
+                              <span>Tasks:</span>
+                              <span className="font-bold text-emerald-300">{lastResult.comparativeData.emp1.completedTasks}/{lastResult.comparativeData.emp1.totalTasks}</span>
+                            </div>
+
+                            <div className="flex items-center justify-between text-slate-300">
+                              <span>Salary:</span>
+                              <span className="font-bold text-sky-300">₹{Number(lastResult.comparativeData.emp1.monthly_salary || 0).toLocaleString("en-IN")}</span>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              router.push(`/dashboard/employees?highlight=${encodeURIComponent(lastResult.comparativeData!.emp1.name)}`);
+                              setIsOpen(false);
+                            }}
+                            className="w-full text-[10px] font-bold bg-white/10 hover:bg-white/20 text-white py-1 rounded transition-colors text-center cursor-pointer"
+                          >
+                            View Record
+                          </button>
+                        </div>
+
+                        {/* Employee 2 Column */}
+                        <div className={`p-2.5 rounded-lg border space-y-2 ${
+                          lastResult.comparativeData.leaderName === lastResult.comparativeData.emp2.name
+                            ? "bg-indigo-900/40 border-amber-400/50 ring-1 ring-amber-400/30"
+                            : "bg-white/5 border-white/10"
+                        }`}>
+                          <div className="flex items-center gap-1.5">
+                            <div className="h-6 w-6 rounded-full bg-purple-500 flex items-center justify-center font-bold text-[10px]">
+                              {lastResult.comparativeData.emp2.name.charAt(0)}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="font-extrabold text-white text-[11px] truncate">{lastResult.comparativeData.emp2.name}</div>
+                              <div className="text-[9px] text-indigo-300 truncate">{lastResult.comparativeData.emp2.role}</div>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1 text-[10px]">
+                            <div className="flex items-center justify-between text-slate-300">
+                              <span>Efficiency:</span>
+                              <span className="font-bold text-amber-300">{lastResult.comparativeData.emp2.efficiency}%</span>
+                            </div>
+                            <div className="w-full bg-white/10 rounded-full h-1.5 overflow-hidden">
+                              <div className="bg-gradient-to-r from-purple-400 to-amber-400 h-full rounded-full" style={{ width: `${Math.min(100, lastResult.comparativeData.emp2.efficiency || 0)}%` }} />
+                            </div>
+
+                            <div className="flex items-center justify-between text-slate-300 pt-1">
+                              <span>Tasks:</span>
+                              <span className="font-bold text-emerald-300">{lastResult.comparativeData.emp2.completedTasks}/{lastResult.comparativeData.emp2.totalTasks}</span>
+                            </div>
+
+                            <div className="flex items-center justify-between text-slate-300">
+                              <span>Salary:</span>
+                              <span className="font-bold text-sky-300">₹{Number(lastResult.comparativeData.emp2.monthly_salary || 0).toLocaleString("en-IN")}</span>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              router.push(`/dashboard/employees?highlight=${encodeURIComponent(lastResult.comparativeData!.emp2.name)}`);
+                              setIsOpen(false);
+                            }}
+                            className="w-full text-[10px] font-bold bg-white/10 hover:bg-white/20 text-white py-1 rounded transition-colors text-center cursor-pointer"
+                          >
+                            View Record
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* SINGLE VIP EMPLOYEE DATA CARD */}
+                  {lastResult.employeeData && !lastResult.comparativeData && (
                     <div className="p-3.5 rounded-xl bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-950 text-white shadow-md border border-indigo-500/30 space-y-3 animate-in fade-in zoom-in-95">
                       {/* Card Header */}
                       <div className="flex items-center justify-between">
@@ -429,8 +553,8 @@ export default function VoiceScriptingAssistant() {
                     </div>
                   )}
 
-                  {/* NAV TARGET LINK BUTTON (If no employee card) */}
-                  {lastResult.redirectUrl && !lastResult.employeeData && (
+                  {/* NAV TARGET LINK BUTTON */}
+                  {lastResult.redirectUrl && !lastResult.employeeData && !lastResult.comparativeData && (
                     <button
                       type="button"
                       onClick={() => {
@@ -451,13 +575,13 @@ export default function VoiceScriptingAssistant() {
                 <div className="text-center py-6 text-slate-500 text-xs space-y-2.5">
                   <Bot className="h-9 w-9 text-indigo-500 mx-auto opacity-80" />
                   <div>
-                    <p className="font-bold text-slate-800 text-xs">Speak or ask about any employee or data:</p>
-                    <p className="text-[11px] text-slate-500 mt-0.5">"tell me data of Alex", "salary of John", "testing queue"</p>
+                    <p className="font-bold text-slate-800 text-xs">Speak or ask about any employee or comparative data:</p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">"compare Alex and John", "tell me data of Sarah"</p>
                   </div>
                   <div className="flex flex-wrap gap-1 justify-center text-[10px]">
+                    <button onClick={() => handleShortcutClick("compare Alex and John")} className="bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 px-2 py-1 rounded font-bold">"compare Alex and John"</button>
                     <button onClick={() => handleShortcutClick("tell me data of Alex")} className="bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 px-2 py-1 rounded font-medium">"data of Alex"</button>
                     <button onClick={() => handleShortcutClick("show testing queue")} className="bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 px-2 py-1 rounded font-medium">"Testing Queue"</button>
-                    <button onClick={() => handleShortcutClick("who is present today")} className="bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 px-2 py-1 rounded font-medium">"Who is present"</button>
                   </div>
                 </div>
               )}
@@ -469,7 +593,7 @@ export default function VoiceScriptingAssistant() {
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={isListening ? (interimText || "Listening to your voice...") : "Ask 'tell me data of Alex'..."}
+              placeholder={isListening ? (interimText || "Listening to your voice...") : "Ask 'compare Alex and John'..."}
               className={`text-xs flex-1 h-9 rounded-xl focus-visible:ring-indigo-500 ${
                 isListening ? "bg-rose-50 border-rose-300 text-rose-900 font-medium animate-pulse" : ""
               }`}
@@ -507,5 +631,6 @@ export default function VoiceScriptingAssistant() {
     </>
   );
 }
+
 
 
