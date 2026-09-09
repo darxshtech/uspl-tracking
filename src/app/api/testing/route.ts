@@ -3,7 +3,10 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import pool from "@/lib/db";
 
+let isSchemaInitialized = false;
+
 async function ensureTestingColumns() {
+  if (isSchemaInitialized) return;
   try {
     await pool.query(
       `CREATE TABLE IF NOT EXISTS testing_records (
@@ -27,6 +30,7 @@ async function ensureTestingColumns() {
       await pool.query("ALTER TABLE tasks ADD COLUMN sent_to_testing_at DATETIME NULL");
     }
   } catch (_) {}
+  isSchemaInitialized = true;
 }
 
 export async function GET(req: Request) {
@@ -78,29 +82,23 @@ export async function GET(req: Request) {
         pu.role as project_creator_role,
         u1.name as assignee_name, 
         u1.role as assignee_role,
-        COALESCE(
-          (SELECT u_dev.name FROM users u_dev WHERE u_dev.id = t.created_by AND u_dev.role = 'Developer'),
-          (SELECT u_pm.name FROM project_members pm JOIN users u_pm ON pm.user_id = u_pm.id WHERE pm.project_id = t.project_id AND u_pm.role = 'Developer' LIMIT 1),
-          (SELECT u_dev2.name FROM tasks t_dev JOIN users u_dev2 ON (t_dev.assigned_to = u_dev2.id OR t_dev.created_by = u_dev2.id) WHERE t_dev.project_id = t.project_id AND u_dev2.role = 'Developer' LIMIT 1),
-          pu.name,
-          'Developer'
-        ) as developer_name,
+        COALESCE(u_creator.name, pu.name, 'Developer') as developer_name,
         u2.name as creator_name,
         u2.role as creator_role,
         COALESCE(
           t.sent_to_testing_at, 
-          (SELECT MIN(started_at) FROM task_time_logs WHERE task_id = t.id),
+          ttl_min.first_started,
           t.created_at
         ) as date_time_sent,
         COALESCE(
           t.testing_started_at,
-          (SELECT MIN(started_at) FROM task_time_logs WHERE task_id = t.id AND user_id IN (SELECT id FROM users WHERE role = 'Tester')),
+          ttl_tester.first_tester_started,
           t.created_at
         ) as qa_started_at,
         TIMESTAMPDIFF(SECOND, 
           COALESCE(
             t.testing_started_at,
-            (SELECT MIN(started_at) FROM task_time_logs WHERE task_id = t.id AND user_id IN (SELECT id FROM users WHERE role = 'Tester')),
+            ttl_tester.first_tester_started,
             t.created_at
           ), 
           CURRENT_TIMESTAMP
@@ -110,6 +108,19 @@ export async function GET(req: Request) {
       LEFT JOIN users pu ON p.created_by = pu.id
       LEFT JOIN users u1 ON t.assigned_to = u1.id
       LEFT JOIN users u2 ON t.created_by = u2.id
+      LEFT JOIN users u_creator ON t.created_by = u_creator.id
+      LEFT JOIN (
+        SELECT task_id, MIN(started_at) as first_started 
+        FROM task_time_logs 
+        GROUP BY task_id
+      ) ttl_min ON ttl_min.task_id = t.id
+      LEFT JOIN (
+        SELECT ttl_sub.task_id, MIN(ttl_sub.started_at) as first_tester_started 
+        FROM task_time_logs ttl_sub 
+        JOIN users u_t ON ttl_sub.user_id = u_t.id 
+        WHERE u_t.role = 'Tester'
+        GROUP BY ttl_sub.task_id
+      ) ttl_tester ON ttl_tester.task_id = t.id
       WHERE t.status IN ('Ready for Testing', 'Testing')
          OR (t.assigned_to IN (SELECT id FROM users WHERE role = 'Tester') AND t.status NOT IN ('Completed', 'Tested (PASS)', 'Ready for Demo'))
       ORDER BY t.created_at DESC
@@ -170,22 +181,20 @@ export async function GET(req: Request) {
       };
     });
 
-    // Fetch summary stats for Testers (for Admin, CEO, PM & Tester brief views)
+    // Fetch active Testers
     const [testers]: any = await pool.query(
       `SELECT id, name, email, role FROM users WHERE role = 'Tester' AND is_active = 1 ORDER BY name ASC`
     );
 
-    const testerSummaries: any[] = [];
-    for (const tester of testers) {
-      // 1. Tasks the tester is working on today
-      const [todayLogs]: any = await pool.query(`
-        SELECT DISTINCT t.id as task_id, t.title as task_title, t.project_id,
+    const testerIds = testers.map((t: any) => t.id);
+
+    // BULK FETCH 1: Today's active / worked time logs for all testers
+    let allTodayLogs: any[] = [];
+    if (testerIds.length > 0) {
+      const [tLogs]: any = await pool.query(`
+        SELECT DISTINCT ttl.user_id, t.id as task_id, t.title as task_title, t.project_id,
                COALESCE(p.name, 'General') as project_name,
-               COALESCE(
-                 (SELECT u_dev.name FROM users u_dev WHERE u_dev.id = t.created_by AND u_dev.role = 'Developer'),
-                 (SELECT u_pm.name FROM project_members pm JOIN users u_pm ON pm.user_id = u_pm.id WHERE pm.project_id = t.project_id AND u_pm.role = 'Developer' LIMIT 1),
-                 'Developer'
-               ) as developer_name,
+               COALESCE(u_creator.name, 'Developer') as developer_name,
                COALESCE(t.sent_to_testing_at, t.created_at) as date_time_sent,
                COALESCE(t.expected_date, t.due_date, t.target_date) as expected_date,
                ttl.is_active,
@@ -193,37 +202,66 @@ export async function GET(req: Request) {
                (
                  SELECT IFNULL(SUM(duration_minutes), 0)
                  FROM task_time_logs 
-                 WHERE task_id = t.id AND user_id = ? AND DATE(started_at) = CURRENT_DATE()
+                 WHERE task_id = t.id AND user_id = ttl.user_id AND DATE(started_at) = CURRENT_DATE()
                ) as minutes_today
         FROM task_time_logs ttl
         JOIN tasks t ON ttl.task_id = t.id
         LEFT JOIN projects p ON t.project_id = p.id
-        WHERE ttl.user_id = ? AND (ttl.is_active = 1 OR DATE(ttl.started_at) = CURRENT_DATE())
+        LEFT JOIN users u_creator ON t.created_by = u_creator.id
+        WHERE ttl.user_id IN (?) AND (ttl.is_active = 1 OR DATE(ttl.started_at) = CURRENT_DATE())
         ORDER BY ttl.started_at DESC
-      `, [tester.id, tester.id]);
+      `, [testerIds]);
+      allTodayLogs = Array.isArray(tLogs) ? tLogs : [];
+    }
 
-      // 2. Tested tasks records completed by the tester
-      const [records]: any = await pool.query(
+    // BULK FETCH 2: Completed tested task records for all testers
+    let allTestedRecords: any[] = [];
+    if (testerIds.length > 0) {
+      const [tRecs]: any = await pool.query(
         `SELECT DISTINCT t.id as task_id, t.title as task_title, t.project_id, 
                 COALESCE(p.name, 'General') as project_name,
-                COALESCE(
-                  (SELECT u_dev.name FROM users u_dev WHERE u_dev.id = t.created_by AND u_dev.role = 'Developer'),
-                  (SELECT u_pm.name FROM project_members pm JOIN users u_pm ON pm.user_id = u_pm.id WHERE pm.project_id = t.project_id AND u_pm.role = 'Developer' LIMIT 1),
-                  (SELECT u_dev2.name FROM tasks t_dev JOIN users u_dev2 ON (t_dev.assigned_to = u_dev2.id OR t_dev.created_by = u_dev2.id) WHERE t_dev.project_id = t.project_id AND u_dev2.role = 'Developer' LIMIT 1),
-                  'Developer'
-                ) as developer_name,
+                COALESCE(u_creator.name, 'Developer') as developer_name,
                 COALESCE(t.sent_to_testing_at, t.created_at) as date_time_sent,
                 COALESCE(t.expected_date, t.due_date, t.target_date) as expected_date,
                 COALESCE(t.testing_ended_at, t.updated_at, t.created_at) as tested_at,
                 'PASS' as result,
-                t.remarks
+                t.remarks,
+                t.assigned_to,
+                ttl.user_id as log_user_id
          FROM tasks t
          LEFT JOIN projects p ON t.project_id = p.id
-         WHERE (t.assigned_to = ? OR t.id IN (SELECT task_id FROM task_time_logs WHERE user_id = ?))
+         LEFT JOIN users u_creator ON t.created_by = u_creator.id
+         LEFT JOIN task_time_logs ttl ON ttl.task_id = t.id AND ttl.user_id IN (?)
+         WHERE (t.assigned_to IN (?) OR ttl.user_id IS NOT NULL)
            AND t.status IN ('Completed', 'Tested (PASS)', 'Ready for Demo')
          ORDER BY tested_at DESC`,
-        [tester.id, tester.id]
+        [testerIds, testerIds]
       );
+      allTestedRecords = Array.isArray(tRecs) ? tRecs : [];
+    }
+
+    // Map bulk results per tester in memory (O(N) assembly)
+    const todayLogsByTester: Record<number, any[]> = {};
+    allTodayLogs.forEach((log: any) => {
+      if (!todayLogsByTester[log.user_id]) todayLogsByTester[log.user_id] = [];
+      todayLogsByTester[log.user_id].push(log);
+    });
+
+    const recordsByTester: Record<number, any[]> = {};
+    allTestedRecords.forEach((rec: any) => {
+      const targetUserId = rec.assigned_to || rec.log_user_id;
+      if (targetUserId) {
+        if (!recordsByTester[targetUserId]) recordsByTester[targetUserId] = [];
+        // Deduplicate records per tester
+        if (!recordsByTester[targetUserId].some((r: any) => r.task_id === rec.task_id)) {
+          recordsByTester[targetUserId].push(rec);
+        }
+      }
+    });
+
+    const testerSummaries: any[] = testers.map((tester: any) => {
+      const todayLogs = todayLogsByTester[tester.id] || [];
+      const records = recordsByTester[tester.id] || [];
 
       // Group completed tested tasks by project
       const projTestedMap = new Map<number, {
@@ -280,7 +318,7 @@ export async function GET(req: Request) {
         (t: any) => t.status === "Testing" || (t.assigned_to && String(t.assigned_to) === String(tester.id))
       );
 
-      testerSummaries.push({
+      return {
         id: tester.id,
         name: tester.name,
         email: tester.email,
@@ -296,8 +334,8 @@ export async function GET(req: Request) {
         completed_projects: projectsTestedList,
         past_tested_tasks: records,
         active_tasks: activeForTester,
-      });
-    }
+      };
+    });
 
     // Group active testing queue by project for "Projects Submitted for Testing"
     const projectQueueMap = new Map<number, any>();
