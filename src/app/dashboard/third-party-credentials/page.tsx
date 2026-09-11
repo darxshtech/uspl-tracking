@@ -1391,14 +1391,15 @@ function ThirdPartyCredentialsContent() {
                         )}
                       </div>
 
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1.5">
                         <button
                           type="button"
                           onClick={() => handleOpenEditModal(cred)}
-                          className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-white transition cursor-pointer"
+                          className="px-2.5 py-1 rounded-lg text-slate-600 hover:text-indigo-600 bg-white hover:bg-indigo-50 transition cursor-pointer text-[11px] font-bold flex items-center gap-1 border border-slate-200 hover:border-indigo-300 shadow-2xs"
                           title="Edit Service Credentials"
                         >
-                          <Edit3 className="h-3.5 w-3.5" />
+                          <Edit3 className="h-3.5 w-3.5 text-indigo-600" />
+                          <span>Edit</span>
                         </button>
                         <button
                           type="button"
@@ -1421,7 +1422,12 @@ function ThirdPartyCredentialsContent() {
       {/* ========================================================================= */}
       {/* ADD / EDIT SERVICE CREDENTIALS MODAL                                      */}
       {/* ========================================================================= */}
-      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+      <Dialog open={modalOpen} onOpenChange={(open) => {
+        setModalOpen(open);
+        if (!open) {
+          setEditingId(null);
+        }
+      }}>
         <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto rounded-2xl p-6 bg-white shadow-2xl">
           <DialogHeader>
             <DialogTitle className="text-lg font-extrabold text-slate-900 flex items-center gap-2">
