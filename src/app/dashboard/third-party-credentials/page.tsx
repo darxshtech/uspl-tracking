@@ -1293,7 +1293,15 @@ function ThirdPartyCredentialsContent() {
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-1 shrink-0">
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditModal(cred)}
+                            className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition cursor-pointer"
+                            title="Edit Service Credentials"
+                          >
+                            <Edit3 className="h-3.5 w-3.5" />
+                          </button>
                           <Badge variant="outline" className={`text-[10px] font-bold ${envColor}`}>
                             {cred.environment || "Production"}
                           </Badge>

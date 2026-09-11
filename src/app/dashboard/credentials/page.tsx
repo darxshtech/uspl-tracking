@@ -867,17 +867,19 @@ function CredentialsContent() {
                       <ShieldCheck className="h-3.5 w-3.5 text-sky-600" /> {cred.role || "Team"} Access
                     </div>
 
-                    {(isExecutive || cred.user_id === currentUserId) && (
-                      <div className="flex items-center gap-1">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => handleOpenEditModal(cred)}
-                          className="h-8 w-8 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded-full cursor-pointer"
-                          title="Edit Credentials"
-                        >
-                          <Edit3 className="h-4 w-4" />
-                        </Button>
+                    <div className="flex items-center gap-1.5">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleOpenEditModal(cred)}
+                        className="h-8 px-2.5 text-xs font-bold text-sky-700 bg-sky-50 hover:bg-sky-100 border-sky-200 rounded-xl cursor-pointer gap-1 shadow-2xs"
+                        title="Edit Project Credentials"
+                      >
+                        <Edit3 className="h-3.5 w-3.5 text-sky-600" />
+                        <span>Edit</span>
+                      </Button>
+
+                      {(isExecutive || cred.user_id === currentUserId) && (
                         <Button
                           size="icon"
                           variant="ghost"
@@ -887,8 +889,8 @@ function CredentialsContent() {
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
 
                   <h3 className="font-extrabold text-slate-900 text-xl leading-tight">
@@ -971,7 +973,7 @@ function CredentialsContent() {
                             {primaryLoginUrl && (
                               <button
                                 onClick={() => handleDirectLogin(primaryLoginUrl, cred)}
-                                className="text-[11px] font-bold text-sky-600 hover:underline flex items-center gap-1"
+                                className="text-[11px] font-bold text-sky-600 hover:underline flex items-center gap-1 cursor-pointer"
                               >
                                 <span>Launch & Paste</span> &rarr;
                               </button>
@@ -988,7 +990,7 @@ function CredentialsContent() {
                                 size="sm"
                                 variant="ghost"
                                 onClick={() => handleCopyText(sec.username!, `u-${passKey}`, "Username")}
-                                className="h-6 px-2 text-[10px] font-bold text-sky-700 hover:bg-sky-50 shrink-0 gap-1"
+                                className="h-6 px-2 text-[10px] font-bold text-sky-700 hover:bg-sky-50 shrink-0 gap-1 cursor-pointer"
                               >
                                 {copiedKey === `u-${passKey}` ? (
                                   <>
@@ -1017,7 +1019,7 @@ function CredentialsContent() {
                                       [passKey]: !isPassVisible,
                                     })
                                   }
-                                  className="text-slate-400 hover:text-slate-700 p-1"
+                                  className="text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
                                   title={isPassVisible ? "Hide Password" : "Show Password"}
                                 >
                                   {isPassVisible ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5 text-slate-500" />}
@@ -1026,7 +1028,7 @@ function CredentialsContent() {
                                   size="sm"
                                   variant="ghost"
                                   onClick={() => handleCopyText(sec.password!, `p-${passKey}`, "Password")}
-                                  className="h-6 px-2 text-[10px] font-bold text-sky-700 hover:bg-sky-50 gap-1"
+                                  className="h-6 px-2 text-[10px] font-bold text-sky-700 hover:bg-sky-50 gap-1 cursor-pointer"
                                 >
                                   {copiedKey === `p-${passKey}` ? (
                                     <>
@@ -1047,21 +1049,30 @@ function CredentialsContent() {
                   </div>
                 )}
 
-                {/* 1-Click Copy All Quick Action */}
-                <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                {/* Footer Action Buttons: Edit & 1-Click Copy */}
+                <div className="pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleOpenEditModal(cred)}
+                    className="w-full text-xs font-bold text-sky-700 bg-sky-50/80 hover:bg-sky-100 border-sky-200 hover:border-sky-300 gap-1.5 cursor-pointer shadow-2xs"
+                  >
+                    <Edit3 className="h-3.5 w-3.5 text-sky-600" /> Edit Credentials
+                  </Button>
+
                   <Button
                     size="sm"
                     variant="outline"
                     onClick={() => handleCopyText(cred.credentials_text, `card-${cred.id}`, "Full Credentials")}
-                    className="w-full text-xs font-bold text-slate-700 bg-slate-50 hover:bg-slate-100 border-slate-200 gap-1.5"
+                    className="w-full text-xs font-bold text-slate-700 bg-slate-50 hover:bg-slate-100 border-slate-200 gap-1.5 cursor-pointer"
                   >
                     {copiedKey === `card-${cred.id}` ? (
                       <>
-                        <Check className="h-3.5 w-3.5 text-emerald-600" /> Copied All Credentials!
+                        <Check className="h-3.5 w-3.5 text-emerald-600" /> Copied Full Logins!
                       </>
                     ) : (
                       <>
-                        <Copy className="h-3.5 w-3.5" /> 1-Click Copy Full Credentials
+                        <Copy className="h-3.5 w-3.5 text-slate-500" /> 1-Click Copy All
                       </>
                     )}
                   </Button>
