@@ -141,10 +141,26 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: "Credential record(s) not found." }, { status: 404 });
     }
 
-    // Authorization: Executives can edit all; team members can only edit their own
+    // Authorization: Executives can edit all; team members can edit if they own the credential OR are assigned to the project
     if (!isExecutive) {
-      const ownsAll = existingRows.every((r: any) => r.user_id === currentUserId);
-      if (!ownsAll) {
+      const isOwner = existingRows.some((r: any) => r.user_id === currentUserId);
+      const rowProjectId = existingRows[0]?.project_id;
+      let isProjectMember = false;
+
+      if (rowProjectId) {
+        const [memberCheck]: any = await pool.query(
+          `SELECT 1 FROM project_members WHERE project_id = ? AND user_id = ?
+           UNION
+           SELECT 1 FROM tasks WHERE project_id = ? AND (assigned_to = ? OR id IN (SELECT task_id FROM task_assignees WHERE user_id = ?))
+           LIMIT 1`,
+          [rowProjectId, currentUserId, rowProjectId, String(currentUserId), currentUserId]
+        );
+        if (memberCheck && memberCheck.length > 0) {
+          isProjectMember = true;
+        }
+      }
+
+      if (!isOwner && !isProjectMember) {
         return NextResponse.json({ error: "You do not have permission to edit these credentials." }, { status: 403 });
       }
     }

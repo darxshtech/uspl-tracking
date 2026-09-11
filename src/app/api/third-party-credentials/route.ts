@@ -9,6 +9,7 @@ async function ensureTable() {
     CREATE TABLE IF NOT EXISTS project_third_party_credentials (
       id INT AUTO_INCREMENT PRIMARY KEY,
       project_id INT NOT NULL,
+      folder_name VARCHAR(100) DEFAULT 'root' NOT NULL,
       service_name VARCHAR(100) NOT NULL,
       service_category VARCHAR(50) DEFAULT 'API / Service',
       environment VARCHAR(50) DEFAULT 'Production',
@@ -18,11 +19,22 @@ async function ensureTable() {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       INDEX idx_project_id (project_id),
+      INDEX idx_folder_name (folder_name),
       INDEX idx_service_category (service_category),
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
       FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
+
+  // Ensure column exists for backwards compatibility
+  try {
+    const [cols]: any = await pool.query("SHOW COLUMNS FROM project_third_party_credentials LIKE 'folder_name'");
+    if (!cols || cols.length === 0) {
+      await pool.query("ALTER TABLE project_third_party_credentials ADD COLUMN folder_name VARCHAR(100) DEFAULT 'root' NOT NULL AFTER project_id");
+    }
+  } catch (migErr) {
+    console.warn("Folder migration notice:", migErr);
+  }
 }
 
 // GET: Fetch 3rd-party credentials scoped to user's assigned projects
@@ -40,6 +52,7 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const filterProjectId = searchParams.get("project_id") || searchParams.get("projectId");
     const category = searchParams.get("category");
+    const folder = searchParams.get("folder") || searchParams.get("folder_name");
 
     let query = `
       SELECT 
@@ -72,6 +85,11 @@ export async function GET(req: Request) {
     if (filterProjectId && filterProjectId !== "0" && filterProjectId !== "ALL") {
       conditions.push("c.project_id = ?");
       params.push(parseInt(filterProjectId, 10));
+    }
+
+    if (folder && folder !== "ALL") {
+      conditions.push("c.folder_name = ?");
+      params.push(folder.trim().toLowerCase());
     }
 
     if (category && category !== "ALL") {
@@ -156,7 +174,7 @@ export async function POST(req: Request) {
     const isExecutive = ["Admin", "CEO", "PM"].includes(currentUserRole);
 
     const body = await req.json();
-    const { project_id, service_name, service_category, environment, credentials_data, notes } = body;
+    const { project_id, folder_name, service_name, service_category, environment, credentials_data, notes } = body;
 
     if (!project_id) {
       return NextResponse.json({ error: "Please select an assigned project." }, { status: 400 });
@@ -169,6 +187,9 @@ export async function POST(req: Request) {
     }
 
     const numericProjectId = parseInt(String(project_id), 10);
+    const cleanFolder = (folder_name && folder_name.trim()) 
+      ? folder_name.trim().toLowerCase().replace(/[^a-z0-9_\-\.]/g, '_') 
+      : 'root';
 
     // Verify user has access to this project
     if (!isExecutive) {
@@ -192,10 +213,11 @@ export async function POST(req: Request) {
 
     const [result]: any = await pool.query(`
       INSERT INTO project_third_party_credentials 
-        (project_id, service_name, service_category, environment, credentials_data, notes, created_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+        (project_id, folder_name, service_name, service_category, environment, credentials_data, notes, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       numericProjectId,
+      cleanFolder,
       service_name.trim(),
       service_category || "API / Service",
       environment || "Production",
@@ -220,8 +242,8 @@ export async function POST(req: Request) {
             VALUES (?, ?, ?, 'credential_added')
           `, [
             m.id,
-            `🔑 3rd-Party Credentials: ${service_name.trim()}`,
-            `${currentUserName} added ${service_name.trim()} (${environment || 'Production'}) credentials for ${projectName}.`,
+            `🔑 3rd-Party Credentials: ${service_name.trim()} [${cleanFolder}]`,
+            `${currentUserName} added ${service_name.trim()} (${environment || 'Production'}) credentials for ${projectName} (folder: ${cleanFolder}).`,
           ]);
         }
       }
@@ -253,7 +275,7 @@ export async function PUT(req: Request) {
     const isExecutive = ["Admin", "CEO", "PM"].includes(currentUserRole);
 
     const body = await req.json();
-    const { id, project_id, service_name, service_category, environment, credentials_data, notes } = body;
+    const { id, project_id, folder_name, service_name, service_category, environment, credentials_data, notes } = body;
 
     if (!id) {
       return NextResponse.json({ error: "Credential ID is required." }, { status: 400 });
@@ -282,6 +304,10 @@ export async function PUT(req: Request) {
     }
 
     const numericProjectId = project_id ? parseInt(String(project_id), 10) : existing.project_id;
+    const cleanFolder = (folder_name && folder_name.trim()) 
+      ? folder_name.trim().toLowerCase().replace(/[^a-z0-9_\-\.]/g, '_') 
+      : (existing.folder_name || 'root');
+
     const jsonString = credentials_data 
       ? (typeof credentials_data === "string" ? credentials_data : JSON.stringify(credentials_data))
       : existing.credentials_data;
@@ -289,6 +315,7 @@ export async function PUT(req: Request) {
     await pool.query(`
       UPDATE project_third_party_credentials
       SET project_id = ?,
+          folder_name = ?,
           service_name = ?,
           service_category = ?,
           environment = ?,
@@ -297,6 +324,7 @@ export async function PUT(req: Request) {
       WHERE id = ?
     `, [
       numericProjectId,
+      cleanFolder,
       service_name ? service_name.trim() : existing.service_name,
       service_category || existing.service_category,
       environment || existing.environment,
