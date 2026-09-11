@@ -39,7 +39,11 @@ import {
   Download,
   Upload,
   FolderLock,
-  Sparkle
+  Sparkle,
+  Folder,
+  FolderPlus,
+  FolderTree,
+  Boxes
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -179,51 +183,34 @@ const SERVICE_PRESETS: ServicePreset[] = [
     bgColor: "bg-orange-500/10",
     borderColor: "border-orange-500/30",
     defaultFields: [
-      { key: "project_id", label: "Project ID", placeholder: "e.g. my-app-prod" },
-      { key: "api_key", label: "Web API Key / Anon Key", placeholder: "AIzaSy..." },
-      { key: "auth_domain", label: "Auth Domain / URL", placeholder: "my-app-prod.firebaseapp.com" },
-      { key: "database_url", label: "Database URL / Supabase URL", placeholder: "https://my-app.supabase.co" },
-      { key: "service_account_json", label: "Service Account / Secret Key", placeholder: "Paste JSON or Secret Key...", isSecret: true },
+      { key: "project_id", label: "Firebase / Supabase Project ID", placeholder: "e.g. unitglo-app-12345" },
+      { key: "api_key", label: "API Key / Web API Key", placeholder: "AIzaSy...", isSecret: true },
+      { key: "auth_domain", label: "Auth Domain (Optional)", placeholder: "unitglo-app-12345.firebaseapp.com" },
+      { key: "database_url", label: "Database / Supabase URL (Optional)", placeholder: "https://xxx.supabase.co" },
+      { key: "service_account_key", label: "Service Account JSON / Admin Secret (Optional)", placeholder: "{\n  \"type\": \"service_account\", ...\n}", isSecret: true },
     ],
     envPrefix: "FIREBASE",
     docsUrl: "https://firebase.google.com/docs"
   },
   {
-    id: "email_smtp",
-    name: "SendGrid / Resend / SMTP",
-    category: "Email",
-    icon: Mail,
+    id: "twilio",
+    name: "Twilio SMS & Voice",
+    category: "Messaging & SMS",
+    icon: Smartphone,
     color: "text-rose-500",
     bgColor: "bg-rose-500/10",
     borderColor: "border-rose-500/30",
     defaultFields: [
-      { key: "api_key", label: "API Key / SMTP Password", placeholder: "SG. or re_...", isSecret: true },
-      { key: "from_email", label: "From / Sender Email", placeholder: "notifications@yourdomain.com" },
-      { key: "from_name", label: "From Sender Name", placeholder: "e.g. Unitglo Support" },
-      { key: "smtp_host", label: "SMTP Host (Optional)", placeholder: "smtp.sendgrid.net" },
-      { key: "smtp_port", label: "SMTP Port (Optional)", placeholder: "587" },
-    ],
-    envPrefix: "MAIL",
-    docsUrl: "https://resend.com/docs"
-  },
-  {
-    id: "twilio",
-    name: "Twilio / SMS Gateway",
-    category: "Messaging & SMS",
-    icon: Smartphone,
-    color: "text-red-500",
-    bgColor: "bg-red-500/10",
-    borderColor: "border-red-500/30",
-    defaultFields: [
       { key: "account_sid", label: "Account SID", placeholder: "AC..." },
-      { key: "auth_token", label: "Auth Token", placeholder: "e.g. 1a2b3c4d5e6f...", isSecret: true },
-      { key: "sender_phone", label: "Sender Phone Number / Sender ID", placeholder: "+1234567890 or UNTGLE" },
+      { key: "auth_token", label: "Auth Token", placeholder: "e.g. 1a2b3c4d5e6f7g8h9i0j", isSecret: true },
+      { key: "phone_number", label: "Twilio Sender Phone Number", placeholder: "+1234567890" },
+      { key: "messaging_service_sid", label: "Messaging Service SID (Optional)", placeholder: "MG..." },
     ],
     envPrefix: "TWILIO",
     docsUrl: "https://www.twilio.com/docs"
   },
   {
-    id: "openai_ai",
+    id: "openai",
     name: "OpenAI / Claude / Gemini API",
     category: "AI & ML",
     icon: Bot,
@@ -231,12 +218,30 @@ const SERVICE_PRESETS: ServicePreset[] = [
     bgColor: "bg-teal-500/10",
     borderColor: "border-teal-500/30",
     defaultFields: [
-      { key: "api_key", label: "API Secret Key", placeholder: "sk-proj-...", isSecret: true },
-      { key: "org_id", label: "Organization ID (Optional)", placeholder: "org-..." },
-      { key: "base_url", label: "Custom Base URL / Proxy (Optional)", placeholder: "https://api.openai.com/v1" },
+      { key: "api_key", label: "AI Provider API Key", placeholder: "sk-...", isSecret: true },
+      { key: "organization_id", label: "Organization ID (Optional)", placeholder: "org-..." },
+      { key: "model_name", label: "Default Model Name (Optional)", placeholder: "gpt-4o / claude-3-5-sonnet" },
     ],
     envPrefix: "AI",
-    docsUrl: "https://platform.openai.com/docs"
+    docsUrl: "https://platform.openai.com"
+  },
+  {
+    id: "sendgrid",
+    name: "SendGrid / Resend / Mailgun",
+    category: "Email",
+    icon: Mail,
+    color: "text-blue-500",
+    bgColor: "bg-blue-500/10",
+    borderColor: "border-blue-500/30",
+    defaultFields: [
+      { key: "api_key", label: "SMTP / API Key", placeholder: "SG. or re_...", isSecret: true },
+      { key: "from_email", label: "Verified Sender Email", placeholder: "noreply@yourdomain.com" },
+      { key: "from_name", label: "Sender Display Name (Optional)", placeholder: "Unitglo Team" },
+      { key: "smtp_host", label: "SMTP Host (Optional)", placeholder: "smtp.sendgrid.net" },
+      { key: "smtp_port", label: "SMTP Port (Optional)", placeholder: "587" },
+    ],
+    envPrefix: "MAIL",
+    docsUrl: "https://sendgrid.com/docs"
   },
   {
     id: "google_maps",
@@ -266,10 +271,25 @@ const CATEGORIES = [
   "Other APIs"
 ];
 
+// Common folder suggestions for multi-service repositories
+const COMMON_FOLDER_PRESETS = [
+  "root",
+  "hub",
+  "tenant-backend",
+  "tenant-frontend",
+  "mobile-app",
+  "admin-panel",
+  "api-service",
+  "microservice",
+  "cron-jobs",
+  "worker"
+];
+
 // Parsed item structure for .env import
 interface ParsedEnvService {
   serviceName: string;
   category: string;
+  folderName: string;
   environment: string;
   credentialsData: Record<string, string>;
   selected: boolean;
@@ -295,11 +315,13 @@ function ThirdPartyCredentialsContent() {
   
   // WIZARD STATE: null = Project Cards Overview View, string = Selected Project Vault View
   const [selectedProjectVaultId, setSelectedProjectVaultId] = useState<string | null>(queryProjectId || null);
+  const [selectedFolder, setSelectedFolder] = useState<string>("ALL");
 
   // Add/Edit Modal State
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
+  const [folderName, setFolderName] = useState<string>("root");
   const [selectedPresetId, setSelectedPresetId] = useState<string>("whatsapp");
   const [serviceName, setServiceName] = useState<string>("WhatsApp Business API");
   const [serviceCategory, setServiceCategory] = useState<string>("Messaging & SMS");
@@ -313,6 +335,7 @@ function ThirdPartyCredentialsContent() {
   // .env Import Modal State
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importProjectId, setImportProjectId] = useState<string>("");
+  const [importFolderName, setImportFolderName] = useState<string>("root");
   const [importEnvironment, setImportEnvironment] = useState<string>("Production");
   const [rawEnvText, setRawEnvText] = useState<string>("");
   const [parsedEnvServices, setParsedEnvServices] = useState<ParsedEnvService[]>([]);
@@ -438,8 +461,9 @@ function ThirdPartyCredentialsContent() {
     }
   };
 
-  const handleOpenAddModal = (presetId?: string, targetProjectId?: string) => {
+  const handleOpenAddModal = (presetId?: string, targetProjectId?: string, targetFolder?: string) => {
     setEditingId(null);
+    setFolderName(targetFolder || (selectedFolder !== "ALL" ? selectedFolder : "root"));
     if (presetId === "custom_new") {
       setSelectedPresetId("custom_new");
       setServiceName("");
@@ -477,6 +501,7 @@ function ThirdPartyCredentialsContent() {
   const handleOpenEditModal = (cred: any) => {
     setEditingId(cred.id);
     setSelectedProjectId(String(cred.project_id));
+    setFolderName(cred.folder_name || "root");
     setServiceName(cred.service_name);
     setServiceCategory(cred.service_category || "API / Service");
     setEnvironment(cred.environment || "Production");
@@ -559,6 +584,7 @@ function ThirdPartyCredentialsContent() {
     try {
       const payload: any = {
         project_id: parseInt(selectedProjectId, 10),
+        folder_name: (folderName && folderName.trim()) ? folderName.trim().toLowerCase() : "root",
         service_name: serviceName.trim(),
         service_category: serviceCategory,
         environment,
@@ -596,13 +622,14 @@ function ThirdPartyCredentialsContent() {
   };
 
   // =========================================================================
-  // INTELLIGENT .ENV PARSER & IMPORT ENGINE
+  // INTELLIGENT MULTI-FOLDER .ENV PARSER & IMPORT ENGINE
   // =========================================================================
-  const handleOpenImportModal = (targetProjId?: string) => {
+  const handleOpenImportModal = (targetProjId?: string, targetFolder?: string) => {
     setRawEnvText("");
     setParsedEnvServices([]);
     const projId = targetProjId || selectedProjectVaultId || (allProjects.length > 0 ? String(allProjects[0].id) : "");
     setImportProjectId(projId);
+    setImportFolderName(targetFolder || (selectedFolder !== "ALL" ? selectedFolder : "root"));
     setImportModalOpen(true);
   };
 
@@ -614,24 +641,39 @@ function ThirdPartyCredentialsContent() {
       const content = event.target?.result as string;
       if (content) {
         setRawEnvText(content);
-        parseAndGroupEnvText(content);
+        parseAndGroupEnvText(content, importFolderName);
       }
     };
     reader.readAsText(file);
   };
 
-  const parseAndGroupEnvText = (text: string) => {
+  const parseAndGroupEnvText = (text: string, defaultFolder: string = importFolderName) => {
     if (!text.trim()) {
       setParsedEnvServices([]);
       return;
     }
 
     const lines = text.split("\n");
-    const keyValues: { key: string; value: string }[] = [];
+    let currentFolder = (defaultFolder && defaultFolder.trim()) ? defaultFolder.trim().toLowerCase() : "root";
+    const keyValues: { key: string; value: string; folder: string }[] = [];
 
     lines.forEach((line) => {
       let trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("#")) return;
+      if (!trimmed) return;
+
+      // Detect folder section comments e.g. "# === FOLDER: hub ===", "# [folder: tenant-backend]", "# hub/.env"
+      if (trimmed.startsWith("#")) {
+        const folderMatch = trimmed.match(/(?:folder|service|module|dir|section)[:=\s]+([a-zA-Z0-9_\-\.]+)/i) 
+          || trimmed.match(/===\s*([a-zA-Z0-9_\-\.]+)\s*===/i)
+          || trimmed.match(/^#\s*([a-zA-Z0-9_\-\.]+)\/\.env/i);
+        if (folderMatch && folderMatch[1]) {
+          const matchedName = folderMatch[1].trim().toLowerCase();
+          if (!["master", "configuration", "config", "env", "production", "staging", "development"].includes(matchedName)) {
+            currentFolder = matchedName;
+          }
+        }
+        return;
+      }
 
       if (trimmed.startsWith("export ")) {
         trimmed = trimmed.substring(7).trim();
@@ -654,12 +696,12 @@ function ThirdPartyCredentialsContent() {
         }
 
         if (key && val) {
-          keyValues.push({ key, value: val });
+          keyValues.push({ key, value: val, folder: currentFolder });
         }
       }
     });
 
-    const groups: Record<string, { serviceName: string; category: string; data: Record<string, string> }> = {};
+    const groups: Record<string, { serviceName: string; category: string; folderName: string; data: Record<string, string> }> = {};
 
     const getPrefixService = (key: string) => {
       const u = key.toUpperCase();
@@ -669,10 +711,10 @@ function ThirdPartyCredentialsContent() {
       if (u.startsWith("STRIPE_")) return { name: "Stripe Payments", category: "Payments", prefix: "STRIPE_" };
       if (u.startsWith("AWS_") || u.startsWith("S3_") || u.startsWith("R2_")) return { name: "AWS S3 / Cloudflare R2", category: "Media & Storage", prefix: u.includes("S3") ? "S3_" : "AWS_" };
       if (u.startsWith("FIREBASE_") || u.startsWith("SUPABASE_") || u.startsWith("NEXT_PUBLIC_SUPABASE_")) return { name: "Firebase / Supabase", category: "Database & Auth", prefix: u.includes("SUPABASE") ? "SUPABASE_" : "FIREBASE_" };
-      if (u.startsWith("TWILIO_")) return { name: "Twilio / SMS Gateway", category: "Messaging & SMS", prefix: "TWILIO_" };
-      if (u.startsWith("OPENAI_") || u.startsWith("ANTHROPIC_") || u.startsWith("GEMINI_")) return { name: "AI & ML API", category: "AI & ML", prefix: u.split("_")[0] + "_" };
-      if (u.startsWith("MAIL_") || u.startsWith("SMTP_") || u.startsWith("SENDGRID_") || u.startsWith("RESEND_")) return { name: "SendGrid / Resend / SMTP", category: "Email", prefix: u.split("_")[0] + "_" };
-      if (u.startsWith("GOOGLE_MAPS_") || u.startsWith("GMAPS_")) return { name: "Google Maps API", category: "Other APIs", prefix: "GOOGLE_MAPS_" };
+      if (u.startsWith("TWILIO_")) return { name: "Twilio SMS & Voice", category: "Messaging & SMS", prefix: "TWILIO_" };
+      if (u.startsWith("OPENAI_") || u.startsWith("ANTHROPIC_") || u.startsWith("GEMINI_")) return { name: "OpenAI / Claude / Gemini API", category: "AI & ML", prefix: u.split("_")[0] + "_" };
+      if (u.startsWith("MAIL_") || u.startsWith("SMTP_") || u.startsWith("SENDGRID_") || u.startsWith("RESEND_")) return { name: "SendGrid / Resend / Mailgun", category: "Email", prefix: u.split("_")[0] + "_" };
+      if (u.startsWith("GOOGLE_MAPS_") || u.startsWith("GMAPS_")) return { name: "Google Maps / Places API", category: "Other APIs", prefix: "GOOGLE_MAPS_" };
 
       const match = u.match(/^([A-Z0-9]{3,})_/);
       if (match) {
@@ -684,13 +726,14 @@ function ThirdPartyCredentialsContent() {
       return { name: "Project Environment (.env)", category: "Other APIs", prefix: "" };
     };
 
-    keyValues.forEach(({ key, value }) => {
+    keyValues.forEach(({ key, value, folder }) => {
       const match = getPrefixService(key);
-      const groupKey = match.name;
+      const groupKey = `${folder}___${match.name}`;
       if (!groups[groupKey]) {
         groups[groupKey] = {
           serviceName: match.name,
           category: match.category,
+          folderName: folder,
           data: {},
         };
       }
@@ -707,6 +750,7 @@ function ThirdPartyCredentialsContent() {
     const parsedList: ParsedEnvService[] = Object.values(groups).map((g) => ({
       serviceName: g.serviceName,
       category: g.category,
+      folderName: g.folderName || "root",
       environment: importEnvironment,
       credentialsData: g.data,
       selected: true,
@@ -730,13 +774,18 @@ function ThirdPartyCredentialsContent() {
     try {
       let importedCount = 0;
       for (const service of selectedServices) {
+        const targetFolder = (service.folderName && service.folderName.trim()) 
+          ? service.folderName.trim().toLowerCase().replace(/[^a-z0-9_\-\.]/g, '_') 
+          : 'root';
+
         const payload = {
           project_id: parseInt(importProjectId, 10),
+          folder_name: targetFolder,
           service_name: service.serviceName,
           service_category: service.category,
           environment: importEnvironment,
           credentials_data: service.credentialsData,
-          notes: `Auto-imported from .env configuration file`,
+          notes: `Auto-imported from .env configuration (Folder: ${targetFolder})`,
         };
 
         const res = await fetch("/api/third-party-credentials", {
@@ -791,8 +840,9 @@ function ThirdPartyCredentialsContent() {
     const dataObj = cred.credentials_data || {};
     const matchedPreset = SERVICE_PRESETS.find((p) => p.name.toLowerCase() === cred.service_name.toLowerCase());
     const prefix = matchedPreset?.envPrefix || cred.service_name.toUpperCase().replace(/\s+/g, "_");
+    const folder = cred.folder_name || "root";
 
-    let envStr = `# ==========================================\n# ${cred.service_name} (${cred.environment || "Production"}) - ${cred.project_title}\n# ==========================================\n`;
+    let envStr = `# ==========================================\n# 📁 Folder: ${folder} | ${cred.service_name} (${cred.environment || "Production"}) - ${cred.project_title}\n# ==========================================\n`;
     Object.entries(dataObj).forEach(([k, v]) => {
       const envKey = `${prefix}_${k.toUpperCase()}`;
       envStr += `${envKey}=${v}\n`;
@@ -800,36 +850,57 @@ function ThirdPartyCredentialsContent() {
 
     navigator.clipboard.writeText(envStr.trim());
     setCopiedKey(`env-${cred.id}`);
-    showToast(`All ${cred.service_name} keys copied in .env format!`, "success");
+    showToast(`All ${cred.service_name} keys for folder "${folder}" copied in .env format!`, "success");
     setTimeout(() => setCopiedKey(null), 2500);
   };
 
-  // Master Export: Copy ALL credentials for a specific project into one .env string!
-  const handleExportFullProjectEnv = (projectId: number, projName: string) => {
-    const projCreds = credentialsByProject[projectId] || [];
+  // Master & Folder-specific Export: Copy credentials for a specific project into .env string!
+  const handleExportProjectEnv = (projectId: number, projName: string, targetFolder?: string) => {
+    let projCreds = credentialsByProject[projectId] || [];
+    if (targetFolder && targetFolder !== "ALL") {
+      projCreds = projCreds.filter((c) => (c.folder_name || "root").toLowerCase() === targetFolder.toLowerCase());
+    }
+
     if (projCreds.length === 0) {
-      showError("No credentials configured for this project yet.");
+      showError(`No credentials configured for ${targetFolder && targetFolder !== "ALL" ? `folder "${targetFolder}"` : "this project"} yet.`);
       return;
     }
 
-    let fullEnvStr = `# ========================================================\n# ${projName.toUpperCase()} - MASTER .ENV CONFIGURATION\n# Exported on ${new Date().toLocaleDateString()}\n# ========================================================\n\n`;
+    const isSpecificFolder = targetFolder && targetFolder !== "ALL";
+    let fullEnvStr = `# ========================================================\n# ${projName.toUpperCase()} - ${isSpecificFolder ? `FOLDER [${targetFolder.toUpperCase()}]` : "MASTER MONOREPO"} .ENV\n# Exported on ${new Date().toLocaleDateString()}\n# ========================================================\n\n`;
 
+    // Group by folder
+    const byFolder: Record<string, any[]> = {};
     projCreds.forEach((cred) => {
-      const dataObj = cred.credentials_data || {};
-      const matchedPreset = SERVICE_PRESETS.find((p) => p.name.toLowerCase() === cred.service_name.toLowerCase());
-      const prefix = matchedPreset?.envPrefix || cred.service_name.toUpperCase().replace(/\s+/g, "_");
+      const f = cred.folder_name || "root";
+      if (!byFolder[f]) byFolder[f] = [];
+      byFolder[f].push(cred);
+    });
 
-      fullEnvStr += `# --- ${cred.service_name} (${cred.environment || "Production"}) ---\n`;
-      Object.entries(dataObj).forEach(([k, v]) => {
-        const envKey = `${prefix}_${k.toUpperCase()}`;
-        fullEnvStr += `${envKey}=${v}\n`;
+    Object.entries(byFolder).forEach(([fName, creds]) => {
+      if (!isSpecificFolder) {
+        fullEnvStr += `# ==========================================\n# 📁 FOLDER / SERVICE: ${fName.toUpperCase()}\n# ==========================================\n\n`;
+      }
+      creds.forEach((cred) => {
+        const dataObj = cred.credentials_data || {};
+        const matchedPreset = SERVICE_PRESETS.find((p) => p.name.toLowerCase() === cred.service_name.toLowerCase());
+        const prefix = matchedPreset?.envPrefix || cred.service_name.toUpperCase().replace(/\s+/g, "_");
+
+        fullEnvStr += `# --- ${cred.service_name} (${cred.environment || "Production"}) ---\n`;
+        Object.entries(dataObj).forEach(([k, v]) => {
+          const envKey = `${prefix}_${k.toUpperCase()}`;
+          fullEnvStr += `${envKey}=${v}\n`;
+        });
+        fullEnvStr += `\n`;
       });
-      fullEnvStr += `\n`;
     });
 
     navigator.clipboard.writeText(fullEnvStr.trim());
-    setCopiedKey(`master-env-${projectId}`);
-    showSuccess("Master .env Copied!", `All ${projCreds.length} service keys for "${projName}" copied to clipboard in .env format.`);
+    setCopiedKey(isSpecificFolder ? `folder-env-${targetFolder}` : `master-env-${projectId}`);
+    showSuccess(
+      isSpecificFolder ? `Folder "${targetFolder}" .env Copied!` : "Master Monorepo .env Copied!",
+      `All ${projCreds.length} service keys ${isSpecificFolder ? `for folder "${targetFolder}"` : `for "${projName}"`} copied to clipboard in .env format.`
+    );
     setTimeout(() => setCopiedKey(null), 3000);
   };
 
@@ -837,10 +908,29 @@ function ThirdPartyCredentialsContent() {
     setVisibleSecrets((prev) => ({ ...prev, [fieldKey]: !prev[fieldKey] }));
   };
 
-  // Active project vault credentials list
+  // Available unique folders in the active vault project
+  const availableFolders = useMemo(() => {
+    if (!selectedProjectVaultId) return ["root"];
+    const projCreds = credentialsByProject[parseInt(selectedProjectVaultId, 10)] || [];
+    const set = new Set<string>();
+    set.add("root");
+    projCreds.forEach((c) => {
+      const f = (c.folder_name || "root").trim().toLowerCase();
+      if (f) set.add(f);
+    });
+    return Array.from(set);
+  }, [credentialsByProject, selectedProjectVaultId]);
+
+  // Active project vault credentials list (filtered by folder and search)
   const activeVaultCredentials = useMemo(() => {
     if (!selectedProjectVaultId) return [];
-    const projCreds = credentialsByProject[parseInt(selectedProjectVaultId, 10)] || [];
+    let projCreds = credentialsByProject[parseInt(selectedProjectVaultId, 10)] || [];
+
+    // Filter by folder if selected
+    if (selectedFolder && selectedFolder !== "ALL") {
+      projCreds = projCreds.filter((c) => (c.folder_name || "root").toLowerCase() === selectedFolder.toLowerCase());
+    }
+
     const q = searchQuery.toLowerCase().trim();
     if (!q) return projCreds;
 
@@ -849,6 +939,7 @@ function ThirdPartyCredentialsContent() {
       const sCat = (c.service_category || "").toLowerCase();
       const cNotes = (c.notes || "").toLowerCase();
       const env = (c.environment || "").toLowerCase();
+      const fName = (c.folder_name || "root").toLowerCase();
       const dataStr = JSON.stringify(c.credentials_data || {}).toLowerCase();
 
       return (
@@ -856,10 +947,11 @@ function ThirdPartyCredentialsContent() {
         sCat.includes(q) ||
         cNotes.includes(q) ||
         env.includes(q) ||
+        fName.includes(q) ||
         dataStr.includes(q)
       );
     });
-  }, [credentialsByProject, selectedProjectVaultId, searchQuery]);
+  }, [credentialsByProject, selectedProjectVaultId, selectedFolder, searchQuery]);
 
   // Metric counts
   const totalCount = credentials.length;
@@ -1136,23 +1228,38 @@ function ThirdPartyCredentialsContent() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <button
                 type="button"
-                onClick={() => setSelectedProjectVaultId(null)}
+                onClick={() => {
+                  setSelectedProjectVaultId(null);
+                  setSelectedFolder("ALL");
+                }}
                 className="inline-flex items-center gap-2 text-xs font-bold text-indigo-300 hover:text-white bg-slate-800/80 hover:bg-indigo-600 px-3.5 py-1.5 rounded-xl border border-slate-700 transition cursor-pointer self-start"
               >
                 <ArrowLeft className="h-4 w-4" />
                 <span>&larr; Back to All Project Vaults</span>
               </button>
 
-              {/* Master Export Button */}
-              {activeVaultCredentials.length > 0 && (
-                <Button
-                  onClick={() => handleExportFullProjectEnv(parseInt(selectedProjectVaultId, 10), activeVaultProject?.name || "Project")}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md rounded-xl h-9 px-4 cursor-pointer inline-flex items-center gap-1.5 self-start sm:self-auto"
-                >
-                  <FileCode className="h-4 w-4" />
-                  <span>Copy Master Project .env ({activeVaultCredentials.length} Services)</span>
-                </Button>
-              )}
+              {/* Master / Folder Export Buttons */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {selectedFolder !== "ALL" && (
+                  <Button
+                    onClick={() => handleExportProjectEnv(parseInt(selectedProjectVaultId, 10), activeVaultProject?.name || "Project", selectedFolder)}
+                    className="bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-md rounded-xl h-9 px-3.5 cursor-pointer inline-flex items-center gap-1.5"
+                  >
+                    <FileCode className="h-4 w-4" />
+                    <span>Copy 📁 {selectedFolder} .env</span>
+                  </Button>
+                )}
+
+                {(credentialsByProject[parseInt(selectedProjectVaultId, 10)] || []).length > 0 && (
+                  <Button
+                    onClick={() => handleExportProjectEnv(parseInt(selectedProjectVaultId, 10), activeVaultProject?.name || "Project")}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md rounded-xl h-9 px-4 cursor-pointer inline-flex items-center gap-1.5"
+                  >
+                    <FileCode className="h-4 w-4" />
+                    <span>Copy Monorepo Master .env ({(credentialsByProject[parseInt(selectedProjectVaultId, 10)] || []).length} Services)</span>
+                  </Button>
+                )}
+              </div>
             </div>
 
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pt-2 border-t border-slate-800">
@@ -1162,11 +1269,16 @@ function ThirdPartyCredentialsContent() {
                     {activeVaultProject?.name.charAt(0).toUpperCase() || "P"}
                   </div>
                   <div>
-                    <h2 className="text-xl md:text-2xl font-extrabold text-white flex items-center gap-2">
+                    <h2 className="text-xl md:text-2xl font-extrabold text-white flex items-center gap-2 flex-wrap">
                       {activeVaultProject?.name || "Project Credentials Vault"}
                       <Badge variant="outline" className="text-xs bg-emerald-500/20 text-emerald-300 border-emerald-500/40 font-bold">
-                        {activeVaultCredentials.length} Active Services
+                        {(credentialsByProject[parseInt(selectedProjectVaultId, 10)] || []).length} Total Services
                       </Badge>
+                      {availableFolders.length > 1 && (
+                        <Badge variant="outline" className="text-xs bg-indigo-500/20 text-indigo-300 border-indigo-500/40 font-bold flex items-center gap-1">
+                          <Folder className="h-3 w-3" /> {availableFolders.length} Folders / Services
+                        </Badge>
+                      )}
                     </h2>
                     <p className="text-xs text-slate-300">
                       {activeVaultProject?.description || "Project 3rd-Party API Keys, Webhook Secrets & Credentials Vault"}
@@ -1178,31 +1290,101 @@ function ThirdPartyCredentialsContent() {
               {/* Quick Add Buttons for this specific Project */}
               <div className="flex items-center gap-2 flex-wrap">
                 <Button
-                  onClick={() => handleOpenImportModal(selectedProjectVaultId)}
+                  onClick={() => handleOpenImportModal(selectedProjectVaultId, selectedFolder !== "ALL" ? selectedFolder : "root")}
                   variant="outline"
                   className="border-indigo-400 text-indigo-200 hover:bg-indigo-600 hover:text-white font-bold text-xs shadow-2xs h-9 px-3.5 rounded-xl cursor-pointer"
                 >
                   <FileUp className="h-3.5 w-3.5" />
-                  <span>Import .env</span>
+                  <span>Import .env {selectedFolder !== "ALL" ? `to 📁 ${selectedFolder}` : ""}</span>
                 </Button>
                 <Button
-                  onClick={() => handleOpenAddModal("whatsapp", selectedProjectVaultId)}
+                  onClick={() => handleOpenAddModal("whatsapp", selectedProjectVaultId, selectedFolder !== "ALL" ? selectedFolder : "root")}
                   className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md h-9 px-4 rounded-xl cursor-pointer flex items-center gap-1.5"
                 >
                   <Plus className="h-4 w-4" />
-                  <span>Add Service to {activeVaultProject?.name || "Project"}</span>
+                  <span>Add Service {selectedFolder !== "ALL" ? `in 📁 ${selectedFolder}` : ""}</span>
                 </Button>
               </div>
             </div>
           </div>
 
-          {/* Vault Filter Bar */}
+          {/* Dedicated Folder Tabs Selector Bar */}
+          <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-xs space-y-2">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-1.5 text-xs font-extrabold text-slate-700">
+                <FolderTree className="h-4 w-4 text-indigo-600" />
+                <span>Monorepo Folders / Services:</span>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => handleOpenImportModal(selectedProjectVaultId, "new-service")}
+                className="text-[11px] font-bold text-indigo-600 hover:bg-indigo-50 h-7 px-2.5 rounded-lg flex items-center gap-1 cursor-pointer"
+              >
+                <FolderPlus className="h-3.5 w-3.5" />
+                <span>+ Import New Folder .env</span>
+              </Button>
+            </div>
+
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
+              {/* All Folders Tab */}
+              <button
+                type="button"
+                onClick={() => setSelectedFolder("ALL")}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition cursor-pointer shrink-0 ${
+                  selectedFolder === "ALL"
+                    ? "bg-indigo-600 text-white shadow-xs"
+                    : "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                }`}
+              >
+                <Boxes className="h-3.5 w-3.5" />
+                <span>All Folders</span>
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
+                  selectedFolder === "ALL" ? "bg-white/20 text-white" : "bg-slate-200 text-slate-700"
+                }`}>
+                  {(credentialsByProject[parseInt(selectedProjectVaultId, 10)] || []).length}
+                </span>
+              </button>
+
+              {/* Individual Folder Tabs */}
+              {availableFolders.map((fName) => {
+                const count = (credentialsByProject[parseInt(selectedProjectVaultId, 10)] || []).filter(
+                  (c) => (c.folder_name || "root").toLowerCase() === fName.toLowerCase()
+                ).length;
+                const isSelected = selectedFolder.toLowerCase() === fName.toLowerCase();
+
+                return (
+                  <button
+                    key={fName}
+                    type="button"
+                    onClick={() => setSelectedFolder(fName)}
+                    className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition cursor-pointer shrink-0 ${
+                      isSelected
+                        ? "bg-indigo-600 text-white shadow-xs"
+                        : "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                    }`}
+                  >
+                    <Folder className={`h-3.5 w-3.5 ${isSelected ? "text-white" : "text-amber-500"}`} />
+                    <span>📁 {fName}</span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
+                      isSelected ? "bg-white/20 text-white" : "bg-slate-200 text-slate-700"
+                    }`}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Vault Filter Bar: Search & Categories */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
             <div className="relative flex-1">
               <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <Input
                 type="text"
-                placeholder={`Search ${activeVaultProject?.name || "project"} credentials by key, service name or notes...`}
+                placeholder={`Search ${activeVaultProject?.name || "project"} credentials (key, service, notes or folder)...`}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9 h-9 text-xs rounded-xl bg-slate-50 border-slate-200 text-slate-800"
@@ -1233,27 +1415,31 @@ function ThirdPartyCredentialsContent() {
                 <PlugZap className="h-8 w-8" />
               </div>
               <div className="space-y-1 max-w-md mx-auto">
-                <h3 className="font-extrabold text-slate-900 text-lg">No Credentials in {activeVaultProject?.name}</h3>
+                <h3 className="font-extrabold text-slate-900 text-lg">
+                  {selectedFolder !== "ALL" ? `No Credentials in folder "📁 ${selectedFolder}"` : `No Credentials in ${activeVaultProject?.name}`}
+                </h3>
                 <p className="text-xs text-slate-500">
                   {searchQuery || selectedCategory !== "ALL"
                     ? "No services match your active search or category filter."
+                    : selectedFolder !== "ALL"
+                    ? `No 3rd-party API keys added in folder "${selectedFolder}" yet. Click below to add or import .env directly into this folder.`
                     : `No 3rd-party API keys added for "${activeVaultProject?.name}" yet. Click below to add WhatsApp, Cloudinary, Razorpay or import from .env.`}
                 </p>
               </div>
 
               <div className="flex items-center justify-center gap-2 flex-wrap">
                 <Button
-                  onClick={() => handleOpenImportModal(selectedProjectVaultId)}
+                  onClick={() => handleOpenImportModal(selectedProjectVaultId, selectedFolder !== "ALL" ? selectedFolder : "root")}
                   variant="outline"
                   className="border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-bold text-xs rounded-xl h-9 px-4 cursor-pointer inline-flex items-center gap-1.5"
                 >
-                  <FileUp className="h-4 w-4" /> Import from .env File
+                  <FileUp className="h-4 w-4" /> Import from .env File {selectedFolder !== "ALL" ? `to 📁 ${selectedFolder}` : ""}
                 </Button>
                 <Button
-                  onClick={() => handleOpenAddModal("whatsapp", selectedProjectVaultId)}
+                  onClick={() => handleOpenAddModal("whatsapp", selectedProjectVaultId, selectedFolder !== "ALL" ? selectedFolder : "root")}
                   className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-md rounded-xl h-9 px-4 cursor-pointer inline-flex items-center gap-1.5"
                 >
-                  <Plus className="h-4 w-4" /> Add First Service
+                  <Plus className="h-4 w-4" /> Add Service {selectedFolder !== "ALL" ? `in 📁 ${selectedFolder}` : ""}
                 </Button>
               </div>
             </div>
@@ -1264,6 +1450,7 @@ function ThirdPartyCredentialsContent() {
                 const Icon = matchedPreset.icon || PlugZap;
                 const dataObj = cred.credentials_data || {};
                 const teamMembers = cred.team_members || [];
+                const folder = cred.folder_name || "root";
 
                 const envColor = cred.environment === "Production" 
                   ? "bg-emerald-50 text-emerald-700 border-emerald-200" 
@@ -1287,9 +1474,14 @@ function ThirdPartyCredentialsContent() {
                             <h4 className="font-extrabold text-sm text-slate-900 truncate" title={cred.service_name}>
                               {cred.service_name}
                             </h4>
-                            <p className="text-[11px] font-bold text-indigo-600 truncate flex items-center gap-1">
-                              <Layers className="h-3 w-3 shrink-0" /> {cred.project_title}
-                            </p>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1">
+                                <Folder className="h-2.5 w-2.5" /> 📁 {folder}
+                              </span>
+                              <span className="text-[11px] font-bold text-indigo-600 truncate">
+                                {cred.project_title}
+                              </span>
+                            </div>
                           </div>
                         </div>
 
@@ -1448,24 +1640,63 @@ function ThirdPartyCredentialsContent() {
           </DialogHeader>
 
           <form onSubmit={handleSubmitModal} className="space-y-4 pt-2">
-            {/* Step 1: Assigned Project Selection */}
+            {/* Step 1: Assigned Project & Target Folder Selection */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Select Assigned Project <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={selectedProjectId}
+                  onChange={(e) => setSelectedProjectId(e.target.value)}
+                  required
+                  className="w-full text-xs font-semibold bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 h-10"
+                >
+                  <option value="" disabled>-- Select Project --</option>
+                  {allProjects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
+                  <Folder className="h-3.5 w-3.5 text-indigo-600" /> Folder / Service Directory <span className="text-rose-500">*</span>
+                </label>
+                <Input
+                  type="text"
+                  value={folderName}
+                  onChange={(e) => setFolderName(e.target.value)}
+                  placeholder="e.g. root, hub, tenant-backend, mobile"
+                  required
+                  className="text-xs h-10 rounded-xl font-bold font-mono text-slate-900"
+                />
+              </div>
+            </div>
+
+            {/* Quick Folder Suggestions */}
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
-                Select Assigned Project <span className="text-rose-500">*</span>
-              </label>
-              <select
-                value={selectedProjectId}
-                onChange={(e) => setSelectedProjectId(e.target.value)}
-                required
-                className="w-full text-xs font-semibold bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              >
-                <option value="" disabled>-- Select Project --</option>
-                {allProjects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                Quick Folder Suggestions:
+              </span>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {Array.from(new Set([...COMMON_FOLDER_PRESETS, ...availableFolders])).slice(0, 7).map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => setFolderName(f)}
+                    className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border transition cursor-pointer ${
+                      folderName.toLowerCase() === f.toLowerCase()
+                        ? "bg-indigo-600 text-white border-indigo-600 shadow-2xs"
+                        : "bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200"
+                    }`}
+                  >
+                    📁 {f}
+                  </button>
                 ))}
-              </select>
+              </div>
             </div>
 
             {/* Step 2: Service Presets Carousel / Badges (Only in Add Mode) */}
@@ -1668,7 +1899,7 @@ function ThirdPartyCredentialsContent() {
       </Dialog>
 
       {/* ========================================================================= */}
-      {/* AUTOMATIC .ENV FILE / TEXT IMPORT MODAL                                   */}
+      {/* AUTOMATIC MULTI-FOLDER .ENV FILE / TEXT IMPORT MODAL                     */}
       {/* ========================================================================= */}
       <Dialog open={importModalOpen} onOpenChange={setImportModalOpen}>
         <DialogContent className="max-w-3xl max-h-[92vh] overflow-y-auto rounded-2xl p-6 bg-white shadow-2xl space-y-4">
@@ -1678,16 +1909,16 @@ function ThirdPartyCredentialsContent() {
               <span>Auto-Import Credentials from .env Configuration</span>
             </DialogTitle>
             <DialogDescription className="text-xs text-slate-500">
-              Paste `.env` configuration file text or upload a `.env` file. Our parser will auto-detect WhatsApp, Cloudinary, Razorpay, S3, Firebase, and custom API keys.
+              Import single or multi-folder `.env` files (e.g., <code>hub</code>, <code>tenant-backend</code>, <code>mobile</code>). Multi-section headers like <code># [folder: hub]</code> are automatically detected.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 pt-1">
             {/* Target Project & Environment Selector */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Import to Project <span className="text-rose-500">*</span>
+                  Target Project <span className="text-rose-500">*</span>
                 </label>
                 <select
                   value={importProjectId}
@@ -1703,6 +1934,22 @@ function ThirdPartyCredentialsContent() {
               </div>
 
               <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
+                  <Folder className="h-3.5 w-3.5 text-indigo-600" /> Default Target Folder
+                </label>
+                <Input
+                  type="text"
+                  value={importFolderName}
+                  onChange={(e) => {
+                    setImportFolderName(e.target.value);
+                    if (rawEnvText) parseAndGroupEnvText(rawEnvText, e.target.value);
+                  }}
+                  placeholder="e.g. root, hub, backend"
+                  className="text-xs h-10 rounded-xl font-bold font-mono text-slate-900"
+                />
+              </div>
+
+              <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   Environment
                 </label>
@@ -1715,6 +1962,32 @@ function ThirdPartyCredentialsContent() {
                   <option value="Staging">Staging (Sandbox)</option>
                   <option value="Development">Development (Local)</option>
                 </select>
+              </div>
+            </div>
+
+            {/* Quick Folder Selector Chips */}
+            <div>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                Select Folder Tag for Import:
+              </span>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {Array.from(new Set([...COMMON_FOLDER_PRESETS, ...availableFolders])).slice(0, 8).map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => {
+                      setImportFolderName(f);
+                      if (rawEnvText) parseAndGroupEnvText(rawEnvText, f);
+                    }}
+                    className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border transition cursor-pointer ${
+                      importFolderName.toLowerCase() === f.toLowerCase()
+                        ? "bg-indigo-600 text-white border-indigo-600 shadow-2xs"
+                        : "bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200"
+                    }`}
+                  >
+                    📁 {f}
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -1740,9 +2013,9 @@ function ThirdPartyCredentialsContent() {
                 value={rawEnvText}
                 onChange={(e) => {
                   setRawEnvText(e.target.value);
-                  parseAndGroupEnvText(e.target.value);
+                  parseAndGroupEnvText(e.target.value, importFolderName);
                 }}
-                placeholder={`# Example .env File Content:\nWHATSAPP_PHONE_NUMBER_ID=104829104829104\nWHATSAPP_ACCESS_TOKEN=EAAG...\nCLOUDINARY_CLOUD_NAME=unitglo_assets\nCLOUDINARY_API_KEY=9284019284\nCLOUDINARY_API_SECRET=aBcdEfGhIjKl...\nRAZORPAY_KEY_ID=rzp_live_...\nRAZORPAY_KEY_SECRET=abc123def456`}
+                placeholder={`# Single or Multi-Folder .env content:\n# === FOLDER: hub ===\nWHATSAPP_PHONE_NUMBER_ID=104829104829104\nWHATSAPP_ACCESS_TOKEN=EAAG...\n\n# === FOLDER: tenant-backend ===\nCLOUDINARY_CLOUD_NAME=unitglo_assets\nCLOUDINARY_API_KEY=9284019284\nRAZORPAY_KEY_ID=rzp_live_...`}
                 rows={6}
                 className="w-full text-xs font-mono p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-950 text-emerald-400 placeholder:text-slate-600 resize-none leading-relaxed"
               />
@@ -1757,7 +2030,7 @@ function ThirdPartyCredentialsContent() {
                     Detected Services ({parsedEnvServices.length}):
                   </span>
                   <span className="text-[11px] font-bold text-indigo-700">
-                    Uncheck any service you wish to exclude
+                    Adjust folder names or uncheck any service to exclude
                   </span>
                 </div>
 
@@ -1771,7 +2044,7 @@ function ThirdPartyCredentialsContent() {
                           : "bg-slate-100/60 border-slate-200 opacity-60"
                       }`}
                     >
-                      <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
                         <label className="flex items-center gap-2 cursor-pointer min-w-0">
                           <input
                             type="checkbox"
@@ -1798,9 +2071,25 @@ function ThirdPartyCredentialsContent() {
                           </Badge>
                         </label>
 
-                        <span className="text-[10px] font-bold text-slate-500">
-                          {Object.keys(service.credentialsData).length} key(s) detected
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1">
+                            <span className="text-[10px] font-bold text-slate-500">Folder:</span>
+                            <input
+                              type="text"
+                              value={service.folderName}
+                              onChange={(e) => {
+                                const copy = [...parsedEnvServices];
+                                copy[idx].folderName = e.target.value;
+                                setParsedEnvServices(copy);
+                              }}
+                              className="font-mono text-[11px] font-bold text-indigo-700 bg-indigo-50/70 border border-indigo-200 rounded-lg px-2 py-0.5 w-28 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                            />
+                          </div>
+
+                          <span className="text-[10px] font-bold text-slate-500">
+                            {Object.keys(service.credentialsData).length} key(s)
+                          </span>
+                        </div>
                       </div>
 
                       {/* Display Key Badges */}
