@@ -126,6 +126,7 @@ export function SelectContent({
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (!open) return;
     function handleClickOutside(event: MouseEvent) {
       if (ref.current && !ref.current.contains(event.target as Node)) {
         // Only close if click is not inside the trigger button
@@ -134,19 +135,16 @@ export function SelectContent({
         setOpen(false);
       }
     }
-    if (open) {
-      document.addEventListener("mousedown", handleClickOutside);
-    }
+    document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [open, setOpen]);
-
-  if (!open) return null;
 
   return (
     <div
       ref={ref}
       className={cn(
         "absolute left-0 top-full mt-1.5 z-50 max-h-64 w-full min-w-[8rem] overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl animate-fade-in text-slate-900 ring-1 ring-black/5",
+        !open && "hidden",
         className
       )}
     >

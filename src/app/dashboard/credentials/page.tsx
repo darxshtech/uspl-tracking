@@ -415,7 +415,23 @@ function CredentialsContent() {
 
   const handleOpenEditModal = (cred: any) => {
     setEditingCred(cred);
-    setProjectId(cred.project_id ? String(cred.project_id) : "0");
+
+    // Accurately resolve target project ID by ID or by project title
+    let targetProjId = "0";
+    if (cred.project_id && cred.project_id !== 0 && cred.project_id !== "0") {
+      targetProjId = String(cred.project_id);
+    } else if (cred.project_title && cred.project_title !== "General Project Access") {
+      const match = projects.find(
+        (p: any) =>
+          p.name?.toLowerCase().trim() === cred.project_title?.toLowerCase().trim() ||
+          p.title?.toLowerCase().trim() === cred.project_title?.toLowerCase().trim()
+      );
+      if (match) {
+        targetProjId = String(match.id);
+      }
+    }
+
+    setProjectId(targetProjId);
     
     if (cred.assigned_users && cred.assigned_users.length > 0) {
       setSelectedUserIds(cred.assigned_users.map((u: any) => u.id));
@@ -635,6 +651,9 @@ function CredentialsContent() {
                       {projects.map((p: any) => (
                         <SelectItem key={p.id} value={p.id.toString()}>{p.name || p.title}</SelectItem>
                       ))}
+                      {editingCred && editingCred.project_title && projectId !== "0" && !projects.some((p: any) => String(p.id) === projectId) && (
+                        <SelectItem value={projectId}>{editingCred.project_title}</SelectItem>
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
