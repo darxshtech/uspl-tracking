@@ -14,6 +14,7 @@ import {
   KeyRound, 
   Plus, 
   Trash2, 
+  Edit3,
   ExternalLink, 
   ShieldCheck, 
   Copy, 
@@ -195,8 +196,9 @@ function CredentialsContent() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Modal State
+  // Modal & Edit State
   const [modalOpen, setModalOpen] = useState(false);
+  const [editingCred, setEditingCred] = useState<any | null>(null);
   const [projectId, setProjectId] = useState("0");
   const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
   const [liveLink, setLiveLink] = useState("");
@@ -223,15 +225,16 @@ function CredentialsContent() {
   useEffect(() => {
     if (openAddModal && queryProjectId) {
       setProjectId(queryProjectId);
+      setEditingCred(null);
       setModalOpen(true);
     }
   }, [openAddModal, queryProjectId]);
 
   useEffect(() => {
-    if (currentUserId && selectedUserIds.length === 0) {
+    if (currentUserId && selectedUserIds.length === 0 && !editingCred) {
       setSelectedUserIds([currentUserId]);
     }
-  }, [currentUserId]);
+  }, [currentUserId, editingCred]);
 
   const fetchCredentials = async () => {
     try {
@@ -312,7 +315,128 @@ function CredentialsContent() {
     window.open(cleanUrl, "_blank", "noopener,noreferrer");
   };
 
-  const handleCreate = async (e: React.FormEvent) => {
+  // Structured parser to populate edit form accurately from credentials_text
+  const parseCredentialsForEdit = (text: string) => {
+    if (!text) {
+      return {
+        loginUrl: "",
+        accounts: [{ role_name: "Super Admin", username: "", password: "", notes: "" }],
+        customNotes: "",
+      };
+    }
+
+    let raw = text;
+    let extractedLoginUrl = "";
+    let extractedCustomNotes = "";
+
+    // 1. Extract Login Portal
+    const loginMatch = raw.match(/^Login Portal:\s*([^\n]+)/m);
+    if (loginMatch) {
+      extractedLoginUrl = loginMatch[1].trim();
+      raw = raw.replace(loginMatch[0], "").trim();
+    }
+
+    // 2. Extract Additional Notes
+    const notesMatch = raw.match(/Additional Notes:\s*([\s\S]*)$/);
+    if (notesMatch) {
+      extractedCustomNotes = notesMatch[1].trim();
+      raw = raw.substring(0, notesMatch.index).trim();
+    }
+
+    // 3. Extract Role Sections
+    const parsedAccounts: AccountCredential[] = [];
+    const lines = raw.split("\n");
+    let currentAccount: AccountCredential | null = null;
+    const unparsedLines: string[] = [];
+
+    lines.forEach((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+
+      const roleHeaderMatch = trimmed.match(/^\[(.*?)\]$/);
+      if (roleHeaderMatch) {
+        if (currentAccount) parsedAccounts.push(currentAccount);
+        currentAccount = { role_name: roleHeaderMatch[1], username: "", password: "", notes: "" };
+      } else if (currentAccount) {
+        const colonIdx = trimmed.indexOf(":");
+        if (colonIdx !== -1) {
+          const field = trimmed.substring(0, colonIdx).trim().toLowerCase();
+          const val = trimmed.substring(colonIdx + 1).trim();
+          if (field.includes("user") || field.includes("email") || field.includes("login")) {
+            currentAccount.username = val;
+          } else if (field.includes("pass") || field.includes("pwd") || field.includes("key")) {
+            currentAccount.password = val;
+          } else if (field.includes("note")) {
+            currentAccount.notes = val;
+          } else {
+            if (currentAccount.notes) currentAccount.notes += "\n" + trimmed;
+            else currentAccount.notes = trimmed;
+          }
+        } else {
+          if (currentAccount.notes) currentAccount.notes += "\n" + trimmed;
+          else currentAccount.notes = trimmed;
+        }
+      } else {
+        unparsedLines.push(trimmed);
+      }
+    });
+
+    if (currentAccount) {
+      parsedAccounts.push(currentAccount);
+    }
+
+    if (unparsedLines.length > 0) {
+      const extra = unparsedLines.join("\n");
+      extractedCustomNotes = extractedCustomNotes ? `${extra}\n\n${extractedCustomNotes}` : extra;
+    }
+
+    if (parsedAccounts.length === 0) {
+      parsedAccounts.push({ role_name: "Super Admin", username: "", password: "", notes: "" });
+    }
+
+    return {
+      loginUrl: extractedLoginUrl,
+      accounts: parsedAccounts,
+      customNotes: extractedCustomNotes,
+    };
+  };
+
+  const handleOpenAddModal = () => {
+    setEditingCred(null);
+    setProjectId(queryProjectId || "0");
+    setSelectedUserIds(currentUserId ? [currentUserId] : []);
+    setLiveLink("");
+    setDemoLink("");
+    setLoginUrl("");
+    setCustomNotes("");
+    setAccounts([{ role_name: "Super Admin", username: "", password: "", notes: "" }]);
+    setModalOpen(true);
+  };
+
+  const handleOpenEditModal = (cred: any) => {
+    setEditingCred(cred);
+    setProjectId(cred.project_id ? String(cred.project_id) : "0");
+    
+    if (cred.assigned_users && cred.assigned_users.length > 0) {
+      setSelectedUserIds(cred.assigned_users.map((u: any) => u.id));
+    } else if (cred.user_id) {
+      setSelectedUserIds([cred.user_id]);
+    } else {
+      setSelectedUserIds(currentUserId ? [currentUserId] : []);
+    }
+
+    setLiveLink(cred.live_link || "");
+    setDemoLink(cred.demo_link || "");
+
+    const parsed = parseCredentialsForEdit(cred.credentials_text || "");
+    setLoginUrl(parsed.loginUrl);
+    setAccounts(parsed.accounts);
+    setCustomNotes(parsed.customNotes);
+
+    setModalOpen(true);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (selectedUserIds.length === 0) {
       showError("Please select at least one team member to assign credentials to.");
@@ -346,22 +470,36 @@ function CredentialsContent() {
 
     setIsSubmitting(true);
     try {
-      const res = await fetch("/api/credentials", {
-        method: "POST",
+      const isEditing = !!editingCred;
+      const url = "/api/credentials";
+      const method = isEditing ? "PUT" : "POST";
+      
+      const payload: any = {
+        project_id: projectId === "0" ? null : parseInt(projectId),
+        user_ids: selectedUserIds,
+        live_link: liveLink,
+        demo_link: demoLink,
+        credentials_text: formattedText.trim(),
+      };
+
+      if (isEditing) {
+        payload.ids = editingCred.all_ids || [editingCred.id];
+      }
+
+      const res = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          project_id: projectId === "0" ? null : parseInt(projectId),
-          user_ids: selectedUserIds,
-          live_link: liveLink,
-          demo_link: demoLink,
-          credentials_text: formattedText.trim(),
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
       if (res.ok) {
-        showSuccess("Credentials Added", data.message || "Project credentials assigned successfully.");
+        showSuccess(
+          isEditing ? "Credentials Updated" : "Credentials Added", 
+          data.message || (isEditing ? "Project credentials updated successfully." : "Project credentials assigned successfully.")
+        );
         setModalOpen(false);
+        setEditingCred(null);
         fetchCredentials();
         setLiveLink("");
         setDemoLink("");
@@ -369,10 +507,10 @@ function CredentialsContent() {
         setCustomNotes("");
         setAccounts([{ role_name: "Super Admin", username: "", password: "", notes: "" }]);
       } else {
-        showError("Failed to Add Credentials", data.error);
+        showError(isEditing ? "Failed to Update Credentials" : "Failed to Add Credentials", data.error);
       }
     } catch (err) {
-      showError("Error adding credentials.");
+      showError("Error saving credentials.");
     } finally {
       setIsSubmitting(false);
     }
@@ -465,21 +603,28 @@ function CredentialsContent() {
         </div>
 
         <div className="flex items-center gap-3">
-          <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-            <DialogTrigger render={
-              <Button className="bg-sky-600 hover:bg-sky-700 text-white font-bold gap-2 shadow-sm">
-                <Plus className="h-4 w-4" /> Add Project Credentials
-              </Button>
-            } />
+          <Button 
+            onClick={handleOpenAddModal}
+            className="bg-sky-600 hover:bg-sky-700 text-white font-bold gap-2 shadow-sm cursor-pointer"
+          >
+            <Plus className="h-4 w-4" /> Add Project Credentials
+          </Button>
+
+          <Dialog open={modalOpen} onOpenChange={(open) => {
+            setModalOpen(open);
+            if (!open) {
+              setEditingCred(null);
+            }
+          }}>
             <DialogContent className="w-[94vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2 text-lg font-bold text-slate-900">
                   <KeyRound className="h-5 w-5 text-sky-600" />
-                  Add Project Credentials & Multi-Assign
+                  {editingCred ? "Edit Project Credentials" : "Add Project Credentials & Multi-Assign"}
                 </DialogTitle>
               </DialogHeader>
 
-              <form onSubmit={handleCreate} className="space-y-5 pt-2">
+              <form onSubmit={handleSubmit} className="space-y-5 pt-2">
                 {/* 1. Related Project */}
                 <div className="space-y-1.5">
                   <Label className="text-xs font-bold text-slate-700 uppercase">Related Project</Label>
@@ -649,9 +794,11 @@ function CredentialsContent() {
                 <Button
                   type="submit"
                   disabled={isSubmitting}
-                  className="w-full bg-sky-600 hover:bg-sky-700 text-white font-bold py-2.5 shadow-sm"
+                  className="w-full bg-sky-600 hover:bg-sky-700 text-white font-bold py-2.5 shadow-sm cursor-pointer"
                 >
-                  {isSubmitting ? "Saving & Assigning..." : "Save & Multi-Assign Credentials"}
+                  {isSubmitting
+                    ? (editingCred ? "Updating..." : "Saving & Assigning...")
+                    : (editingCred ? "Update Credentials" : "Save & Multi-Assign Credentials")}
                 </Button>
               </form>
             </DialogContent>
@@ -721,15 +868,26 @@ function CredentialsContent() {
                     </div>
 
                     {(isExecutive || cred.user_id === currentUserId) && (
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => handleDelete(cred.all_ids || [cred.id])}
-                        className="h-8 w-8 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full"
-                        title="Delete Credentials"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => handleOpenEditModal(cred)}
+                          className="h-8 w-8 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded-full cursor-pointer"
+                          title="Edit Credentials"
+                        >
+                          <Edit3 className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => handleDelete(cred.all_ids || [cred.id])}
+                          className="h-8 w-8 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full cursor-pointer"
+                          title="Delete Credentials"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     )}
                   </div>
 

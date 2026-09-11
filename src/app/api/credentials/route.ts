@@ -108,6 +108,83 @@ export async function POST(req: Request) {
   }
 }
 
+export async function PUT(req: Request) {
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+
+  try {
+    const currentUserId = (session.user as any).id;
+    const currentUserRole = (session.user as any).role;
+    const isExecutive = ["Admin", "CEO", "PM"].includes(currentUserRole);
+
+    const body = await req.json();
+    const { id, ids, project_id, user_id, user_ids, role, live_link, demo_link, credentials_text } = body;
+
+    let targetIds: number[] = [];
+    if (Array.isArray(ids) && ids.length > 0) {
+      targetIds = ids.map((i: any) => parseInt(i, 10)).filter((n: number) => !isNaN(n));
+    } else if (id) {
+      targetIds = [parseInt(String(id), 10)].filter((n: number) => !isNaN(n));
+    }
+
+    if (targetIds.length === 0) {
+      return NextResponse.json({ error: "Missing credential ID(s) to update." }, { status: 400 });
+    }
+
+    const placeholders = targetIds.map(() => "?").join(",");
+    const [existingRows]: any = await pool.query(
+      `SELECT * FROM credentials WHERE id IN (${placeholders})`,
+      targetIds
+    );
+
+    if (!existingRows || existingRows.length === 0) {
+      return NextResponse.json({ error: "Credential record(s) not found." }, { status: 404 });
+    }
+
+    // Authorization: Executives can edit all; team members can only edit their own
+    if (!isExecutive) {
+      const ownsAll = existingRows.every((r: any) => r.user_id === currentUserId);
+      if (!ownsAll) {
+        return NextResponse.json({ error: "You do not have permission to edit these credentials." }, { status: 403 });
+      }
+    }
+
+    const numericProjectId = project_id === "0" || !project_id ? null : parseInt(String(project_id), 10);
+
+    if (isExecutive && Array.isArray(user_ids) && user_ids.length > 0) {
+      const targetUserIds = user_ids.map((u: any) => parseInt(u, 10)).filter((u: number) => !isNaN(u));
+      
+      // Delete existing rows in group and insert updated rows for assigned developers
+      await pool.query(`DELETE FROM credentials WHERE id IN (${placeholders})`, targetIds);
+
+      for (const uId of targetUserIds) {
+        const [uRows]: any = await pool.query("SELECT role FROM users WHERE id = ?", [uId]);
+        const targetRole = uRows?.[0]?.role || role || currentUserRole;
+        await pool.query(
+          "INSERT INTO credentials (project_id, user_id, role, live_link, demo_link, credentials_text) VALUES (?, ?, ?, ?, ?, ?)",
+          [numericProjectId, uId, targetRole, live_link || null, demo_link || null, credentials_text || null]
+        );
+      }
+    } else {
+      // Direct update on all target IDs
+      await pool.query(
+        `UPDATE credentials 
+         SET project_id = ?, live_link = ?, demo_link = ?, credentials_text = ? 
+         WHERE id IN (${placeholders})`,
+        [numericProjectId, live_link || null, demo_link || null, credentials_text || null, ...targetIds]
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: "Credentials updated successfully."
+    });
+  } catch (error: any) {
+    console.error("PUT /api/credentials error:", error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
 export async function DELETE(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
@@ -137,3 +214,4 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+
