@@ -17,6 +17,8 @@ export interface LetterData {
   monthly_salary?: string;
   probation_period?: string;
   work_location?: string;
+  working_days?: string;
+  work_timing?: string;
   signatory_name?: string;
   signatory_title?: string;
   custom_remarks?: string;
@@ -186,7 +188,9 @@ export function generateLetterPDF(data: LetterData, autoDownload: boolean = true
       `Date of Commencement: ${formattedJoinDate}`,
       `Total Compensation (CTC): ${ctcStr}`,
       `Probation Period: ${probationStr} from the date of joining`,
-      `Working Hours & Location: Standard hours (10:00 AM - 7:00 PM IST), based at ${locationStr}`,
+      `Working Days: ${data.working_days || "Monday to Friday"}`,
+      `Working Hours / Timing: ${data.work_timing || "10:00 AM - 7:00 PM (IST)"}`,
+      `Work Location: ${locationStr}`,
       `Reporting To: ${data.reporting_manager || "Project Manager / Director"}`,
     ];
 

@@ -75,9 +75,22 @@ export default function LetterGenerationModal({
   const [probationPeriod, setProbationPeriod] = useState<string>("3 Months");
   const [workLocation, setWorkLocation] = useState<string>("Pune, Maharashtra / Hybrid");
   const [reportingManager, setReportingManager] = useState<string>("Anmol Gadhave (Project Manager)");
+  const [workingDays, setWorkingDays] = useState<string>("Monday to Friday");
+  const [workTiming, setWorkTiming] = useState<string>("10:00 AM - 7:00 PM (IST)");
   const [signatoryName, setSignatoryName] = useState<string>("Anmol Gadhave");
   const [signatoryTitle, setSignatoryTitle] = useState<string>("Project Manager / Authorized Signatory");
   const [customRemarks, setCustomRemarks] = useState<string>("");
+
+  // List of available reporting managers for dropdown
+  const managerOptions = [
+    "Anmol Gadhave (Project Manager)",
+    "Ganesh Nagargoje (Chief Executive Officer)",
+    "Anmol Gadhave (Director)",
+    "Management / Board of Directors",
+    ...employees
+      .map((e) => `${e.name} (${e.role})`)
+      .filter((opt) => !["Anmol Gadhave (Project Manager)", "Ganesh Nagargoje (Chief Executive Officer)", "Anmol Gadhave (Director)", "Management / Board of Directors"].includes(opt))
+  ];
 
   // Load active employees
   useEffect(() => {
@@ -163,6 +176,8 @@ export default function LetterGenerationModal({
       monthly_salary: monthlySalary,
       probation_period: probationPeriod,
       work_location: workLocation,
+      working_days: workingDays,
+      work_timing: workTiming,
       signatory_name: signatoryName,
       signatory_title: signatoryTitle,
       custom_remarks: customRemarks,
@@ -207,6 +222,8 @@ export default function LetterGenerationModal({
           annual_ctc: annualCTC,
           probation_period: probationPeriod,
           work_location: workLocation,
+          working_days: workingDays,
+          work_timing: workTiming,
           reporting_manager: reportingManager,
           signatory_name: signatoryName,
           signatory_title: signatoryTitle,
@@ -504,13 +521,61 @@ export default function LetterGenerationModal({
                     </div>
 
                     <div className="space-y-1">
-                      <Label className="text-xs font-medium text-slate-600">Reporting Manager</Label>
-                      <Input
-                        value={reportingManager}
-                        onChange={(e) => setReportingManager(e.target.value)}
-                        className="text-xs bg-white rounded-xl h-9"
-                        placeholder="e.g. Anmol Gadhave (PM)"
-                      />
+                      <Label className="text-xs font-medium text-slate-600">Reporting Manager *</Label>
+                      <Select value={reportingManager} onValueChange={setReportingManager}>
+                        <SelectTrigger className="text-xs bg-white rounded-xl h-9">
+                          <SelectValue placeholder="Select reporting manager" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-60">
+                          {managerOptions.map((mgr) => (
+                            <SelectItem key={mgr} value={mgr} className="text-xs">
+                              {mgr}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  {/* ROW 3: WORKING DAYS & TIMING */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+                    <div className="space-y-1">
+                      <Label className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                        <Calendar className="w-3.5 h-3.5 text-blue-600" />
+                        Working Days Schedule *
+                      </Label>
+                      <Select value={workingDays} onValueChange={setWorkingDays}>
+                        <SelectTrigger className="text-xs bg-white rounded-xl h-9">
+                          <SelectValue placeholder="Select working days" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Monday to Friday" className="text-xs">Monday to Friday (5 Days/Week)</SelectItem>
+                          <SelectItem value="Monday to Friday (Alternate Saturdays)" className="text-xs">Monday to Friday (Alternate Saturdays)</SelectItem>
+                          <SelectItem value="Monday to Saturday" className="text-xs">Monday to Saturday (6 Days/Week)</SelectItem>
+                          <SelectItem value="Monday to Saturday (1st & 3rd Sat Off)" className="text-xs">Monday to Saturday (1st & 3rd Sat Off)</SelectItem>
+                          <SelectItem value="Flexible Working Days" className="text-xs">Flexible Working Days</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <Label className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                        <Clock className="w-3.5 h-3.5 text-blue-600" />
+                        Working Hours / Shift Timing *
+                      </Label>
+                      <Select value={workTiming} onValueChange={setWorkTiming}>
+                        <SelectTrigger className="text-xs bg-white rounded-xl h-9">
+                          <SelectValue placeholder="Select shift timing" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="10:00 AM - 7:00 PM (IST)" className="text-xs">10:00 AM - 7:00 PM (IST) [Standard Shift]</SelectItem>
+                          <SelectItem value="9:30 AM - 6:30 PM (IST)" className="text-xs">9:30 AM - 6:30 PM (IST)</SelectItem>
+                          <SelectItem value="9:00 AM - 6:00 PM (IST)" className="text-xs">9:00 AM - 6:00 PM (IST)</SelectItem>
+                          <SelectItem value="11:00 AM - 8:00 PM (IST)" className="text-xs">11:00 AM - 8:00 PM (IST)</SelectItem>
+                          <SelectItem value="10:00 AM - 6:00 PM (IST)" className="text-xs">10:00 AM - 6:00 PM (IST)</SelectItem>
+                          <SelectItem value="Flexible Schedule (8 Hours/Day)" className="text-xs">Flexible Schedule (8 Hours/Day)</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
                 </div>
@@ -637,6 +702,7 @@ export default function LetterGenerationModal({
                       <div className="p-2.5 rounded bg-blue-50/50 border border-blue-100 space-y-1 text-[10px]">
                         <p><strong>Compensation (CTC):</strong> {previewData.annual_ctc ? `₹${previewData.annual_ctc} / year` : "As agreed"}</p>
                         <p><strong>Probation Period:</strong> {previewData.probation_period || "3 Months"}</p>
+                        <p><strong>Working Schedule:</strong> {previewData.working_days || "Monday to Friday"} ({previewData.work_timing || "10:00 AM - 7:00 PM IST"})</p>
                         <p><strong>Work Location:</strong> {previewData.work_location || "Pune / Hybrid"}</p>
                         <p><strong>Reporting Line:</strong> {previewData.reporting_manager || "Project Manager"}</p>
                       </div>

@@ -119,6 +119,8 @@ export default function LettersPage() {
       monthly_salary: meta.monthly_salary,
       probation_period: meta.probation_period,
       work_location: meta.work_location,
+      working_days: meta.working_days,
+      work_timing: meta.work_timing,
       signatory_name: meta.signatory_name || "Anmol Gadhave",
       signatory_title: meta.signatory_title || "Project Manager / Authorized Signatory",
       custom_remarks: letter.custom_remarks,
@@ -618,14 +620,23 @@ export default function LettersPage() {
                         </span>
                       </div>
                     )}
+
+                    {letter.letter_type === "Joining Letter" && (meta.working_days || meta.work_timing) && (
+                      <div className="flex items-center justify-between text-slate-600">
+                        <span className="text-slate-400">Schedule:</span>
+                        <span className="font-medium text-slate-700 truncate max-w-[170px]" title={`${meta.working_days || "Mon - Fri"} (${meta.work_timing || "10 AM - 7 PM"})`}>
+                          {meta.working_days || "Mon - Fri"} • {meta.work_timing || "10:00 AM - 7:00 PM"}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Signatory & Verified Stamp Indicator */}
                   <div className="mt-3 flex items-center justify-between pt-1 text-[11px]">
                     <div className="flex items-center gap-1 text-slate-500 truncate">
-                      <span className="text-slate-400">Signed:</span>
+                      <span className="text-slate-400">{letter.letter_type === "Joining Letter" ? "Reports To:" : "Signed:"}</span>
                       <span className="font-semibold text-slate-700 truncate">
-                        {meta.signatory_name || "Anmol Gadhave"}
+                        {letter.letter_type === "Joining Letter" && meta.reporting_manager ? meta.reporting_manager : (meta.signatory_name || "Anmol Gadhave")}
                       </span>
                     </div>
 
