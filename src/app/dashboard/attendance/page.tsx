@@ -191,6 +191,7 @@ export default function AttendancePage() {
     setSavingBalances(true);
     try {
       const payload = Object.entries(editingBalances).map(([userId, val]) => ({
+        id: parseInt(userId, 10),
         user_id: parseInt(userId, 10),
         monthly_quota: val.monthly_quota,
         carried_forward: val.carried_forward,
@@ -590,7 +591,7 @@ export default function AttendancePage() {
               className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs gap-1.5 shadow-sm h-9 cursor-pointer"
             >
               <Settings className="h-3.5 w-3.5" />
-              Opening Balances Setup
+              Configure Paid Leaves
             </Button>
           )}
 
@@ -1650,7 +1651,7 @@ export default function AttendancePage() {
           <DialogHeader>
             <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
               <Settings className="h-5 w-5 text-indigo-600" />
-              Opening Paid Leave Balances &amp; Carry-Over Setup
+              Configure Employee Paid Leaves &amp; Opening Balances
             </DialogTitle>
           </DialogHeader>
 
@@ -1658,7 +1659,7 @@ export default function AttendancePage() {
             <div className="bg-indigo-50/80 border border-indigo-200 rounded-xl p-3.5 text-xs text-indigo-950 flex items-start gap-2.5">
               <Sparkles className="h-4 w-4 text-indigo-600 shrink-0 mt-0.5" />
               <div>
-                <strong>Mid-Year Rollout Configuration:</strong> Set the initial opening leave quota and carried-forward leave balances for staff members (PMs, Developers, QAs). Executive roles (Admin &amp; CEO) are automatically exempt.
+                <strong>Employee Paid Leaves &amp; Quota Configuration:</strong> Set the monthly paid leave quota (e.g. 1, 1.5, 2 days/month) and opening carried-forward leave balances for staff members (PMs, Developers, QAs). These quotas directly govern leave deductions and payroll calculations. Executive roles (Admin &amp; CEO) are automatically exempt.
               </div>
             </div>
 

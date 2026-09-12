@@ -9,7 +9,7 @@ export async function ensureLettersTable() {
       CREATE TABLE IF NOT EXISTS employee_letters (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
-        letter_type ENUM('Joining Letter', 'Experience Letter', 'Internship Completion') NOT NULL,
+        letter_type VARCHAR(100) NOT NULL,
         title VARCHAR(255) NOT NULL,
         reference_no VARCHAR(100) NOT NULL,
         issue_date DATE NOT NULL,
@@ -149,7 +149,7 @@ export async function POST(req: Request) {
     if (!user_id) {
       return NextResponse.json({ error: "Target employee is required." }, { status: 400 });
     }
-    if (!["Joining Letter", "Experience Letter", "Internship Completion"].includes(letter_type)) {
+    if (!["Joining Letter", "Internship Offer Letter", "Experience Letter", "Internship Completion"].includes(letter_type)) {
       return NextResponse.json({ error: "Invalid letter type." }, { status: 400 });
     }
 
@@ -168,7 +168,13 @@ export async function POST(req: Request) {
     const [countRow]: any = await pool.query("SELECT COUNT(*) as total FROM employee_letters");
     const count = (countRow[0]?.total || 0) + 1;
     const refPad = String(count).padStart(3, "0");
-    const refPrefix = letter_type === "Joining Letter" ? "APPT" : letter_type === "Experience Letter" ? "EXP" : "INT";
+    const refPrefix = letter_type === "Joining Letter" 
+      ? "APPT" 
+      : letter_type === "Internship Offer Letter"
+      ? "INT-OFR"
+      : letter_type === "Experience Letter" 
+      ? "EXP" 
+      : "INT";
     const reference_no = `USPL/${refPrefix}/${year}/${refPad}`;
 
     const finalTitle = title || `${letter_type} - ${emp.name}`;

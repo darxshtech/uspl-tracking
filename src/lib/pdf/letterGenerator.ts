@@ -4,7 +4,7 @@ import { DEFAULT_LETTER_POLICIES, syncPoliciesWithTerms } from "@/lib/constants/
 
 export interface LetterData {
   reference_no: string;
-  letter_type: "Joining Letter" | "Experience Letter" | "Internship Completion";
+  letter_type: "Joining Letter" | "Internship Offer Letter" | "Experience Letter" | "Internship Completion";
   title?: string;
   issue_date: string;
   user_name: string;
@@ -165,6 +165,8 @@ export function generateLetterPDF(data: LetterData, autoDownload: boolean = true
   let subjectText = "";
   if (data.letter_type === "Joining Letter") {
     subjectText = `OFFER & LETTER OF APPOINTMENT - ${data.designation?.toUpperCase() || "SOFTWARE PROFESSIONAL"}`;
+  } else if (data.letter_type === "Internship Offer Letter") {
+    subjectText = `OFFER & INTERNSHIP APPOINTMENT LETTER - ${data.designation?.toUpperCase() || "SOFTWARE ENGINEERING INTERN"}`;
   } else if (data.letter_type === "Experience Letter") {
     subjectText = `EXPERIENCE & RELIEVING CERTIFICATE`;
   } else {
@@ -183,11 +185,13 @@ export function generateLetterPDF(data: LetterData, autoDownload: boolean = true
   currentY += 13;
 
   // =========================================================================
-  // 5. BODY TEMPLATES (JOINING, EXPERIENCE, INTERNSHIP)
+  // 5. BODY TEMPLATES (JOINING, INTERNSHIP OFFER, EXPERIENCE, INTERNSHIP)
   // =========================================================================
   const lineHeight = 4.6;
 
-  if (data.letter_type === "Joining Letter") {
+  if (data.letter_type === "Joining Letter" || data.letter_type === "Internship Offer Letter") {
+    const isInternshipOffer = data.letter_type === "Internship Offer Letter";
+
     // SALUTATION
     doc.setFont("helvetica", "bold");
     doc.setFontSize(9.5);
@@ -200,7 +204,9 @@ export function generateLetterPDF(data: LetterData, autoDownload: boolean = true
     doc.setTextColor(textDark[0], textDark[1], textDark[2]);
 
     const formattedJoinDate = formatDateString(data.joining_date || data.issue_date);
-    const p1 = `With reference to your application and the subsequent technical evaluation rounds, we are pleased to offer you the position of "${data.designation}" with Unitglo Solutions Private Limited ("Company"). We believe your expertise and skills will be an integral asset to our software development and client initiatives.`;
+    const p1 = isInternshipOffer
+      ? `With reference to your application and the subsequent interview rounds, we are pleased to offer you an internship position as "${data.designation || "Software Engineering Intern"}" with Unitglo Solutions Private Limited ("Company"). This structured internship program is designed to provide you with practical engineering exposure, hands-on project deliverables, and mentorship.`
+      : `With reference to your application and the subsequent technical evaluation rounds, we are pleased to offer you the position of "${data.designation}" with Unitglo Solutions Private Limited ("Company"). We believe your expertise and skills will be an integral asset to our software development and client initiatives.`;
     const linesP1 = doc.splitTextToSize(p1, printableWidth);
     doc.text(linesP1, marginX, currentY);
     currentY += linesP1.length * lineHeight + 3;
@@ -209,26 +215,27 @@ export function generateLetterPDF(data: LetterData, autoDownload: boolean = true
     doc.setFont("helvetica", "bold");
     doc.setFontSize(9);
     doc.setTextColor(primaryNavy[0], primaryNavy[1], primaryNavy[2]);
-    doc.text("Terms of Employment & Compensation Structure:", marginX, currentY);
+    doc.text(isInternshipOffer ? "Terms of Internship & Schedule Structure:" : "Terms of Employment & Compensation Structure:", marginX, currentY);
     currentY += 4;
 
     const ctcStr = data.annual_ctc ? `INR ${data.annual_ctc}/- Per Annum` : "As mutually agreed";
     const monthlyStr = data.monthly_salary ? `INR ${data.monthly_salary}/- Per Month` : "As per company policy";
-    const probationStr = data.probation_period || "3 (Three) Months from joining date";
+    const stipendStr = data.monthly_salary ? `INR ${data.monthly_salary}/- Per Month (Stipend)` : (data.annual_ctc ? `INR ${data.annual_ctc}/- Total Stipend` : "Stipend as agreed");
+    const probationStr = data.probation_period || (isInternshipOffer ? "3 (Three) Months Internship" : "3 (Three) Months from joining date");
     const daysStr = data.working_days || "Monday to Friday (5 Days / Week)";
     const hoursStr = data.work_timing || "10:00 AM - 7:00 PM (IST)";
     const locationStr = data.work_location || "Pune, Maharashtra / Hybrid";
-    const managerStr = data.reporting_manager || "Project Manager / Director";
+    const managerStr = data.reporting_manager || (isInternshipOffer ? "Anmol Gadhave (Mentor / Project Manager)" : "Project Manager / Director");
 
     const tableRows = [
-      ["Designation & Department", `${data.designation} (${data.department || "Engineering & Development"})`],
-      ["Date of Commencement", formattedJoinDate],
-      ["Total Remuneration (CTC)", `${ctcStr} (Gross: ${monthlyStr})`],
-      ["Probationary Period", probationStr],
+      ["Designation & Department", `${data.designation || (isInternshipOffer ? "Software Engineering Intern" : "Software Professional")} (${data.department || "Engineering & Development"})`],
+      [isInternshipOffer ? "Commencement Date" : "Date of Commencement", formattedJoinDate],
+      [isInternshipOffer ? "Monthly Stipend" : "Total Remuneration (CTC)", isInternshipOffer ? stipendStr : `${ctcStr} (Gross: ${monthlyStr})`],
+      [isInternshipOffer ? "Internship Duration" : "Probationary Period", probationStr],
       ["Working Days Schedule", daysStr],
-      ["Working Hours / Shift", hoursStr],
-      ["Work Location / Posting", locationStr],
-      ["Reporting Authority", managerStr],
+      ["Working Hours / Timing", hoursStr],
+      ["Work Location / Mode", locationStr],
+      [isInternshipOffer ? "Assigned Mentor / Lead" : "Reporting Authority", managerStr],
     ];
 
     const col1Width = 58;
@@ -517,9 +524,9 @@ export function generateLetterPDF(data: LetterData, autoDownload: boolean = true
   doc.text("Unitglo Solutions Private Limited", marginX, currentY);
 
   // =========================================================================
-  // 7. CANDIDATE ACCEPTANCE SLIP (JOINING LETTER ONLY)
+  // 7. CANDIDATE ACCEPTANCE SLIP (JOINING & INTERNSHIP OFFER LETTERS)
   // =========================================================================
-  if (data.letter_type === "Joining Letter") {
+  if (data.letter_type === "Joining Letter" || data.letter_type === "Internship Offer Letter") {
     currentY += 6;
     doc.setFillColor(bgTable[0], bgTable[1], bgTable[2]);
     doc.roundedRect(marginX, currentY, printableWidth, 14, 1.5, 1.5, "F");
@@ -542,9 +549,9 @@ export function generateLetterPDF(data: LetterData, autoDownload: boolean = true
 
   // =========================================================================
   // PAGE 2+: ANNEXURE A - OFFICIAL COMPANY POLICIES & CODE OF CONDUCT
-  // (Included for Joining Letters or when policies are explicitly provided)
+  // (Included for Joining Letters, Internship Offers, or when policies are explicitly provided)
   // =========================================================================
-  if (data.letter_type === "Joining Letter" || data.company_policies) {
+  if (data.letter_type === "Joining Letter" || data.letter_type === "Internship Offer Letter" || data.company_policies) {
     doc.addPage("a4", "portrait");
     let annexureY = renderCorporateHeader(doc, pageWidth, marginX, 16);
 

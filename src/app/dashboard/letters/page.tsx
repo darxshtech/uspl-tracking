@@ -40,7 +40,7 @@ import {
 interface LetterItem {
   id: number;
   user_id: number;
-  letter_type: "Joining Letter" | "Experience Letter" | "Internship Completion";
+  letter_type: "Joining Letter" | "Internship Offer Letter" | "Experience Letter" | "Internship Completion";
   title: string;
   reference_no: string;
   issue_date: string;
@@ -220,9 +220,10 @@ export default function LettersPage() {
   const metrics = useMemo(() => {
     const total = letters.length;
     const joining = letters.filter((l) => l.letter_type === "Joining Letter").length;
+    const internshipOffer = letters.filter((l) => l.letter_type === "Internship Offer Letter").length;
     const experience = letters.filter((l) => l.letter_type === "Experience Letter").length;
     const internship = letters.filter((l) => l.letter_type === "Internship Completion").length;
-    return { total, joining, experience, internship };
+    return { total, joining, internshipOffer, experience, internship };
   }, [letters]);
 
   const getTypeTheme = (type: string) => {
@@ -236,6 +237,16 @@ export default function LettersPage() {
           iconBg: "bg-blue-100 text-blue-700",
           icon: Briefcase,
           label: "Joining Letter",
+        };
+      case "Internship Offer Letter":
+        return {
+          badge: "bg-indigo-50 text-indigo-700 border-indigo-200/80 font-bold",
+          border: "border-indigo-200/70 hover:border-indigo-300",
+          cardBg: "from-indigo-50/40 via-white to-white",
+          accentColor: "text-indigo-600",
+          iconBg: "bg-indigo-100 text-indigo-700",
+          icon: Sparkles,
+          label: "Internship Offer Letter",
         };
       case "Experience Letter":
         return {
@@ -412,6 +423,22 @@ export default function LettersPage() {
               <span>Joining Letters</span>
               <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${activeTab === "Joining Letter" ? "bg-blue-600 text-white" : "bg-blue-100 text-blue-800"}`}>
                 {metrics.joining}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab("Internship Offer Letter")}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer ${
+                activeTab === "Internship Offer Letter"
+                  ? "bg-white text-indigo-700 shadow-xs"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Internship Offers</span>
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${activeTab === "Internship Offer Letter" ? "bg-indigo-600 text-white" : "bg-indigo-100 text-indigo-800"}`}>
+                {metrics.internshipOffer}
               </span>
             </button>
 

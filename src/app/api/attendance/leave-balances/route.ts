@@ -124,6 +124,21 @@ export async function GET(req: Request) {
       };
     });
 
+    const leaveBalances = ledger.map((l: any) => ({
+      user_id: l.id,
+      id: l.id,
+      name: l.name,
+      email: l.email,
+      role: l.role,
+      monthly_quota: l.monthly_quota,
+      carried_forward: l.carried_forward,
+      available_quota: l.available_quota,
+      paid_leaves_taken: l.paid_leaves_taken,
+      remaining_paid_balance: l.remaining_paid_balance,
+      unpaid_leaves_taken: l.unpaid_leaves_taken,
+      monthly_salary: l.monthly_salary,
+    }));
+
     return NextResponse.json({
       success: true,
       month: monthFormatted,
@@ -132,6 +147,7 @@ export async function GET(req: Request) {
       halfDaysRatio,
       policies,
       ledger,
+      leaveBalances,
     });
   } catch (error: any) {
     console.error("Error calculating leave balances:", error);
@@ -149,14 +165,15 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json();
-    const { updates } = body; // Array of { id, monthly_quota, leaves_carried_forward, monthly_salary }
+    const { updates } = body; // Array of { id or user_id, monthly_quota, leaves_carried_forward, monthly_salary }
 
     if (!Array.isArray(updates) || updates.length === 0) {
       return NextResponse.json({ error: "No updates provided" }, { status: 400 });
     }
 
     for (const item of updates) {
-      if (!item.id) continue;
+      const targetId = item.id || item.user_id;
+      if (!targetId) continue;
       
       const fields: string[] = [];
       const values: any[] = [];
@@ -175,7 +192,7 @@ export async function POST(req: Request) {
       }
 
       if (fields.length > 0) {
-        values.push(item.id);
+        values.push(targetId);
         await pool.query(
           `UPDATE users SET ${fields.join(", ")} WHERE id = ? AND role NOT IN ('Admin', 'CEO')`,
           values

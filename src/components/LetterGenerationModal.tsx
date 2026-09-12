@@ -51,7 +51,7 @@ interface LetterGenerationModalProps {
   onSuccess?: () => void;
 }
 
-type LetterType = "Joining Letter" | "Experience Letter" | "Internship Completion";
+type LetterType = "Joining Letter" | "Internship Offer Letter" | "Experience Letter" | "Internship Completion";
 
 export default function LetterGenerationModal({
   isOpen,
@@ -146,6 +146,7 @@ export default function LetterGenerationModal({
   useEffect(() => {
     const year = new Date().getFullYear();
     let prefix = "APPT";
+    if (letterType === "Internship Offer Letter") prefix = "INT-OFR";
     if (letterType === "Experience Letter") prefix = "EXP";
     if (letterType === "Internship Completion") prefix = "INT";
     const randomSuffix = Math.floor(100 + Math.random() * 900);
@@ -154,13 +155,13 @@ export default function LetterGenerationModal({
 
   // Synchronize company policies in Annexure A whenever appointment terms & compensation change
   useEffect(() => {
-    if (letterType !== "Joining Letter") return;
+    if (letterType !== "Joining Letter" && letterType !== "Internship Offer Letter") return;
     setCompanyPolicies((prev) => {
       return syncPoliciesWithTerms(prev, {
         working_days: workingDays,
         work_timing: workTiming,
         probation_period: probationPeriod,
-        designation: designation || "Software Professional",
+        designation: designation || (letterType === "Internship Offer Letter" ? "Software Engineering Intern" : "Software Professional"),
         work_location: workLocation,
         reporting_manager: reportingManager,
         annual_ctc: annualCTC,
@@ -177,7 +178,7 @@ export default function LetterGenerationModal({
 
     // Smart auto-fill
     let defaultRole = emp.role || "Software Developer";
-    if (letterType === "Internship Completion" && !defaultRole.toLowerCase().includes("intern")) {
+    if ((letterType === "Internship Offer Letter" || letterType === "Internship Completion") && !defaultRole.toLowerCase().includes("intern")) {
       defaultRole = `${defaultRole} Intern`;
     }
     setDesignation(defaultRole);
@@ -369,58 +370,76 @@ export default function LetterGenerationModal({
 
         {/* LETTER TYPE SWITCHER BAR */}
         <div className="shrink-0 px-6 pt-4 bg-slate-50/60 border-b border-slate-100">
-          <div className="grid grid-cols-3 gap-3 pb-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pb-4">
             <button
               type="button"
               onClick={() => setLetterType("Joining Letter")}
-              className={`flex items-center justify-center gap-2.5 p-3 rounded-2xl border text-xs font-bold transition-all cursor-pointer ${
+              className={`flex items-center justify-start gap-2.5 p-3 rounded-2xl border text-xs font-bold transition-all cursor-pointer ${
                 letterType === "Joining Letter"
                   ? "border-blue-600 bg-white text-blue-700 shadow-md ring-2 ring-blue-500/20"
                   : "border-slate-200 hover:bg-white text-slate-600"
               }`}
             >
-              <div className={`p-1.5 rounded-lg ${letterType === "Joining Letter" ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600"}`}>
+              <div className={`p-1.5 rounded-lg shrink-0 ${letterType === "Joining Letter" ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600"}`}>
                 <Briefcase className="w-4 h-4" />
               </div>
-              <div className="text-left">
-                <span className="block font-bold">Joining Letter</span>
-                <span className="text-[10px] font-medium text-slate-400">Appointment offer</span>
+              <div className="text-left min-w-0">
+                <span className="block font-bold truncate">Joining Letter</span>
+                <span className="text-[10px] font-medium text-slate-400 block truncate">Job appointment</span>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setLetterType("Internship Offer Letter")}
+              className={`flex items-center justify-start gap-2.5 p-3 rounded-2xl border text-xs font-bold transition-all cursor-pointer ${
+                letterType === "Internship Offer Letter"
+                  ? "border-indigo-600 bg-white text-indigo-700 shadow-md ring-2 ring-indigo-500/20"
+                  : "border-slate-200 hover:bg-white text-slate-600"
+              }`}
+            >
+              <div className={`p-1.5 rounded-lg shrink-0 ${letterType === "Internship Offer Letter" ? "bg-indigo-100 text-indigo-700" : "bg-slate-100 text-slate-600"}`}>
+                <Sparkles className="w-4 h-4" />
+              </div>
+              <div className="text-left min-w-0">
+                <span className="block font-bold truncate">Internship Offer</span>
+                <span className="text-[10px] font-medium text-slate-400 block truncate">Stipend &amp; timing</span>
               </div>
             </button>
 
             <button
               type="button"
               onClick={() => setLetterType("Experience Letter")}
-              className={`flex items-center justify-center gap-2.5 p-3 rounded-2xl border text-xs font-bold transition-all cursor-pointer ${
+              className={`flex items-center justify-start gap-2.5 p-3 rounded-2xl border text-xs font-bold transition-all cursor-pointer ${
                 letterType === "Experience Letter"
                   ? "border-emerald-600 bg-white text-emerald-700 shadow-md ring-2 ring-emerald-500/20"
                   : "border-slate-200 hover:bg-white text-slate-600"
               }`}
             >
-              <div className={`p-1.5 rounded-lg ${letterType === "Experience Letter" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
+              <div className={`p-1.5 rounded-lg shrink-0 ${letterType === "Experience Letter" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
                 <ShieldCheck className="w-4 h-4" />
               </div>
-              <div className="text-left">
-                <span className="block font-bold">Experience Letter</span>
-                <span className="text-[10px] font-medium text-slate-400">Tenure &amp; relieving</span>
+              <div className="text-left min-w-0">
+                <span className="block font-bold truncate">Experience Letter</span>
+                <span className="text-[10px] font-medium text-slate-400 block truncate">Tenure &amp; relieving</span>
               </div>
             </button>
 
             <button
               type="button"
               onClick={() => setLetterType("Internship Completion")}
-              className={`flex items-center justify-center gap-2.5 p-3 rounded-2xl border text-xs font-bold transition-all cursor-pointer ${
+              className={`flex items-center justify-start gap-2.5 p-3 rounded-2xl border text-xs font-bold transition-all cursor-pointer ${
                 letterType === "Internship Completion"
                   ? "border-purple-600 bg-white text-purple-700 shadow-md ring-2 ring-purple-500/20"
                   : "border-slate-200 hover:bg-white text-slate-600"
               }`}
             >
-              <div className={`p-1.5 rounded-lg ${letterType === "Internship Completion" ? "bg-purple-100 text-purple-700" : "bg-slate-100 text-slate-600"}`}>
+              <div className={`p-1.5 rounded-lg shrink-0 ${letterType === "Internship Completion" ? "bg-purple-100 text-purple-700" : "bg-slate-100 text-slate-600"}`}>
                 <Award className="w-4 h-4" />
               </div>
-              <div className="text-left">
-                <span className="block font-bold">Internship Certificate</span>
-                <span className="text-[10px] font-medium text-slate-400">Completion proof</span>
+              <div className="text-left min-w-0">
+                <span className="block font-bold truncate">Internship Certificate</span>
+                <span className="text-[10px] font-medium text-slate-400 block truncate">Completion proof</span>
               </div>
             </button>
           </div>
@@ -509,17 +528,25 @@ export default function LetterGenerationModal({
                 </div>
               </div>
 
-              {/* DYNAMIC SUBSECTION: JOINING LETTER */}
-              {letterType === "Joining Letter" && (
-                <div className="p-4 rounded-2xl bg-blue-50/40 border border-blue-100 space-y-3.5">
-                  <h4 className="text-xs font-extrabold text-blue-900 uppercase tracking-wider flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                    Appointment Terms &amp; Compensation
+              {/* DYNAMIC SUBSECTION: JOINING OR INTERNSHIP OFFER LETTER */}
+              {(letterType === "Joining Letter" || letterType === "Internship Offer Letter") && (
+                <div className={`p-4 rounded-2xl border space-y-3.5 ${
+                  letterType === "Internship Offer Letter"
+                    ? "bg-indigo-50/40 border-indigo-100"
+                    : "bg-blue-50/40 border-blue-100"
+                }`}>
+                  <h4 className={`text-xs font-extrabold uppercase tracking-wider flex items-center gap-1.5 ${
+                    letterType === "Internship Offer Letter" ? "text-indigo-900" : "text-blue-900"
+                  }`}>
+                    <Sparkles className={`w-3.5 h-3.5 ${letterType === "Internship Offer Letter" ? "text-indigo-600" : "text-blue-600"}`} />
+                    {letterType === "Internship Offer Letter" ? "Internship Terms, Stipend & Schedule" : "Appointment Terms & Compensation"}
                   </h4>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                     <div className="space-y-1">
-                      <Label className="text-xs font-medium text-slate-600">Date of Joining</Label>
+                      <Label className="text-xs font-medium text-slate-600">
+                        {letterType === "Internship Offer Letter" ? "Internship Start Date *" : "Date of Joining *"}
+                      </Label>
                       <Input
                         type="date"
                         value={joiningDate}
@@ -528,37 +555,67 @@ export default function LetterGenerationModal({
                       />
                     </div>
 
-                    <div className="space-y-1">
-                      <Label className="text-xs font-medium text-slate-600">Annual CTC (INR)</Label>
-                      <Input
-                        type="text"
-                        value={annualCTC}
-                        onChange={(e) => setAnnualCTC(e.target.value)}
-                        className="text-xs bg-white rounded-xl h-9"
-                        placeholder="e.g. 6,00,000"
-                      />
-                    </div>
+                    {letterType === "Joining Letter" ? (
+                      <>
+                        <div className="space-y-1">
+                          <Label className="text-xs font-medium text-slate-600">Annual CTC (INR)</Label>
+                          <Input
+                            type="text"
+                            value={annualCTC}
+                            onChange={(e) => setAnnualCTC(e.target.value)}
+                            className="text-xs bg-white rounded-xl h-9"
+                            placeholder="e.g. 6,00,000"
+                          />
+                        </div>
 
-                    <div className="space-y-1">
-                      <Label className="text-xs font-medium text-slate-600">Monthly Gross (INR)</Label>
-                      <Input
-                        type="text"
-                        value={monthlySalary}
-                        onChange={(e) => setMonthlySalary(e.target.value)}
-                        className="text-xs bg-white rounded-xl h-9"
-                        placeholder="e.g. 50,000"
-                      />
-                    </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs font-medium text-slate-600">Monthly Gross (INR)</Label>
+                          <Input
+                            type="text"
+                            value={monthlySalary}
+                            onChange={(e) => setMonthlySalary(e.target.value)}
+                            className="text-xs bg-white rounded-xl h-9"
+                            placeholder="e.g. 50,000"
+                          />
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="space-y-1">
+                          <Label className="text-xs font-medium text-slate-600">Monthly Stipend (INR)</Label>
+                          <Input
+                            type="text"
+                            value={monthlySalary}
+                            onChange={(e) => setMonthlySalary(e.target.value)}
+                            className="text-xs bg-white rounded-xl h-9"
+                            placeholder="e.g. 15,000"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <Label className="text-xs font-medium text-slate-600">Total Stipend / CTC (Optional)</Label>
+                          <Input
+                            type="text"
+                            value={annualCTC}
+                            onChange={(e) => setAnnualCTC(e.target.value)}
+                            className="text-xs bg-white rounded-xl h-9"
+                            placeholder="e.g. 45,000 (total duration)"
+                          />
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-1">
                     <div className="space-y-1">
-                      <Label className="text-xs font-medium text-slate-600">Probation Duration</Label>
+                      <Label className="text-xs font-medium text-slate-600">
+                        {letterType === "Internship Offer Letter" ? "Internship Duration *" : "Probation Duration"}
+                      </Label>
                       <Input
                         value={probationPeriod}
                         onChange={(e) => setProbationPeriod(e.target.value)}
                         className="text-xs bg-white rounded-xl h-9"
-                        placeholder="e.g. 3 Months"
+                        placeholder={letterType === "Internship Offer Letter" ? "e.g. 3 Months or 6 Months" : "e.g. 3 Months"}
                       />
                     </div>
 
@@ -573,10 +630,12 @@ export default function LetterGenerationModal({
                     </div>
 
                     <div className="space-y-1">
-                      <Label className="text-xs font-medium text-slate-600">Reporting Manager *</Label>
+                      <Label className="text-xs font-medium text-slate-600">
+                        {letterType === "Internship Offer Letter" ? "Assigned Mentor / Lead *" : "Reporting Manager *"}
+                      </Label>
                       <Select value={reportingManager} onValueChange={setReportingManager}>
                         <SelectTrigger className="text-xs bg-white rounded-xl h-9">
-                          <SelectValue placeholder="Select reporting manager" />
+                          <SelectValue placeholder="Select mentor / manager" />
                         </SelectTrigger>
                         <SelectContent className="max-h-60">
                           {managerOptions.map((mgr) => (
@@ -859,7 +918,7 @@ export default function LetterGenerationModal({
                 </div>
 
                 {/* Recipient */}
-                {letterType === "Joining Letter" ? (
+                {letterType === "Joining Letter" || letterType === "Internship Offer Letter" ? (
                   <div className="space-y-0.5 text-[11px]">
                     <p className="font-bold text-slate-500">To,</p>
                     <p className="font-extrabold text-xs text-slate-900">{previewData.user_name}</p>
@@ -876,6 +935,8 @@ export default function LetterGenerationModal({
                 <div className="p-2 rounded-lg bg-slate-900 text-white font-bold text-center text-xs tracking-wide">
                   {letterType === "Joining Letter"
                     ? `OFFER & APPOINTMENT LETTER - ${previewData.designation?.toUpperCase()}`
+                    : letterType === "Internship Offer Letter"
+                    ? `OFFER & INTERNSHIP APPOINTMENT - ${previewData.designation?.toUpperCase()}`
                     : letterType === "Experience Letter"
                     ? "EXPERIENCE & RELIEVING CERTIFICATE"
                     : "CERTIFICATE OF INTERNSHIP COMPLETION"}
@@ -883,17 +944,19 @@ export default function LetterGenerationModal({
 
                 {/* Body Paragraphs & Structured Terms Table */}
                 <div className="space-y-3 text-slate-700 leading-relaxed text-[11px]">
-                  {letterType === "Joining Letter" ? (
+                  {letterType === "Joining Letter" || letterType === "Internship Offer Letter" ? (
                     <>
                       <p>Dear {previewData.user_name},</p>
                       <p>
-                        With reference to your application and the subsequent technical evaluation rounds, we are pleased to offer you the position of <strong>{previewData.designation}</strong> with Unitglo Solutions Private Limited. We believe your skills and professional expertise will contribute significantly to our organization.
+                        {letterType === "Internship Offer Letter"
+                          ? `With reference to your application and the subsequent interview rounds, we are pleased to offer you an internship position as "${previewData.designation || "Software Engineering Intern"}" with Unitglo Solutions Private Limited. This structured internship program is designed to provide you with practical engineering exposure, hands-on project deliverables, and mentorship.`
+                          : `With reference to your application and the subsequent technical evaluation rounds, we are pleased to offer you the position of "${previewData.designation}" with Unitglo Solutions Private Limited. We believe your skills and professional expertise will contribute significantly to our organization.`}
                       </p>
 
                       {/* Structured 2-Column Terms Table */}
                       <div className="rounded-xl border border-slate-200 overflow-hidden text-[10px]">
                         <div className="bg-slate-50 px-3 py-1.5 font-bold text-slate-900 border-b border-slate-200">
-                          Terms of Employment &amp; Compensation
+                          {letterType === "Internship Offer Letter" ? "Terms of Internship & Schedule" : "Terms of Employment & Compensation"}
                         </div>
                         <div className="divide-y divide-slate-200">
                           <div className="grid grid-cols-3 p-2 bg-white">
@@ -901,14 +964,15 @@ export default function LetterGenerationModal({
                             <span className="col-span-2 text-slate-900">{previewData.designation} ({previewData.department || "Engineering"})</span>
                           </div>
                           <div className="grid grid-cols-3 p-2 bg-slate-50/50">
-                            <span className="font-bold text-slate-700">Date of Commencement</span>
+                            <span className="font-bold text-slate-700">{letterType === "Internship Offer Letter" ? "Commencement Date" : "Date of Commencement"}</span>
                             <span className="col-span-2 text-slate-900">{formatDateString(previewData.joining_date)}</span>
                           </div>
                           <div className="grid grid-cols-3 p-2 bg-white">
-                            <span className="font-bold text-slate-700">Total Compensation (CTC)</span>
+                            <span className="font-bold text-slate-700">{letterType === "Internship Offer Letter" ? "Monthly Stipend" : "Total Compensation (CTC)"}</span>
                             <span className="col-span-2 font-bold text-blue-700">
-                              {previewData.annual_ctc ? `INR ${previewData.annual_ctc}/- Per Annum` : "As mutually agreed"}
-                              {previewData.monthly_salary ? ` (Gross: INR ${previewData.monthly_salary}/- PM)` : ""}
+                              {letterType === "Internship Offer Letter"
+                                ? (previewData.monthly_salary ? `INR ${previewData.monthly_salary}/- Per Month` : "Stipend as agreed")
+                                : (previewData.annual_ctc ? `INR ${previewData.annual_ctc}/- Per Annum` : "As mutually agreed") + (previewData.monthly_salary ? ` (Gross: INR ${previewData.monthly_salary}/- PM)` : "")}
                             </span>
                           </div>
                           <div className="grid grid-cols-3 p-2 bg-slate-50/50">
@@ -916,7 +980,7 @@ export default function LetterGenerationModal({
                             <span className="col-span-2 text-slate-900">{previewData.working_days || "Monday to Friday (5 Days/Week)"}</span>
                           </div>
                           <div className="grid grid-cols-3 p-2 bg-white">
-                            <span className="font-bold text-slate-700">Working Hours / Shift</span>
+                            <span className="font-bold text-slate-700">Working Hours / Timing</span>
                             <span className="col-span-2 text-slate-900">{previewData.work_timing || "10:00 AM - 7:00 PM (IST)"}</span>
                           </div>
                           <div className="grid grid-cols-3 p-2 bg-slate-50/50">
@@ -924,12 +988,12 @@ export default function LetterGenerationModal({
                             <span className="col-span-2 text-slate-900">{previewData.work_location || "Pune, Maharashtra / Hybrid"}</span>
                           </div>
                           <div className="grid grid-cols-3 p-2 bg-white">
-                            <span className="font-bold text-slate-700">Reporting Authority</span>
+                            <span className="font-bold text-slate-700">{letterType === "Internship Offer Letter" ? "Mentor / Lead" : "Reporting Authority"}</span>
                             <span className="col-span-2 text-slate-900">{previewData.reporting_manager || "Project Manager"}</span>
                           </div>
                           <div className="grid grid-cols-3 p-2 bg-slate-50/50">
-                            <span className="font-bold text-slate-700">Probation Duration</span>
-                            <span className="col-span-2 text-slate-900">{previewData.probation_period || "3 Months from joining date"}</span>
+                            <span className="font-bold text-slate-700">{letterType === "Internship Offer Letter" ? "Internship Duration" : "Probation Duration"}</span>
+                            <span className="col-span-2 text-slate-900">{previewData.probation_period || (letterType === "Internship Offer Letter" ? "3 Months" : "3 Months from joining date")}</span>
                           </div>
                         </div>
                       </div>
@@ -1014,8 +1078,8 @@ export default function LetterGenerationModal({
                   </div>
                 </div>
 
-                {/* Candidate Acceptance Slip (Joining Letter only) */}
-                {letterType === "Joining Letter" && (
+                {/* Candidate Acceptance Slip (Joining & Internship Offer Letters) */}
+                {(letterType === "Joining Letter" || letterType === "Internship Offer Letter") && (
                   <div className="mt-4 p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-[10px] space-y-1">
                     <p className="font-bold text-slate-800">CANDIDATE ACCEPTANCE:</p>
                     <p className="text-slate-600">I confirm that I have read, understood, and accept the terms and conditions outlined in this Appointment Letter and Annexure A.</p>
@@ -1025,8 +1089,8 @@ export default function LetterGenerationModal({
                   </div>
                 )}
 
-                {/* Page 2 Sheet for Joining Letter */}
-                {letterType === "Joining Letter" && (
+                {/* Page 2 Sheet for Joining & Internship Offer Letters */}
+                {(letterType === "Joining Letter" || letterType === "Internship Offer Letter") && (
                   <div className="mt-8 pt-8 border-t-4 border-dashed border-slate-300 space-y-5">
                     <div className="flex items-center justify-between text-slate-400 text-[10px] font-mono">
                       <span>--- PAGE 2 OF 2 ---</span>
