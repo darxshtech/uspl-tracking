@@ -677,80 +677,196 @@ export default function LetterGenerationModal({
             /* TAB 2: LIVE DOCUMENT PREVIEW MOCKUP                                  */
             /* ===================================================================== */
             <div className="p-6 rounded-2xl bg-slate-100/90 border border-slate-200">
-              <div className="max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-lg border border-slate-200 space-y-5 text-slate-800 font-sans text-xs">
-                {/* Header Mockup */}
-                <div className="border-b-2 border-slate-900 pb-3 flex items-start justify-between">
-                  <div>
-                    <h2 className="text-base font-extrabold text-slate-900">UNITGLO SOLUTIONS</h2>
-                    <p className="text-[10px] text-slate-500">Empowering Digital Innovation &amp; Technology Excellence</p>
-                    <p className="text-[9px] text-slate-400">Pune, Maharashtra, India | contact@unitglo.com</p>
+              <div className="max-w-2xl mx-auto bg-white p-8 rounded-2xl shadow-xl border border-slate-200 space-y-5 text-slate-800 font-sans text-xs">
+                {/* Official Letterhead with Real Logo */}
+                <div className="border-b-2 border-slate-900 pb-4 flex items-start justify-between gap-4">
+                  <div className="space-y-1">
+                    <img
+                      src="/unitglo.jpeg"
+                      alt="Unitglo Solutions"
+                      className="h-11 w-auto object-contain"
+                    />
                   </div>
-                  <div className="text-right text-[10px] font-mono">
-                    <p className="font-bold text-slate-800">Ref: {previewData.reference_no}</p>
-                    <p className="text-slate-500">Date: {formatDateString(previewData.issue_date)}</p>
+                  <div className="text-right text-[10px]">
+                    <h2 className="text-xs font-black text-slate-900">UNITGLO SOLUTIONS PRIVATE LIMITED</h2>
+                    <p className="text-[9px] text-slate-500">CIN: U72900PN2023PTC220000 | GSTIN: 27AACCU9876F1Z5</p>
+                    <p className="text-[9px] text-slate-500">Magarpatta Cybercity, Hadapsar, Pune, MH - 411028</p>
+                    <p className="text-[9px] text-slate-400">contact@unitglo.com | www.unitglo.com</p>
                   </div>
+                </div>
+
+                {/* Reference No & Date */}
+                <div className="flex items-center justify-between text-[11px] font-semibold border-b border-slate-100 pb-2">
+                  <span className="font-mono text-slate-800 font-bold">Ref. No: {previewData.reference_no}</span>
+                  <span className="text-slate-600">Date: {formatDateString(previewData.issue_date)}</span>
                 </div>
 
                 {/* Recipient */}
-                <div className="space-y-0.5">
-                  <p className="font-bold text-slate-600">To,</p>
-                  <p className="font-extrabold text-sm text-slate-900">{previewData.user_name}</p>
-                  <p className="text-slate-600">{previewData.designation}</p>
-                  {previewData.user_email && <p className="text-slate-400">{previewData.user_email}</p>}
+                {letterType === "Joining Letter" ? (
+                  <div className="space-y-0.5 text-[11px]">
+                    <p className="font-bold text-slate-500">To,</p>
+                    <p className="font-extrabold text-xs text-slate-900">{previewData.user_name}</p>
+                    <p className="text-slate-600">{previewData.designation}</p>
+                    {previewData.user_email && <p className="text-slate-400">{previewData.user_email}</p>}
+                  </div>
+                ) : (
+                  <div className="text-center py-1">
+                    <h3 className="font-extrabold text-xs text-slate-900 tracking-wider uppercase">TO WHOMSOEVER IT MAY CONCERN</h3>
+                  </div>
+                )}
+
+                {/* Subject Banner */}
+                <div className="p-2 rounded-lg bg-slate-900 text-white font-bold text-center text-xs tracking-wide">
+                  {letterType === "Joining Letter"
+                    ? `OFFER & APPOINTMENT LETTER - ${previewData.designation?.toUpperCase()}`
+                    : letterType === "Experience Letter"
+                    ? "EXPERIENCE & RELIEVING CERTIFICATE"
+                    : "CERTIFICATE OF INTERNSHIP COMPLETION"}
                 </div>
 
-                {/* Subject */}
-                <div className="p-2 rounded bg-slate-50 font-bold text-slate-900 border-l-4 border-blue-600">
-                  Subject: {letterType === "Joining Letter" ? `Letter of Appointment - ${previewData.designation}` : letterType === "Experience Letter" ? `Experience & Relieving Certificate - ${previewData.user_name}` : `Certificate of Internship Completion - ${previewData.user_name}`}
-                </div>
-
-                {/* Body Paragraphs */}
-                <div className="space-y-2.5 text-slate-700 leading-relaxed text-[11px]">
-                  <p>Dear {previewData.user_name},</p>
+                {/* Body Paragraphs & Structured Terms Table */}
+                <div className="space-y-3 text-slate-700 leading-relaxed text-[11px]">
                   {letterType === "Joining Letter" ? (
                     <>
+                      <p>Dear {previewData.user_name},</p>
                       <p>
-                        We are pleased to offer you the position of <strong>{previewData.designation}</strong> at Unitglo Solutions Private Limited. Your joining date is effective from <strong>{formatDateString(previewData.joining_date)}</strong>.
+                        With reference to your application and the subsequent technical evaluation rounds, we are pleased to offer you the position of <strong>{previewData.designation}</strong> with Unitglo Solutions Private Limited. We believe your skills and professional expertise will contribute significantly to our organization.
                       </p>
-                      <div className="p-2.5 rounded bg-blue-50/50 border border-blue-100 space-y-1 text-[10px]">
-                        <p><strong>Compensation (CTC):</strong> {previewData.annual_ctc ? `₹${previewData.annual_ctc} / year` : "As agreed"}</p>
-                        <p><strong>Probation Period:</strong> {previewData.probation_period || "3 Months"}</p>
-                        <p><strong>Working Schedule:</strong> {previewData.working_days || "Monday to Friday"} ({previewData.work_timing || "10:00 AM - 7:00 PM IST"})</p>
-                        <p><strong>Work Location:</strong> {previewData.work_location || "Pune / Hybrid"}</p>
-                        <p><strong>Reporting Line:</strong> {previewData.reporting_manager || "Project Manager"}</p>
+
+                      {/* Structured 2-Column Terms Table */}
+                      <div className="rounded-xl border border-slate-200 overflow-hidden text-[10px]">
+                        <div className="bg-slate-50 px-3 py-1.5 font-bold text-slate-900 border-b border-slate-200">
+                          Terms of Employment &amp; Compensation
+                        </div>
+                        <div className="divide-y divide-slate-200">
+                          <div className="grid grid-cols-3 p-2 bg-white">
+                            <span className="font-bold text-slate-700">Designation &amp; Dept</span>
+                            <span className="col-span-2 text-slate-900">{previewData.designation} ({previewData.department || "Engineering"})</span>
+                          </div>
+                          <div className="grid grid-cols-3 p-2 bg-slate-50/50">
+                            <span className="font-bold text-slate-700">Date of Commencement</span>
+                            <span className="col-span-2 text-slate-900">{formatDateString(previewData.joining_date)}</span>
+                          </div>
+                          <div className="grid grid-cols-3 p-2 bg-white">
+                            <span className="font-bold text-slate-700">Total Compensation (CTC)</span>
+                            <span className="col-span-2 font-bold text-blue-700">
+                              {previewData.annual_ctc ? `INR ${previewData.annual_ctc}/- Per Annum` : "As mutually agreed"}
+                              {previewData.monthly_salary ? ` (Gross: INR ${previewData.monthly_salary}/- PM)` : ""}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-3 p-2 bg-slate-50/50">
+                            <span className="font-bold text-slate-700">Working Days Schedule</span>
+                            <span className="col-span-2 text-slate-900">{previewData.working_days || "Monday to Friday (5 Days/Week)"}</span>
+                          </div>
+                          <div className="grid grid-cols-3 p-2 bg-white">
+                            <span className="font-bold text-slate-700">Working Hours / Shift</span>
+                            <span className="col-span-2 text-slate-900">{previewData.work_timing || "10:00 AM - 7:00 PM (IST)"}</span>
+                          </div>
+                          <div className="grid grid-cols-3 p-2 bg-slate-50/50">
+                            <span className="font-bold text-slate-700">Work Location</span>
+                            <span className="col-span-2 text-slate-900">{previewData.work_location || "Pune, Maharashtra / Hybrid"}</span>
+                          </div>
+                          <div className="grid grid-cols-3 p-2 bg-white">
+                            <span className="font-bold text-slate-700">Reporting Authority</span>
+                            <span className="col-span-2 text-slate-900">{previewData.reporting_manager || "Project Manager"}</span>
+                          </div>
+                          <div className="grid grid-cols-3 p-2 bg-slate-50/50">
+                            <span className="font-bold text-slate-700">Probation Duration</span>
+                            <span className="col-span-2 text-slate-900">{previewData.probation_period || "3 Months from joining date"}</span>
+                          </div>
+                        </div>
                       </div>
+
+                      <p className="text-[10px] text-slate-500">
+                        * Standard company guidelines, code of conduct, intellectual property clauses, and notice period policies apply.
+                      </p>
                     </>
                   ) : letterType === "Experience Letter" ? (
-                    <p>
-                      This is to certify that <strong>{previewData.user_name}</strong> was formally employed with Unitglo Solutions Private Limited as <strong>{previewData.designation}</strong> from <strong>{formatDateString(previewData.joining_date)}</strong> to <strong>{formatDateString(previewData.relieving_date)}</strong>. They have been relieved of all responsibilities on {formatDateString(previewData.relieving_date)}.
-                    </p>
+                    <>
+                      <p>
+                        This is to formally certify that <strong>{previewData.user_name}</strong> was employed with Unitglo Solutions Private Limited as <strong>{previewData.designation}</strong> in the {previewData.department || "Engineering"} department from <strong>{formatDateString(previewData.joining_date)}</strong> to <strong>{formatDateString(previewData.relieving_date)}</strong>.
+                      </p>
+
+                      <div className="grid grid-cols-3 gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl text-[10px]">
+                        <div>
+                          <span className="text-slate-400 block">Joining Date:</span>
+                          <span className="font-bold text-slate-900">{formatDateString(previewData.joining_date)}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block">Relieving Date:</span>
+                          <span className="font-bold text-slate-900">{formatDateString(previewData.relieving_date)}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block">Conduct &amp; Character:</span>
+                          <span className="font-bold text-emerald-700">Exemplary</span>
+                        </div>
+                      </div>
+
+                      <p>
+                        During their employment tenure, they contributed diligently to core software deliveries, demonstrated high problem-solving competence, and maintained exemplary professional discipline. All company assets and project transitions have been completed in order.
+                      </p>
+                    </>
                   ) : (
-                    <p>
-                      This is to certify that <strong>{previewData.user_name}</strong> has successfully completed their professional internship program as <strong>{previewData.designation}</strong> at Unitglo Solutions Private Limited from <strong>{formatDateString(previewData.joining_date)}</strong> to <strong>{formatDateString(previewData.relieving_date)}</strong>.
-                    </p>
+                    <>
+                      <p>
+                        This is to formally certify that <strong>{previewData.user_name}</strong> has successfully completed their professional internship program as <strong>{previewData.designation}</strong> at Unitglo Solutions Private Limited from <strong>{formatDateString(previewData.joining_date)}</strong> to <strong>{formatDateString(previewData.relieving_date)}</strong>.
+                      </p>
+
+                      <div className="grid grid-cols-3 gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl text-[10px]">
+                        <div>
+                          <span className="text-slate-400 block">Start Date:</span>
+                          <span className="font-bold text-slate-900">{formatDateString(previewData.joining_date)}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block">End Date:</span>
+                          <span className="font-bold text-slate-900">{formatDateString(previewData.relieving_date)}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block">Mentor / Lead:</span>
+                          <span className="font-bold text-slate-900">{previewData.reporting_manager || "Project Manager"}</span>
+                        </div>
+                      </div>
+
+                      <p>
+                        Throughout this internship tenure, they exhibited outstanding technical curiosity, quick learning aptitude, and actively contributed to team sprint deliverables under senior engineering supervision.
+                      </p>
+                    </>
                   )}
 
                   {previewData.custom_remarks && (
-                    <p className="italic text-slate-600 bg-slate-50 p-2 rounded">
+                    <p className="italic text-slate-600 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
                       &quot;{previewData.custom_remarks}&quot;
                     </p>
                   )}
                 </div>
 
                 {/* Signatory & Official Seal */}
-                <div className="pt-4 flex items-end justify-between border-t border-slate-100">
-                  <div>
-                    <p className="text-[10px] text-slate-500">For Unitglo Solutions Private Limited,</p>
-                    <p className="font-extrabold text-slate-900 mt-5">{previewData.signatory_name || "Anmol Gadhave"}</p>
-                    <p className="text-[10px] text-slate-500">{previewData.signatory_title || "Project Manager"}</p>
+                <div className="pt-4 flex items-end justify-between border-t border-slate-200">
+                  <div className="space-y-1">
+                    <p className="text-[10px] text-slate-500">Sincerely,</p>
+                    <p className="text-[10px] font-bold text-slate-800">For Unitglo Solutions Private Limited,</p>
+                    <p className="font-extrabold text-sm text-slate-900 mt-4">{previewData.signatory_name || "Anmol Gadhave"}</p>
+                    <p className="text-[10px] text-slate-500">{previewData.signatory_title || "Project Manager / Authorized Signatory"}</p>
                   </div>
 
-                  <div className="border-2 border-dashed border-emerald-600 p-2 rounded-lg text-center bg-emerald-50/50">
-                    <p className="font-extrabold text-[9px] text-emerald-800">UNITGLO SOLUTIONS</p>
-                    <p className="text-[8px] text-emerald-600 font-bold uppercase">Official HR Seal</p>
-                    <p className="text-[7px] text-slate-400">Verified &amp; Authentic</p>
+                  <div className="border-2 border-dashed border-blue-600 p-2.5 rounded-xl text-center bg-blue-50/50">
+                    <p className="font-extrabold text-[9px] text-blue-900">UNITGLO SOLUTIONS PVT. LTD.</p>
+                    <p className="text-[8px] text-blue-600 font-bold uppercase tracking-wider">Official Corporate Seal</p>
+                    <p className="text-[8px] font-bold text-emerald-600">✔ VERIFIED &amp; AUTHENTIC</p>
+                    <p className="text-[7px] text-slate-400">PUNE, MAHARASHTRA</p>
                   </div>
                 </div>
+
+                {/* Candidate Acceptance Slip (Joining Letter only) */}
+                {letterType === "Joining Letter" && (
+                  <div className="mt-4 p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-[10px] space-y-1">
+                    <p className="font-bold text-slate-800">CANDIDATE ACCEPTANCE:</p>
+                    <p className="text-slate-600">I confirm that I have read, understood, and accept the terms and conditions outlined in this Appointment Letter.</p>
+                    <p className="font-semibold text-slate-800 pt-1">
+                      Candidate Signature: _______________________ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Date: _________________
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           )}
