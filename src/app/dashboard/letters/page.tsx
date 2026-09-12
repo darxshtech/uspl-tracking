@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,8 +9,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import LetterGenerationModal from "@/components/LetterGenerationModal";
-import { generateLetterPDF, LetterData } from "@/lib/pdf/letterGenerator";
+import { generateLetterPDF, LetterData, formatDateString } from "@/lib/pdf/letterGenerator";
 import { showSuccess, showError, showConfirm } from "@/lib/swal";
+import { getRoleBadgeClass, getRoleDisplayName, getRoleIconEmoji } from "@/lib/roleUtils";
 import { 
   Award, 
   Plus, 
@@ -23,7 +24,16 @@ import {
   Calendar, 
   User, 
   ShieldCheck, 
-  RefreshCw 
+  RefreshCw,
+  LayoutGrid,
+  List,
+  CheckCircle2,
+  ExternalLink,
+  Copy,
+  Check,
+  Building2,
+  Clock,
+  Stamp
 } from "lucide-react";
 
 interface LetterItem {
@@ -48,13 +58,17 @@ interface LetterItem {
 export default function LettersPage() {
   const { data: session } = useSession();
   const currentRole = (session?.user as any)?.role || "Developer";
+  const currentUserId = (session?.user as any)?.id;
   const isManagement = ["Admin", "CEO", "PM"].includes(currentRole);
 
   const [letters, setLetters] = useState<LetterItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
-  const [filterType, setFilterType] = useState<string>("ALL");
+  const [activeTab, setActiveTab] = useState<string>("ALL");
+  const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
+  const [selectedEmployeeFilter, setSelectedEmployeeFilter] = useState<string>("all");
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [copiedRefId, setCopiedRefId] = useState<number | null>(null);
 
   // Fetch letters
   const fetchLetters = async () => {
@@ -77,6 +91,13 @@ export default function LettersPage() {
       fetchLetters();
     }
   }, [session]);
+
+  // Copy reference number to clipboard
+  const handleCopyRef = (id: number, refNo: string) => {
+    navigator.clipboard.writeText(refNo);
+    setCopiedRefId(id);
+    setTimeout(() => setCopiedRefId(null), 2000);
+  };
 
   // Handle Download PDF
   const handleDownloadPDF = (letter: LetterItem) => {
@@ -104,14 +125,14 @@ export default function LettersPage() {
     };
 
     generateLetterPDF(pdfData, true);
-    showSuccess("Document Downloaded", `Downloaded PDF for ${letter.reference_no}`);
+    showSuccess("Document Downloaded", `Official PDF for ${letter.reference_no} has been downloaded.`);
   };
 
   // Handle Delete / Revoke
   const handleDeleteLetter = async (id: number, refNo: string) => {
     const confirmed = await showConfirm(
-      "Revoke Letter?",
-      `Are you sure you want to delete and revoke official letter "${refNo}"? This action cannot be undone.`
+      "Revoke Official Document?",
+      `Are you sure you want to delete and revoke document "${refNo}"? This action cannot be undone.`
     );
     if (!confirmed) return;
 
@@ -121,73 +142,142 @@ export default function LettersPage() {
       if (!res.ok) {
         throw new Error(data.error || "Failed to delete letter.");
       }
-      showSuccess("Letter Removed", `Official letter ${refNo} has been removed.`);
+      showSuccess("Document Removed", `Letter ${refNo} has been removed from the registry.`);
       fetchLetters();
     } catch (err: any) {
       showError("Delete Failed", err.message || "Failed to remove letter.");
     }
   };
 
+  // Unique list of employees for filter dropdown
+  const uniqueEmployees = useMemo(() => {
+    const map = new Map<number, { id: number; name: string }>();
+    letters.forEach((l) => {
+      if (l.user_id && l.user_name) {
+        map.set(l.user_id, { id: l.user_id, name: l.user_name });
+      }
+    });
+    return Array.from(map.values());
+  }, [letters]);
+
   // Filter letters
-  const filteredLetters = letters.filter((l) => {
-    const matchesSearch =
-      l.reference_no.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      l.user_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (l.user_role && l.user_role.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (l.title && l.title.toLowerCase().includes(searchQuery.toLowerCase()));
+  const filteredLetters = useMemo(() => {
+    return letters.filter((l) => {
+      // Type Tab Filter
+      if (activeTab !== "ALL" && l.letter_type !== activeTab) {
+        return false;
+      }
+      // Employee Filter
+      if (selectedEmployeeFilter !== "all" && String(l.user_id) !== selectedEmployeeFilter) {
+        return false;
+      }
+      // Search Filter
+      if (searchQuery.trim()) {
+        const query = searchQuery.toLowerCase();
+        const matchRef = l.reference_no.toLowerCase().includes(query);
+        const matchName = (l.user_name || "").toLowerCase().includes(query);
+        const matchRole = (l.user_role || "").toLowerCase().includes(query);
+        const matchTitle = (l.title || "").toLowerCase().includes(query);
+        const matchRemarks = (l.custom_remarks || "").toLowerCase().includes(query);
+        if (!matchRef && !matchName && !matchRole && !matchTitle && !matchRemarks) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [letters, activeTab, selectedEmployeeFilter, searchQuery]);
 
-    const matchesType = filterType === "ALL" || l.letter_type === filterType;
-    return matchesSearch && matchesType;
-  });
+  // Metrics
+  const metrics = useMemo(() => {
+    const total = letters.length;
+    const joining = letters.filter((l) => l.letter_type === "Joining Letter").length;
+    const experience = letters.filter((l) => l.letter_type === "Experience Letter").length;
+    const internship = letters.filter((l) => l.letter_type === "Internship Completion").length;
+    return { total, joining, experience, internship };
+  }, [letters]);
 
-  // Calculate stats
-  const totalCount = letters.length;
-  const joiningCount = letters.filter((l) => l.letter_type === "Joining Letter").length;
-  const experienceCount = letters.filter((l) => l.letter_type === "Experience Letter").length;
-  const internshipCount = letters.filter((l) => l.letter_type === "Internship Completion").length;
-
-  const getTypeBadge = (type: string) => {
+  const getTypeTheme = (type: string) => {
     switch (type) {
       case "Joining Letter":
-        return <Badge className="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 font-semibold text-[11px]">Joining Letter</Badge>;
+        return {
+          badge: "bg-blue-50 text-blue-700 border-blue-200/80 font-bold",
+          border: "border-blue-200/70 hover:border-blue-300",
+          cardBg: "from-blue-50/40 via-white to-white",
+          accentColor: "text-blue-600",
+          iconBg: "bg-blue-100 text-blue-700",
+          icon: Briefcase,
+          label: "Joining Letter",
+        };
       case "Experience Letter":
-        return <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 font-semibold text-[11px]">Experience Letter</Badge>;
+        return {
+          badge: "bg-emerald-50 text-emerald-700 border-emerald-200/80 font-bold",
+          border: "border-emerald-200/70 hover:border-emerald-300",
+          cardBg: "from-emerald-50/40 via-white to-white",
+          accentColor: "text-emerald-600",
+          iconBg: "bg-emerald-100 text-emerald-700",
+          icon: ShieldCheck,
+          label: "Experience Letter",
+        };
       case "Internship Completion":
-        return <Badge className="bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100 font-semibold text-[11px]">Internship Certificate</Badge>;
+        return {
+          badge: "bg-purple-50 text-purple-700 border-purple-200/80 font-bold",
+          border: "border-purple-200/70 hover:border-purple-300",
+          cardBg: "from-purple-50/40 via-white to-white",
+          accentColor: "text-purple-600",
+          iconBg: "bg-purple-100 text-purple-700",
+          icon: Award,
+          label: "Internship Certificate",
+        };
       default:
-        return <Badge variant="outline">{type}</Badge>;
+        return {
+          badge: "bg-slate-50 text-slate-700 border-slate-200 font-bold",
+          border: "border-slate-200",
+          cardBg: "from-white to-white",
+          accentColor: "text-slate-600",
+          iconBg: "bg-slate-100 text-slate-700",
+          icon: FileText,
+          label: type,
+        };
     }
   };
 
   return (
-    <div className="space-y-6 pb-12">
-      {/* PAGE HEADER */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200 pb-5">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <div className="p-2.5 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/20">
-              <Award className="w-6 h-6" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-                Letters & Certificates
-              </h1>
-              <p className="text-xs text-slate-500 mt-0.5">
-                {isManagement
-                  ? "Generate, configure, and issue official Unitglo Solutions appointment, experience, and internship certificates."
-                  : "View and download your official Unitglo appointment, experience, and internship certificates."}
-              </p>
-            </div>
+    <div className="space-y-6 animate-fade-in pb-16 max-w-7xl mx-auto">
+      {/* EXECUTIVE HERO BANNER */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5 bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950 p-6 md:p-8 rounded-3xl text-white shadow-xl relative overflow-hidden border border-indigo-950/50">
+        {/* Subtle decorative glow */}
+        <div className="absolute -right-16 -top-16 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute left-1/3 -bottom-16 w-56 h-56 bg-sky-500/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="relative z-10 space-y-2 max-w-2xl">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-400/20">
+              <Stamp className="w-3.5 h-3.5 text-indigo-400" />
+              Official HR Documents &amp; Certificates
+            </span>
+            <span className="text-xs text-slate-400 font-medium">Unitglo Solutions Pvt. Ltd.</span>
           </div>
+
+          <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-white flex items-center gap-3">
+            <Award className="h-8 w-8 text-sky-400 shrink-0" />
+            Letters &amp; Certificates Vault
+          </h1>
+
+          <p className="text-slate-300 text-xs md:text-sm leading-relaxed">
+            {isManagement
+              ? "Generate, configure, and issue authentic Unitglo Solutions appointment letters, experience records, and internship certificates with verifiable reference codes and official seal stamps."
+              : "Review and download your official Unitglo Solutions appointment letters, experience certificates, and internship credentials with instant PDF export."}
+          </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        {/* Action Buttons */}
+        <div className="relative z-10 flex flex-wrap items-center gap-3">
           <Button
             variant="outline"
             size="sm"
             onClick={fetchLetters}
             disabled={loading}
-            className="text-xs border-slate-200 hover:bg-slate-50 text-slate-700 flex items-center gap-1.5"
+            className="bg-white/10 hover:bg-white/20 text-white border-white/20 font-bold text-xs gap-1.5 shadow-sm h-10 px-4 cursor-pointer backdrop-blur-sm"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
             Refresh
@@ -196,172 +286,445 @@ export default function LettersPage() {
           {isManagement && (
             <Button
               onClick={() => setIsModalOpen(true)}
-              className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-blue-600/20 transition-all"
+              className="bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white font-bold text-xs gap-2 shadow-lg shadow-sky-500/25 h-10 px-5 cursor-pointer rounded-xl transition-all"
             >
-              <Plus className="w-4 h-4" />
+              <Plus className="w-4 h-4 stroke-[2.5]" />
               Issue New Letter
             </Button>
           )}
         </div>
       </div>
 
-      {/* STATS OVERVIEW CARDS (Management only) */}
-      {isManagement && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <Card className="border border-slate-200 shadow-sm hover:shadow transition-shadow">
-            <CardContent className="p-4 flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Issued</p>
-                <h3 className="text-2xl font-bold text-slate-900 mt-1">{totalCount}</h3>
-              </div>
-              <div className="p-3 rounded-xl bg-slate-100 text-slate-700">
-                <FileText className="w-5 h-5" />
-              </div>
-            </CardContent>
-          </Card>
+      {/* KPI STATS RIBBON */}
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card className="rounded-2xl border border-slate-200/80 bg-white shadow-xs hover:shadow-md transition-all">
+          <CardContent className="p-4 flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total Documents</p>
+              <h3 className="text-2xl font-black text-slate-900 mt-1">{metrics.total}</h3>
+              <p className="text-[10px] text-slate-400 mt-0.5">Recorded in registry</p>
+            </div>
+            <div className="p-3.5 rounded-2xl bg-slate-100 text-slate-800">
+              <FileText className="w-6 h-6" />
+            </div>
+          </CardContent>
+        </Card>
 
-          <Card className="border border-blue-100 bg-blue-50/30 shadow-sm hover:shadow transition-shadow">
-            <CardContent className="p-4 flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold text-blue-600 uppercase tracking-wider">Joining Letters</p>
-                <h3 className="text-2xl font-bold text-blue-900 mt-1">{joiningCount}</h3>
-              </div>
-              <div className="p-3 rounded-xl bg-blue-100/80 text-blue-700">
-                <Briefcase className="w-5 h-5" />
-              </div>
-            </CardContent>
-          </Card>
+        <Card className="rounded-2xl border border-blue-200/70 bg-gradient-to-br from-blue-50/60 to-white shadow-xs hover:shadow-md transition-all">
+          <CardContent className="p-4 flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-bold text-blue-700 uppercase tracking-wider">Joining Letters</p>
+              <h3 className="text-2xl font-black text-blue-950 mt-1">{metrics.joining}</h3>
+              <p className="text-[10px] text-blue-600/80 mt-0.5">Appointment offers</p>
+            </div>
+            <div className="p-3.5 rounded-2xl bg-blue-100 text-blue-700">
+              <Briefcase className="w-6 h-6" />
+            </div>
+          </CardContent>
+        </Card>
 
-          <Card className="border border-emerald-100 bg-emerald-50/30 shadow-sm hover:shadow transition-shadow">
-            <CardContent className="p-4 flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold text-emerald-600 uppercase tracking-wider">Experience Letters</p>
-                <h3 className="text-2xl font-bold text-emerald-900 mt-1">{experienceCount}</h3>
-              </div>
-              <div className="p-3 rounded-xl bg-emerald-100/80 text-emerald-700">
-                <ShieldCheck className="w-5 h-5" />
-              </div>
-            </CardContent>
-          </Card>
+        <Card className="rounded-2xl border border-emerald-200/70 bg-gradient-to-br from-emerald-50/60 to-white shadow-xs hover:shadow-md transition-all">
+          <CardContent className="p-4 flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider">Experience Letters</p>
+              <h3 className="text-2xl font-black text-emerald-950 mt-1">{metrics.experience}</h3>
+              <p className="text-[10px] text-emerald-600/80 mt-0.5">Relieving &amp; tenure proof</p>
+            </div>
+            <div className="p-3.5 rounded-2xl bg-emerald-100 text-emerald-700">
+              <ShieldCheck className="w-6 h-6" />
+            </div>
+          </CardContent>
+        </Card>
 
-          <Card className="border border-purple-100 bg-purple-50/30 shadow-sm hover:shadow transition-shadow">
-            <CardContent className="p-4 flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold text-purple-600 uppercase tracking-wider">Internship Letters</p>
-                <h3 className="text-2xl font-bold text-purple-900 mt-1">{internshipCount}</h3>
-              </div>
-              <div className="p-3 rounded-xl bg-purple-100/80 text-purple-700">
-                <Award className="w-5 h-5" />
-              </div>
-            </CardContent>
-          </Card>
+        <Card className="rounded-2xl border border-purple-200/70 bg-gradient-to-br from-purple-50/60 to-white shadow-xs hover:shadow-md transition-all">
+          <CardContent className="p-4 flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-bold text-purple-700 uppercase tracking-wider">Internship Letters</p>
+              <h3 className="text-2xl font-black text-purple-950 mt-1">{metrics.internship}</h3>
+              <p className="text-[10px] text-purple-600/80 mt-0.5">Completion certificates</p>
+            </div>
+            <div className="p-3.5 rounded-2xl bg-purple-100 text-purple-700">
+              <Award className="w-6 h-6" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* FILTER & CONTROLS TOOLBAR */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-3.5">
+        {/* Type Tabs */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-1.5 p-1 bg-slate-100/90 rounded-xl overflow-x-auto">
+            <button
+              type="button"
+              onClick={() => setActiveTab("ALL")}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer ${
+                activeTab === "ALL"
+                  ? "bg-white text-slate-900 shadow-xs"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <span>All Documents</span>
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${activeTab === "ALL" ? "bg-slate-900 text-white" : "bg-slate-200 text-slate-700"}`}>
+                {metrics.total}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab("Joining Letter")}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer ${
+                activeTab === "Joining Letter"
+                  ? "bg-white text-blue-700 shadow-xs"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <Briefcase className="w-3.5 h-3.5 text-blue-600" />
+              <span>Joining Letters</span>
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${activeTab === "Joining Letter" ? "bg-blue-600 text-white" : "bg-blue-100 text-blue-800"}`}>
+                {metrics.joining}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab("Experience Letter")}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer ${
+                activeTab === "Experience Letter"
+                  ? "bg-white text-emerald-700 shadow-xs"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Experience Letters</span>
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${activeTab === "Experience Letter" ? "bg-emerald-600 text-white" : "bg-emerald-100 text-emerald-800"}`}>
+                {metrics.experience}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab("Internship Completion")}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer ${
+                activeTab === "Internship Completion"
+                  ? "bg-white text-purple-700 shadow-xs"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <Award className="w-3.5 h-3.5 text-purple-600" />
+              <span>Internships</span>
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${activeTab === "Internship Completion" ? "bg-purple-600 text-white" : "bg-purple-100 text-purple-800"}`}>
+                {metrics.internship}
+              </span>
+            </button>
+          </div>
+
+          {/* View Mode Switcher (Grid vs Table) */}
+          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+            <button
+              type="button"
+              onClick={() => setViewMode("grid")}
+              className={`p-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                viewMode === "grid"
+                  ? "bg-white text-slate-900 shadow-xs"
+                  : "text-slate-500 hover:text-slate-900"
+              }`}
+              title="Grid View (Visual Cards)"
+            >
+              <LayoutGrid className="w-4 h-4" />
+              <span className="hidden sm:inline text-xs">Grid</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setViewMode("table")}
+              className={`p-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                viewMode === "table"
+                  ? "bg-white text-slate-900 shadow-xs"
+                  : "text-slate-500 hover:text-slate-900"
+              }`}
+              title="Table View (Data Grid)"
+            >
+              <List className="w-4 h-4" />
+              <span className="hidden sm:inline text-xs">Table</span>
+            </button>
+          </div>
         </div>
-      )}
 
-      {/* SEARCH & FILTERS */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-        <div className="relative w-full sm:w-80">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-          <Input
-            placeholder={isManagement ? "Search by employee, ref, or title..." : "Search by ref or title..."}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9 text-xs bg-slate-50/50 border-slate-200"
-          />
-        </div>
+        {/* Search & Employee Filter Row */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2 border-t border-slate-100">
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+            <Input
+              placeholder={isManagement ? "Search by employee, ref code, or title..." : "Search by ref code or certificate title..."}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9 h-9 text-xs rounded-xl bg-slate-50 border-slate-200 focus:bg-white transition-all"
+            />
+          </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <Select value={filterType} onValueChange={setFilterType}>
-            <SelectTrigger className="text-xs w-full sm:w-48 bg-slate-50/50 border-slate-200">
-              <SelectValue placeholder="Filter by type" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL" className="text-xs">All Letter Types</SelectItem>
-              <SelectItem value="Joining Letter" className="text-xs">Joining Letters</SelectItem>
-              <SelectItem value="Experience Letter" className="text-xs">Experience Letters</SelectItem>
-              <SelectItem value="Internship Completion" className="text-xs">Internship Certificates</SelectItem>
-            </SelectContent>
-          </Select>
+          {isManagement && uniqueEmployees.length > 0 && (
+            <div className="flex items-center gap-2">
+              <Select value={selectedEmployeeFilter} onValueChange={setSelectedEmployeeFilter}>
+                <SelectTrigger className="h-9 text-xs w-[180px] bg-slate-50 border-slate-200 rounded-xl">
+                  <SelectValue placeholder="All Employees" />
+                </SelectTrigger>
+                <SelectContent className="max-h-64">
+                  <SelectItem value="all" className="text-xs">All Employees</SelectItem>
+                  {uniqueEmployees.map((emp) => (
+                    <SelectItem key={emp.id} value={String(emp.id)} className="text-xs">
+                      {emp.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* LETTERS TABLE / LIST */}
-      <Card className="border border-slate-200 shadow-sm overflow-hidden bg-white">
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader className="bg-slate-50/80 border-b border-slate-200">
+      {/* CONTENT: LOADING, EMPTY STATE, GRID OR TABLE */}
+      {loading ? (
+        <div className="p-16 text-center bg-white rounded-3xl border border-slate-200 shadow-xs">
+          <RefreshCw className="w-8 h-8 animate-spin mx-auto text-sky-500 mb-3" />
+          <p className="text-sm font-bold text-slate-800">Loading Certificate Registry...</p>
+          <p className="text-xs text-slate-400 mt-1">Fetching official company records and verification signatures.</p>
+        </div>
+      ) : filteredLetters.length === 0 ? (
+        <div className="p-16 text-center bg-white rounded-3xl border border-slate-200 shadow-xs space-y-3">
+          <div className="w-14 h-14 rounded-2xl bg-blue-50 border border-blue-200 flex items-center justify-center mx-auto text-blue-600 shadow-sm">
+            <Award className="w-7 h-7" />
+          </div>
+          <h3 className="text-base font-bold text-slate-800">No official certificates found</h3>
+          <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+            {isManagement
+              ? "There are no letters matching your active filter criteria. Click 'Issue New Letter' to generate an authentic Joining, Experience, or Internship document."
+              : "No official certificates or letters have been issued to your profile yet. Please check back later or contact your Project Manager if you are awaiting appointment papers."}
+          </p>
+          {isManagement && (
+            <div className="pt-2">
+              <Button
+                onClick={() => setIsModalOpen(true)}
+                className="bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs gap-2 rounded-xl shadow-md cursor-pointer"
+              >
+                <Plus className="w-4 h-4" /> Issue First Letter
+              </Button>
+            </div>
+          )}
+        </div>
+      ) : viewMode === "grid" ? (
+        /* ========================================================================= */
+        /* GRID VIEW: LUXURIOUS CERTIFICATE CARDS                                    */
+        /* ========================================================================= */
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {filteredLetters.map((letter) => {
+            const theme = getTypeTheme(letter.letter_type);
+            const IconComponent = theme.icon;
+            const meta = letter.metadata || {};
+
+            return (
+              <div
+                key={letter.id}
+                className={`rounded-3xl border ${theme.border} bg-gradient-to-b ${theme.cardBg} p-5 shadow-sm hover:shadow-lg transition-all duration-200 flex flex-col justify-between space-y-4 group relative overflow-hidden`}
+              >
+                {/* Top Reference & Type Badge */}
+                <div>
+                  <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => handleCopyRef(letter.id, letter.reference_no)}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-mono text-[11px] font-semibold transition-colors cursor-pointer"
+                      title="Click to copy reference code"
+                    >
+                      <span>{letter.reference_no}</span>
+                      {copiedRefId === letter.id ? (
+                        <Check className="w-3 h-3 text-emerald-600" />
+                      ) : (
+                        <Copy className="w-3 h-3 text-slate-400 group-hover:text-slate-600" />
+                      )}
+                    </button>
+
+                    <Badge className={`${theme.badge} text-[10px] px-2.5 py-0.5 rounded-full`}>
+                      {theme.label}
+                    </Badge>
+                  </div>
+
+                  {/* Recipient info & title */}
+                  <div className="pt-3.5 space-y-2">
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-slate-900 to-indigo-900 text-white flex items-center justify-center text-sm font-extrabold shadow-sm shrink-0">
+                        {letter.user_name ? letter.user_name.charAt(0).toUpperCase() : "U"}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h3 className="text-sm font-extrabold text-slate-900 truncate">
+                          {letter.user_name}
+                        </h3>
+                        <p className="text-[11px] text-slate-500 font-medium truncate">
+                          {meta.designation || letter.user_role || "Team Member"}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="pt-2">
+                      <h4 className="text-xs font-bold text-slate-800 line-clamp-1">
+                        {letter.title}
+                      </h4>
+                      {meta.department && (
+                        <p className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1">
+                          <Building2 className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span>{meta.department}</span>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Highlight Specs Pill Box */}
+                  <div className="mt-3.5 p-3 rounded-2xl bg-white/90 border border-slate-100 shadow-xs space-y-1.5 text-[11px]">
+                    <div className="flex items-center justify-between text-slate-600">
+                      <span className="text-slate-400">Date of Issue:</span>
+                      <span className="font-semibold text-slate-800 flex items-center gap-1">
+                        <Calendar className="w-3 h-3 text-slate-400" />
+                        {formatDateString(letter.issue_date)}
+                      </span>
+                    </div>
+
+                    {meta.joining_date && (
+                      <div className="flex items-center justify-between text-slate-600">
+                        <span className="text-slate-400">
+                          {letter.letter_type === "Internship Completion" ? "Tenure Start:" : "Joining Date:"}
+                        </span>
+                        <span className="font-semibold text-slate-800">
+                          {formatDateString(meta.joining_date)}
+                        </span>
+                      </div>
+                    )}
+
+                    {meta.relieving_date && (
+                      <div className="flex items-center justify-between text-slate-600">
+                        <span className="text-slate-400">
+                          {letter.letter_type === "Internship Completion" ? "Tenure End:" : "Relieved On:"}
+                        </span>
+                        <span className="font-semibold text-slate-800">
+                          {formatDateString(meta.relieving_date)}
+                        </span>
+                      </div>
+                    )}
+
+                    {letter.letter_type === "Joining Letter" && meta.annual_ctc && (
+                      <div className="flex items-center justify-between text-slate-600">
+                        <span className="text-slate-400">Compensation:</span>
+                        <span className="font-bold text-blue-700">
+                          ₹{meta.annual_ctc} / yr
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Signatory & Verified Stamp Indicator */}
+                  <div className="mt-3 flex items-center justify-between pt-1 text-[11px]">
+                    <div className="flex items-center gap-1 text-slate-500 truncate">
+                      <span className="text-slate-400">Signed:</span>
+                      <span className="font-semibold text-slate-700 truncate">
+                        {meta.signatory_name || "Anmol Gadhave"}
+                      </span>
+                    </div>
+
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                      <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
+                      Seal Verified
+                    </span>
+                  </div>
+                </div>
+
+                {/* Card Actions Footer */}
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+                  <Button
+                    onClick={() => handleDownloadPDF(letter)}
+                    className="flex-1 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold gap-1.5 h-9 rounded-xl shadow-xs cursor-pointer transition-all"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Download Official PDF
+                  </Button>
+
+                  {isManagement && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDeleteLetter(letter.id, letter.reference_no)}
+                      className="h-9 w-9 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                      title="Revoke & Delete Document"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        /* ========================================================================= */
+        /* TABLE VIEW: COMPACT ENTERPRISE AUDIT LIST                                */
+        /* ========================================================================= */
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden overflow-x-auto">
+          <Table className="min-w-[980px]">
+            <TableHeader className="bg-slate-50/90 border-b border-slate-200">
               <TableRow>
-                <TableHead className="text-xs font-bold text-slate-700">Reference No & Title</TableHead>
+                <TableHead className="text-xs font-bold text-slate-700 py-3.5">Reference Code &amp; Title</TableHead>
                 {isManagement && (
-                  <TableHead className="text-xs font-bold text-slate-700">Recipient Employee</TableHead>
+                  <TableHead className="text-xs font-bold text-slate-700 py-3.5">Recipient Employee</TableHead>
                 )}
-                <TableHead className="text-xs font-bold text-slate-700">Type</TableHead>
-                <TableHead className="text-xs font-bold text-slate-700">Issue Date</TableHead>
+                <TableHead className="text-xs font-bold text-slate-700 py-3.5">Certificate Type</TableHead>
+                <TableHead className="text-xs font-bold text-slate-700 py-3.5">Date of Issue</TableHead>
                 {isManagement && (
-                  <TableHead className="text-xs font-bold text-slate-700">Issued By</TableHead>
+                  <TableHead className="text-xs font-bold text-slate-700 py-3.5">Authorized Signatory</TableHead>
                 )}
-                <TableHead className="text-xs font-bold text-slate-700 text-right">Actions</TableHead>
+                <TableHead className="text-xs font-bold text-slate-700 py-3.5 text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {loading ? (
-                <TableRow>
-                  <TableCell colSpan={isManagement ? 6 : 4} className="text-center py-10 text-xs text-slate-400">
-                    <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-slate-400" />
-                    Loading official certificates...
-                  </TableCell>
-                </TableRow>
-              ) : filteredLetters.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={isManagement ? 6 : 4} className="text-center py-12 text-slate-500">
-                    <div className="max-w-xs mx-auto text-center space-y-2">
-                      <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
-                        <Award className="w-5 h-5" />
-                      </div>
-                      <p className="text-sm font-semibold text-slate-700">No letters found</p>
-                      <p className="text-xs text-slate-500">
-                        {isManagement
-                          ? "Get started by generating the first official Joining, Experience, or Internship letter."
-                          : "No official letters or certificates have been issued to your account yet."}
-                      </p>
-                      {isManagement && (
-                        <Button
-                          size="sm"
-                          onClick={() => setIsModalOpen(true)}
-                          className="mt-2 text-xs bg-blue-600 hover:bg-blue-700 text-white"
-                        >
-                          <Plus className="w-3.5 h-3.5 mr-1" />
-                          Issue Letter Now
-                        </Button>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ) : (
-                filteredLetters.map((letter) => (
-                  <TableRow key={letter.id} className="hover:bg-slate-50/60 transition-colors">
-                    {/* Reference No & Title */}
+              {filteredLetters.map((letter) => {
+                const theme = getTypeTheme(letter.letter_type);
+                const meta = letter.metadata || {};
+
+                return (
+                  <TableRow key={letter.id} className="hover:bg-slate-50/80 transition-colors">
+                    {/* Reference & Title */}
                     <TableCell className="py-3.5">
-                      <div className="space-y-0.5">
-                        <span className="font-mono text-xs font-bold text-slate-800 tracking-tight">
-                          {letter.reference_no}
-                        </span>
-                        <p className="text-xs text-slate-500 font-medium line-clamp-1">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs font-extrabold text-slate-900 bg-slate-100 px-2 py-0.5 rounded-md">
+                            {letter.reference_no}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopyRef(letter.id, letter.reference_no)}
+                            className="text-slate-400 hover:text-slate-700 cursor-pointer"
+                            title="Copy reference code"
+                          >
+                            {copiedRefId === letter.id ? (
+                              <Check className="w-3 h-3 text-emerald-600" />
+                            ) : (
+                              <Copy className="w-3 h-3" />
+                            )}
+                          </button>
+                        </div>
+                        <p className="text-xs font-semibold text-slate-700 line-clamp-1">
                           {letter.title}
                         </p>
                       </div>
                     </TableCell>
 
-                    {/* Employee info (Management view) */}
+                    {/* Employee Profile (Management) */}
                     {isManagement && (
                       <TableCell className="py-3.5">
-                        <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center text-xs font-bold shrink-0">
                             {letter.user_name ? letter.user_name.charAt(0).toUpperCase() : "U"}
                           </div>
-                          <div>
-                            <p className="text-xs font-semibold text-slate-800">{letter.user_name}</p>
-                            <p className="text-[11px] text-slate-500">{letter.user_role || letter.user_email}</p>
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-slate-900 truncate">{letter.user_name}</p>
+                            <p className="text-[11px] text-slate-500 truncate">{meta.designation || letter.user_role}</p>
                           </div>
                         </div>
                       </TableCell>
@@ -369,37 +732,38 @@ export default function LettersPage() {
 
                     {/* Type Badge */}
                     <TableCell className="py-3.5">
-                      {getTypeBadge(letter.letter_type)}
+                      <Badge className={`${theme.badge} text-[10px] px-2.5 py-0.5 rounded-full`}>
+                        {theme.label}
+                      </Badge>
                     </TableCell>
 
                     {/* Issue Date */}
                     <TableCell className="py-3.5">
-                      <div className="flex items-center gap-1.5 text-xs text-slate-600">
+                      <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
                         <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                        {letter.issue_date}
+                        {formatDateString(letter.issue_date)}
                       </div>
                     </TableCell>
 
-                    {/* Issued By (Management view) */}
+                    {/* Signatory */}
                     {isManagement && (
                       <TableCell className="py-3.5">
-                        <div className="text-xs text-slate-600">
-                          <p className="font-medium text-slate-700">{letter.issuer_name || "Admin"}</p>
-                          <span className="text-[11px] text-slate-400">{letter.issuer_role}</span>
+                        <div className="text-xs">
+                          <p className="font-bold text-slate-800">{meta.signatory_name || "Anmol Gadhave"}</p>
+                          <span className="text-[11px] text-slate-400">{meta.signatory_title || "Project Manager"}</span>
                         </div>
                       </TableCell>
                     )}
 
-                    {/* Action buttons */}
+                    {/* Action Buttons */}
                     <TableCell className="py-3.5 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
+                      <div className="flex items-center justify-end gap-2">
                         <Button
                           size="sm"
-                          variant="outline"
                           onClick={() => handleDownloadPDF(letter)}
-                          className="text-xs border-blue-200 text-blue-700 bg-blue-50/50 hover:bg-blue-100 flex items-center gap-1 h-8 px-2.5 font-medium"
+                          className="bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold gap-1.5 h-8 px-3 rounded-lg shadow-xs cursor-pointer"
                         >
-                          <Download className="w-3.5 h-3.5" />
+                          <Download className="w-3 h-3" />
                           Download PDF
                         </Button>
 
@@ -408,8 +772,8 @@ export default function LettersPage() {
                             size="sm"
                             variant="ghost"
                             onClick={() => handleDeleteLetter(letter.id, letter.reference_no)}
-                            className="text-xs text-red-600 hover:bg-red-50 hover:text-red-700 h-8 w-8 p-0"
-                            title="Revoke / Delete Letter"
+                            className="h-8 w-8 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
+                            title="Revoke Certificate"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </Button>
@@ -417,14 +781,14 @@ export default function LettersPage() {
                       </div>
                     </TableCell>
                   </TableRow>
-                ))
-              )}
+                );
+              })}
             </TableBody>
           </Table>
         </div>
-      </Card>
+      )}
 
-      {/* ISSUANCE MODAL (Management) */}
+      {/* ISSUANCE MODAL (Management only) */}
       {isManagement && (
         <LetterGenerationModal
           isOpen={isModalOpen}

@@ -9,8 +9,28 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { showSuccess, showError, showWarning } from "@/lib/swal";
-import { generateLetterPDF, LetterData } from "@/lib/pdf/letterGenerator";
-import { FileText, Award, Briefcase, Eye, Download, Sparkles, CheckCircle2, UserCheck } from "lucide-react";
+import { generateLetterPDF, LetterData, formatDateString } from "@/lib/pdf/letterGenerator";
+import { 
+  FileText, 
+  Award, 
+  Briefcase, 
+  Eye, 
+  Download, 
+  Sparkles, 
+  CheckCircle2, 
+  UserCheck, 
+  Stamp, 
+  Building2, 
+  Calendar, 
+  ShieldCheck, 
+  FileSignature, 
+  DollarSign, 
+  Clock, 
+  MapPin, 
+  User,
+  Layers,
+  ChevronRight
+} from "lucide-react";
 
 interface Employee {
   id: number;
@@ -39,7 +59,7 @@ export default function LetterGenerationModal({
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loadingEmployees, setLoadingEmployees] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [showLivePreview, setShowLivePreview] = useState(false);
+  const [activeModalTab, setActiveModalTab] = useState<"form" | "preview">("form");
 
   // Form State
   const [letterType, setLetterType] = useState<LetterType>("Joining Letter");
@@ -151,7 +171,7 @@ export default function LetterGenerationModal({
 
   const handleTestDownloadPreview = () => {
     if (!selectedUserId) {
-      showWarning("Select Employee", "Please select an employee first to preview the letter.");
+      showWarning("Select Employee", "Please select an employee first to test PDF download.");
       return;
     }
     const data = getLetterDataForPreview();
@@ -213,7 +233,7 @@ export default function LetterGenerationModal({
 
       showSuccess(
         "Letter Issued Successfully!",
-        `${letterType} for ${selectedEmployee?.name} has been generated, saved to their account, and downloaded.`
+        `${letterType} for ${selectedEmployee?.name} has been issued, saved to registry, and downloaded.`
       );
 
       onClose();
@@ -225,336 +245,473 @@ export default function LetterGenerationModal({
     }
   };
 
+  const previewData = getLetterDataForPreview();
+
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-3xl max-h-[92vh] overflow-y-auto p-6 rounded-2xl bg-white border border-slate-200 shadow-2xl">
-        <DialogHeader className="border-b border-slate-100 pb-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2.5 rounded-xl bg-blue-50 text-blue-600">
-                <Award className="w-6 h-6" />
-              </div>
-              <div>
-                <DialogTitle className="text-xl font-bold text-slate-900">
-                  Configure & Issue Official Letter
-                </DialogTitle>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Generate authentic Unitglo branded PDF certificates & letters with auto-filled employee records.
-                </p>
-              </div>
+      <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto p-0 rounded-3xl bg-white border border-slate-200 shadow-2xl overflow-hidden">
+        {/* TOP BRANDING STRIP */}
+        <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950 px-6 py-5 text-white flex items-center justify-between border-b border-indigo-950/40">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-2xl bg-indigo-500/20 text-indigo-300 border border-indigo-400/20">
+              <Stamp className="w-6 h-6" />
+            </div>
+            <div>
+              <DialogTitle className="text-lg font-extrabold text-white tracking-tight flex items-center gap-2">
+                Official Document Studio
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/30 text-indigo-200 border border-indigo-400/30">
+                  Unitglo HR
+                </span>
+              </DialogTitle>
+              <p className="text-xs text-slate-300 mt-0.5">
+                Generate authentic corporate letters with dynamic data, reference codes, and seal verification.
+              </p>
             </div>
           </div>
-        </DialogHeader>
 
-        {/* LETTER TYPE SWITCHER TABS */}
-        <div className="grid grid-cols-3 gap-2.5 pt-2">
-          <button
-            type="button"
-            onClick={() => setLetterType("Joining Letter")}
-            className={`flex items-center justify-center gap-2 p-3 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
-              letterType === "Joining Letter"
-                ? "border-blue-600 bg-blue-50/70 text-blue-700 shadow-sm"
-                : "border-slate-200 hover:bg-slate-50 text-slate-600"
-            }`}
-          >
-            <Briefcase className="w-4 h-4 text-blue-600" />
-            Joining Letter
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setLetterType("Experience Letter")}
-            className={`flex items-center justify-center gap-2 p-3 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
-              letterType === "Experience Letter"
-                ? "border-emerald-600 bg-emerald-50/70 text-emerald-700 shadow-sm"
-                : "border-slate-200 hover:bg-slate-50 text-slate-600"
-            }`}
-          >
-            <FileText className="w-4 h-4 text-emerald-600" />
-            Experience Letter
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setLetterType("Internship Completion")}
-            className={`flex items-center justify-center gap-2 p-3 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
-              letterType === "Internship Completion"
-                ? "border-purple-600 bg-purple-50/70 text-purple-700 shadow-sm"
-                : "border-slate-200 hover:bg-slate-50 text-slate-600"
-            }`}
-          >
-            <Award className="w-4 h-4 text-purple-600" />
-            Internship Certificate
-          </button>
+          {/* Modal Header Tabs: Form vs Live Preview */}
+          <div className="flex items-center gap-1 bg-white/10 p-1 rounded-xl border border-white/15">
+            <button
+              type="button"
+              onClick={() => setActiveModalTab("form")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                activeModalTab === "form"
+                  ? "bg-white text-slate-950 shadow-sm"
+                  : "text-slate-300 hover:text-white"
+              }`}
+            >
+              <FileSignature className="w-3.5 h-3.5" />
+              Configure
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveModalTab("preview")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                activeModalTab === "preview"
+                  ? "bg-white text-slate-950 shadow-sm"
+                  : "text-slate-300 hover:text-white"
+              }`}
+            >
+              <Eye className="w-3.5 h-3.5" />
+              Live Preview
+            </button>
+          </div>
         </div>
 
-        <form onSubmit={handleIssueLetter} className="space-y-4 pt-2">
-          {/* SECTION 1: RECIPIENT SELECTION */}
-          <div className="p-4 rounded-xl bg-slate-50/80 border border-slate-200/80 space-y-3">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                <UserCheck className="w-4 h-4 text-blue-600" />
-                Select Recipient Employee
-              </Label>
-              {selectedEmployee && (
-                <Badge variant="outline" className="bg-white text-[11px] text-blue-700 font-medium">
-                  {selectedEmployee.role} • {selectedEmployee.email}
-                </Badge>
-              )}
-            </div>
+        {/* LETTER TYPE SWITCHER BAR */}
+        <div className="px-6 pt-5 bg-slate-50/60 border-b border-slate-100">
+          <div className="grid grid-cols-3 gap-3 pb-4">
+            <button
+              type="button"
+              onClick={() => setLetterType("Joining Letter")}
+              className={`flex items-center justify-center gap-2.5 p-3 rounded-2xl border text-xs font-bold transition-all cursor-pointer ${
+                letterType === "Joining Letter"
+                  ? "border-blue-600 bg-white text-blue-700 shadow-md ring-2 ring-blue-500/20"
+                  : "border-slate-200 hover:bg-white text-slate-600"
+              }`}
+            >
+              <div className={`p-1.5 rounded-lg ${letterType === "Joining Letter" ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600"}`}>
+                <Briefcase className="w-4 h-4" />
+              </div>
+              <div className="text-left">
+                <span className="block font-bold">Joining Letter</span>
+                <span className="text-[10px] font-medium text-slate-400">Appointment offer</span>
+              </div>
+            </button>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <Label className="text-xs text-slate-600">Employee *</Label>
-                <Select value={selectedUserId} onValueChange={handleSelectEmployee}>
-                  <SelectTrigger className="mt-1 bg-white border-slate-200 text-xs">
-                    <SelectValue placeholder={loadingEmployees ? "Loading employees..." : "Choose an employee"} />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-60">
-                    {employees.map((emp) => (
-                      <SelectItem key={emp.id} value={String(emp.id)} className="text-xs">
-                        {emp.name} ({emp.role})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+            <button
+              type="button"
+              onClick={() => setLetterType("Experience Letter")}
+              className={`flex items-center justify-center gap-2.5 p-3 rounded-2xl border text-xs font-bold transition-all cursor-pointer ${
+                letterType === "Experience Letter"
+                  ? "border-emerald-600 bg-white text-emerald-700 shadow-md ring-2 ring-emerald-500/20"
+                  : "border-slate-200 hover:bg-white text-slate-600"
+              }`}
+            >
+              <div className={`p-1.5 rounded-lg ${letterType === "Experience Letter" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
+                <ShieldCheck className="w-4 h-4" />
+              </div>
+              <div className="text-left">
+                <span className="block font-bold">Experience Letter</span>
+                <span className="text-[10px] font-medium text-slate-400">Tenure &amp; relieving</span>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setLetterType("Internship Completion")}
+              className={`flex items-center justify-center gap-2.5 p-3 rounded-2xl border text-xs font-bold transition-all cursor-pointer ${
+                letterType === "Internship Completion"
+                  ? "border-purple-600 bg-white text-purple-700 shadow-md ring-2 ring-purple-500/20"
+                  : "border-slate-200 hover:bg-white text-slate-600"
+              }`}
+            >
+              <div className={`p-1.5 rounded-lg ${letterType === "Internship Completion" ? "bg-purple-100 text-purple-700" : "bg-slate-100 text-slate-600"}`}>
+                <Award className="w-4 h-4" />
+              </div>
+              <div className="text-left">
+                <span className="block font-bold">Internship Certificate</span>
+                <span className="text-[10px] font-medium text-slate-400">Completion proof</span>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        {/* MODAL BODY */}
+        <div className="p-6">
+          {activeModalTab === "form" ? (
+            <form id="letter-issue-form" onSubmit={handleIssueLetter} className="space-y-5">
+              {/* EMPLOYEE SELECTION & REFERENCE CARD */}
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-extrabold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <UserCheck className="w-4 h-4 text-sky-600" />
+                    Recipient Team Member
+                  </Label>
+                  {selectedEmployee && (
+                    <span className="text-[11px] font-semibold text-sky-700 bg-sky-50 border border-sky-200 px-2.5 py-0.5 rounded-full">
+                      {selectedEmployee.role} • {selectedEmployee.email}
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700">Choose Employee *</Label>
+                    <Select value={selectedUserId} onValueChange={handleSelectEmployee}>
+                      <SelectTrigger className="bg-white border-slate-200 text-xs rounded-xl h-10">
+                        <SelectValue placeholder={loadingEmployees ? "Loading team members..." : "Choose an employee"} />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-64">
+                        {employees.map((emp) => (
+                          <SelectItem key={emp.id} value={String(emp.id)} className="text-xs">
+                            {emp.name} ({emp.role})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700">Reference Number</Label>
+                    <Input
+                      value={referenceNo}
+                      onChange={(e) => setReferenceNo(e.target.value)}
+                      className="bg-white border-slate-200 text-xs font-mono rounded-xl h-10"
+                      placeholder="USPL/APPT/2026/001"
+                      required
+                    />
+                  </div>
+                </div>
               </div>
 
-              <div>
-                <Label className="text-xs text-slate-600">Reference Number</Label>
-                <Input
-                  value={referenceNo}
-                  onChange={(e) => setReferenceNo(e.target.value)}
-                  className="mt-1 bg-white border-slate-200 text-xs font-mono"
-                  placeholder="USPL/APPT/2026/001"
-                  required
+              {/* CORE DETAILS ROW */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-slate-700">Official Designation *</Label>
+                  <Input
+                    value={designation}
+                    onChange={(e) => setDesignation(e.target.value)}
+                    className="text-xs rounded-xl h-10"
+                    placeholder="e.g. Senior Software Engineer"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-slate-700">Department</Label>
+                  <Input
+                    value={department}
+                    onChange={(e) => setDepartment(e.target.value)}
+                    className="text-xs rounded-xl h-10"
+                    placeholder="e.g. Engineering & Technology"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-slate-700">Date of Issue *</Label>
+                  <Input
+                    type="date"
+                    value={issueDate}
+                    onChange={(e) => setIssueDate(e.target.value)}
+                    className="text-xs rounded-xl h-10"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* DYNAMIC SUBSECTION: JOINING LETTER */}
+              {letterType === "Joining Letter" && (
+                <div className="p-4 rounded-2xl bg-blue-50/40 border border-blue-100 space-y-3.5">
+                  <h4 className="text-xs font-extrabold text-blue-900 uppercase tracking-wider flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                    Appointment Terms &amp; Compensation
+                  </h4>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                    <div className="space-y-1">
+                      <Label className="text-xs font-medium text-slate-600">Date of Joining</Label>
+                      <Input
+                        type="date"
+                        value={joiningDate}
+                        onChange={(e) => setJoiningDate(e.target.value)}
+                        className="text-xs bg-white rounded-xl h-9"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <Label className="text-xs font-medium text-slate-600">Annual CTC (INR)</Label>
+                      <Input
+                        type="text"
+                        value={annualCTC}
+                        onChange={(e) => setAnnualCTC(e.target.value)}
+                        className="text-xs bg-white rounded-xl h-9"
+                        placeholder="e.g. 6,00,000"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <Label className="text-xs font-medium text-slate-600">Monthly Gross (INR)</Label>
+                      <Input
+                        type="text"
+                        value={monthlySalary}
+                        onChange={(e) => setMonthlySalary(e.target.value)}
+                        className="text-xs bg-white rounded-xl h-9"
+                        placeholder="e.g. 50,000"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-1">
+                    <div className="space-y-1">
+                      <Label className="text-xs font-medium text-slate-600">Probation Duration</Label>
+                      <Input
+                        value={probationPeriod}
+                        onChange={(e) => setProbationPeriod(e.target.value)}
+                        className="text-xs bg-white rounded-xl h-9"
+                        placeholder="e.g. 3 Months"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <Label className="text-xs font-medium text-slate-600">Work Location</Label>
+                      <Input
+                        value={workLocation}
+                        onChange={(e) => setWorkLocation(e.target.value)}
+                        className="text-xs bg-white rounded-xl h-9"
+                        placeholder="e.g. Pune / Hybrid"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <Label className="text-xs font-medium text-slate-600">Reporting Manager</Label>
+                      <Input
+                        value={reportingManager}
+                        onChange={(e) => setReportingManager(e.target.value)}
+                        className="text-xs bg-white rounded-xl h-9"
+                        placeholder="e.g. Anmol Gadhave (PM)"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* DYNAMIC SUBSECTION: EXPERIENCE & INTERNSHIP */}
+              {(letterType === "Experience Letter" || letterType === "Internship Completion") && (
+                <div className="p-4 rounded-2xl bg-emerald-50/40 border border-emerald-100 space-y-3.5">
+                  <h4 className="text-xs font-extrabold text-emerald-900 uppercase tracking-wider flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    Tenure Period &amp; Relieving Dates
+                  </h4>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold text-slate-700">
+                        {letterType === "Internship Completion" ? "Internship Commencement Date *" : "Date of Joining *"}
+                      </Label>
+                      <Input
+                        type="date"
+                        value={joiningDate}
+                        onChange={(e) => setJoiningDate(e.target.value)}
+                        className="text-xs bg-white rounded-xl h-10"
+                        required
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold text-slate-700">
+                        {letterType === "Internship Completion" ? "Internship Completion Date *" : "Relieving / Last Working Date *"}
+                      </Label>
+                      <Input
+                        type="date"
+                        value={relievingDate}
+                        onChange={(e) => setRelievingDate(e.target.value)}
+                        className="text-xs bg-white rounded-xl h-10"
+                        required
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* SIGNATORY INFO */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-slate-700">Authorized Signatory Name</Label>
+                  <Input
+                    value={signatoryName}
+                    onChange={(e) => setSignatoryName(e.target.value)}
+                    className="text-xs rounded-xl h-10"
+                    placeholder="e.g. Anmol Gadhave"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-slate-700">Signatory Designation / Title</Label>
+                  <Input
+                    value={signatoryTitle}
+                    onChange={(e) => setSignatoryTitle(e.target.value)}
+                    className="text-xs rounded-xl h-10"
+                    placeholder="e.g. Project Manager / Director"
+                  />
+                </div>
+              </div>
+
+              {/* REMARKS & HIGHLIGHTS */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-slate-700">
+                  {letterType === "Internship Completion"
+                    ? "Projects & Performance Evaluation (Optional)"
+                    : letterType === "Experience Letter"
+                    ? "Conduct Assessment & Contributions (Optional)"
+                    : "Special Clauses / Terms (Optional)"}
+                </Label>
+                <Textarea
+                  value={customRemarks}
+                  onChange={(e) => setCustomRemarks(e.target.value)}
+                  rows={2}
+                  className="text-xs rounded-xl"
+                  placeholder="e.g. Exhibited commendable leadership, problem-solving skills, and contributed diligently to sprint deliverables..."
                 />
               </div>
-            </div>
-          </div>
-
-          {/* SECTION 2: CORE DETAILS */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <Label className="text-xs text-slate-600">Official Designation *</Label>
-              <Input
-                value={designation}
-                onChange={(e) => setDesignation(e.target.value)}
-                className="mt-1 text-xs"
-                placeholder="e.g. Senior Full Stack Engineer"
-                required
-              />
-            </div>
-
-            <div>
-              <Label className="text-xs text-slate-600">Department</Label>
-              <Input
-                value={department}
-                onChange={(e) => setDepartment(e.target.value)}
-                className="mt-1 text-xs"
-                placeholder="e.g. Engineering & Development"
-              />
-            </div>
-
-            <div>
-              <Label className="text-xs text-slate-600">Date of Issue *</Label>
-              <Input
-                type="date"
-                value={issueDate}
-                onChange={(e) => setIssueDate(e.target.value)}
-                className="mt-1 text-xs"
-                required
-              />
-            </div>
-          </div>
-
-          {/* SECTION 3: TYPE SPECIFIC FIELDS */}
-          {letterType === "Joining Letter" && (
-            <div className="p-4 rounded-xl bg-blue-50/40 border border-blue-100 space-y-3">
-              <h4 className="text-xs font-bold text-blue-900 uppercase tracking-wider flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                Appointment & Compensation Terms
-              </h4>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <Label className="text-xs text-slate-600">Date of Joining</Label>
-                  <Input
-                    type="date"
-                    value={joiningDate}
-                    onChange={(e) => setJoiningDate(e.target.value)}
-                    className="mt-1 text-xs bg-white"
-                  />
+            </form>
+          ) : (
+            /* ===================================================================== */
+            /* TAB 2: LIVE DOCUMENT PREVIEW MOCKUP                                  */
+            /* ===================================================================== */
+            <div className="p-6 rounded-2xl bg-slate-100/90 border border-slate-200">
+              <div className="max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-lg border border-slate-200 space-y-5 text-slate-800 font-sans text-xs">
+                {/* Header Mockup */}
+                <div className="border-b-2 border-slate-900 pb-3 flex items-start justify-between">
+                  <div>
+                    <h2 className="text-base font-extrabold text-slate-900">UNITGLO SOLUTIONS</h2>
+                    <p className="text-[10px] text-slate-500">Empowering Digital Innovation &amp; Technology Excellence</p>
+                    <p className="text-[9px] text-slate-400">Pune, Maharashtra, India | contact@unitglo.com</p>
+                  </div>
+                  <div className="text-right text-[10px] font-mono">
+                    <p className="font-bold text-slate-800">Ref: {previewData.reference_no}</p>
+                    <p className="text-slate-500">Date: {formatDateString(previewData.issue_date)}</p>
+                  </div>
                 </div>
 
-                <div>
-                  <Label className="text-xs text-slate-600">Annual CTC (INR)</Label>
-                  <Input
-                    type="text"
-                    value={annualCTC}
-                    onChange={(e) => setAnnualCTC(e.target.value)}
-                    className="mt-1 text-xs bg-white"
-                    placeholder="e.g. 6,00,000"
-                  />
+                {/* Recipient */}
+                <div className="space-y-0.5">
+                  <p className="font-bold text-slate-600">To,</p>
+                  <p className="font-extrabold text-sm text-slate-900">{previewData.user_name}</p>
+                  <p className="text-slate-600">{previewData.designation}</p>
+                  {previewData.user_email && <p className="text-slate-400">{previewData.user_email}</p>}
                 </div>
 
-                <div>
-                  <Label className="text-xs text-slate-600">Monthly Gross (INR)</Label>
-                  <Input
-                    type="text"
-                    value={monthlySalary}
-                    onChange={(e) => setMonthlySalary(e.target.value)}
-                    className="mt-1 text-xs bg-white"
-                    placeholder="e.g. 50,000"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
-                <div>
-                  <Label className="text-xs text-slate-600">Probation Period</Label>
-                  <Input
-                    value={probationPeriod}
-                    onChange={(e) => setProbationPeriod(e.target.value)}
-                    className="mt-1 text-xs bg-white"
-                    placeholder="e.g. 3 Months"
-                  />
+                {/* Subject */}
+                <div className="p-2 rounded bg-slate-50 font-bold text-slate-900 border-l-4 border-blue-600">
+                  Subject: {letterType === "Joining Letter" ? `Letter of Appointment - ${previewData.designation}` : letterType === "Experience Letter" ? `Experience & Relieving Certificate - ${previewData.user_name}` : `Certificate of Internship Completion - ${previewData.user_name}`}
                 </div>
 
-                <div>
-                  <Label className="text-xs text-slate-600">Work Location</Label>
-                  <Input
-                    value={workLocation}
-                    onChange={(e) => setWorkLocation(e.target.value)}
-                    className="mt-1 text-xs bg-white"
-                    placeholder="e.g. Pune / Hybrid"
-                  />
+                {/* Body Paragraphs */}
+                <div className="space-y-2.5 text-slate-700 leading-relaxed text-[11px]">
+                  <p>Dear {previewData.user_name},</p>
+                  {letterType === "Joining Letter" ? (
+                    <>
+                      <p>
+                        We are pleased to offer you the position of <strong>{previewData.designation}</strong> at Unitglo Solutions Private Limited. Your joining date is effective from <strong>{formatDateString(previewData.joining_date)}</strong>.
+                      </p>
+                      <div className="p-2.5 rounded bg-blue-50/50 border border-blue-100 space-y-1 text-[10px]">
+                        <p><strong>Compensation (CTC):</strong> {previewData.annual_ctc ? `₹${previewData.annual_ctc} / year` : "As agreed"}</p>
+                        <p><strong>Probation Period:</strong> {previewData.probation_period || "3 Months"}</p>
+                        <p><strong>Work Location:</strong> {previewData.work_location || "Pune / Hybrid"}</p>
+                        <p><strong>Reporting Line:</strong> {previewData.reporting_manager || "Project Manager"}</p>
+                      </div>
+                    </>
+                  ) : letterType === "Experience Letter" ? (
+                    <p>
+                      This is to certify that <strong>{previewData.user_name}</strong> was formally employed with Unitglo Solutions Private Limited as <strong>{previewData.designation}</strong> from <strong>{formatDateString(previewData.joining_date)}</strong> to <strong>{formatDateString(previewData.relieving_date)}</strong>. They have been relieved of all responsibilities on {formatDateString(previewData.relieving_date)}.
+                    </p>
+                  ) : (
+                    <p>
+                      This is to certify that <strong>{previewData.user_name}</strong> has successfully completed their professional internship program as <strong>{previewData.designation}</strong> at Unitglo Solutions Private Limited from <strong>{formatDateString(previewData.joining_date)}</strong> to <strong>{formatDateString(previewData.relieving_date)}</strong>.
+                    </p>
+                  )}
+
+                  {previewData.custom_remarks && (
+                    <p className="italic text-slate-600 bg-slate-50 p-2 rounded">
+                      &quot;{previewData.custom_remarks}&quot;
+                    </p>
+                  )}
                 </div>
 
-                <div>
-                  <Label className="text-xs text-slate-600">Reporting Manager</Label>
-                  <Input
-                    value={reportingManager}
-                    onChange={(e) => setReportingManager(e.target.value)}
-                    className="mt-1 text-xs bg-white"
-                    placeholder="e.g. Anmol Gadhave (PM)"
-                  />
+                {/* Signatory & Official Seal */}
+                <div className="pt-4 flex items-end justify-between border-t border-slate-100">
+                  <div>
+                    <p className="text-[10px] text-slate-500">For Unitglo Solutions Private Limited,</p>
+                    <p className="font-extrabold text-slate-900 mt-5">{previewData.signatory_name || "Anmol Gadhave"}</p>
+                    <p className="text-[10px] text-slate-500">{previewData.signatory_title || "Project Manager"}</p>
+                  </div>
+
+                  <div className="border-2 border-dashed border-emerald-600 p-2 rounded-lg text-center bg-emerald-50/50">
+                    <p className="font-extrabold text-[9px] text-emerald-800">UNITGLO SOLUTIONS</p>
+                    <p className="text-[8px] text-emerald-600 font-bold uppercase">Official HR Seal</p>
+                    <p className="text-[7px] text-slate-400">Verified &amp; Authentic</p>
+                  </div>
                 </div>
               </div>
             </div>
           )}
+        </div>
 
-          {(letterType === "Experience Letter" || letterType === "Internship Completion") && (
-            <div className="p-4 rounded-xl bg-emerald-50/40 border border-emerald-100 space-y-3">
-              <h4 className="text-xs font-bold text-emerald-900 uppercase tracking-wider flex items-center gap-1.5">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                Service Tenure & Completion Dates
-              </h4>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs text-slate-600">
-                    {letterType === "Internship Completion" ? "Internship Start Date *" : "Date of Joining *"}
-                  </Label>
-                  <Input
-                    type="date"
-                    value={joiningDate}
-                    onChange={(e) => setJoiningDate(e.target.value)}
-                    className="mt-1 text-xs bg-white"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <Label className="text-xs text-slate-600">
-                    {letterType === "Internship Completion" ? "Internship End Date *" : "Relieving / Last Working Date *"}
-                  </Label>
-                  <Input
-                    type="date"
-                    value={relievingDate}
-                    onChange={(e) => setRelievingDate(e.target.value)}
-                    className="mt-1 text-xs bg-white"
-                    required
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* SECTION 4: AUTHORIZED SIGNATORY */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <Label className="text-xs text-slate-600">Authorized Signatory Name</Label>
-              <Input
-                value={signatoryName}
-                onChange={(e) => setSignatoryName(e.target.value)}
-                className="mt-1 text-xs"
-                placeholder="e.g. Anmol Gadhave"
-              />
-            </div>
-            <div>
-              <Label className="text-xs text-slate-600">Signatory Designation / Title</Label>
-              <Input
-                value={signatoryTitle}
-                onChange={(e) => setSignatoryTitle(e.target.value)}
-                className="mt-1 text-xs"
-                placeholder="e.g. Project Manager / Director"
-              />
-            </div>
+        {/* DIALOG FOOTER */}
+        <DialogFooter className="px-6 py-4 bg-slate-50 border-t border-slate-200/80 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleTestDownloadPreview}
+              className="text-xs flex items-center gap-1.5 border-slate-200 hover:bg-white text-slate-700 rounded-xl h-9 cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5 text-sky-600" />
+              Test PDF Export
+            </Button>
           </div>
 
-          {/* SECTION 5: CUSTOM REMARKS / PERFORMANCE NOTES */}
-          <div>
-            <Label className="text-xs text-slate-600">
-              {letterType === "Internship Completion"
-                ? "Projects & Performance Highlights (Optional)"
-                : letterType === "Experience Letter"
-                ? "Key Contributions / Conduct Evaluation (Optional)"
-                : "Additional Terms / Special Clauses (Optional)"}
-            </Label>
-            <Textarea
-              value={customRemarks}
-              onChange={(e) => setCustomRemarks(e.target.value)}
-              rows={2}
-              className="mt-1 text-xs"
-              placeholder="e.g. Successfully delivered core client modules, displayed exemplary discipline and technical leadership..."
-            />
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={onClose}
+              disabled={submitting}
+              className="text-xs rounded-xl h-9 cursor-pointer"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              form="letter-issue-form"
+              disabled={submitting}
+              className="text-xs bg-slate-900 hover:bg-slate-800 text-white font-bold flex items-center gap-2 rounded-xl h-9 px-4 shadow-md cursor-pointer transition-all"
+            >
+              <Stamp className="w-3.5 h-3.5" />
+              {submitting ? "Processing..." : "Issue & Download Official PDF"}
+            </Button>
           </div>
-
-          <DialogFooter className="border-t border-slate-100 pt-4 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleTestDownloadPreview}
-                className="text-xs flex items-center gap-1.5 border-slate-200 hover:bg-slate-50 text-slate-700"
-              >
-                <Eye className="w-3.5 h-3.5 text-blue-600" />
-                Preview PDF
-              </Button>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={onClose}
-                disabled={submitting}
-                className="text-xs"
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                disabled={submitting}
-                className="text-xs bg-blue-600 hover:bg-blue-700 text-white font-semibold flex items-center gap-1.5 shadow-md shadow-blue-600/20"
-              >
-                <Download className="w-3.5 h-3.5" />
-                {submitting ? "Generating..." : "Issue & Save Letter"}
-              </Button>
-            </div>
-          </DialogFooter>
-        </form>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
