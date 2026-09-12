@@ -70,7 +70,7 @@ export default function DailyTasksPage() {
   const [employees, setEmployees] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState<"today" | "tomorrow" | "assigned_pm" | "assigned_ceo" | "from_tester" | "submitted_testing" | "self_created" | "incomplete" | "overdue" | "all">("today");
+  const [activeTab, setActiveTab] = useState<"today" | "tomorrow" | "assigned_to_me" | "assigned_pm" | "assigned_ceo" | "from_tester" | "submitted_testing" | "self_created" | "incomplete" | "overdue" | "all">("today");
 
   // Advanced Filters State
   const [filterProject, setFilterProject] = useState<string>("ALL");
@@ -643,29 +643,29 @@ export default function DailyTasksPage() {
     return map;
   }, [tasks]);
 
-  // Filter employees assigned to the currently selected project for Create Task Modal
+  // Filter employees assigned to the currently selected project for Create Task Modal (always include PM/CEO/Admin and current user)
   const projectAssignedEmployees = useMemo(() => {
     if (!projectId) return employees;
     const selectedProj = projects.find((p) => p.id.toString() === projectId);
     if (selectedProj && selectedProj.members && Array.isArray(selectedProj.members) && selectedProj.members.length > 0) {
       const memberIds = new Set(selectedProj.members.map((m: any) => m.id));
       if (selectedProj.created_by) memberIds.add(selectedProj.created_by);
-      return employees.filter((e) => memberIds.has(e.id));
+      return employees.filter((e) => memberIds.has(e.id) || e.role === "PM" || e.role === "CEO" || e.role === "Admin" || e.id === currentUserId);
     }
     return employees;
-  }, [projectId, projects, employees]);
+  }, [projectId, projects, employees, currentUserId]);
 
-  // Filter employees assigned to the currently selected project for Edit Task Modal
+  // Filter employees assigned to the currently selected project for Edit Task Modal (always include PM/CEO/Admin and current user)
   const editProjectAssignedEmployees = useMemo(() => {
     if (!editProjectId) return employees;
     const selectedProj = projects.find((p) => p.id.toString() === editProjectId);
     if (selectedProj && selectedProj.members && Array.isArray(selectedProj.members) && selectedProj.members.length > 0) {
       const memberIds = new Set(selectedProj.members.map((m: any) => m.id));
       if (selectedProj.created_by) memberIds.add(selectedProj.created_by);
-      return employees.filter((e) => memberIds.has(e.id));
+      return employees.filter((e) => memberIds.has(e.id) || e.role === "PM" || e.role === "CEO" || e.role === "Admin" || e.id === currentUserId);
     }
     return employees;
-  }, [editProjectId, projects, employees]);
+  }, [editProjectId, projects, employees, currentUserId]);
 
   const todayStr = new Date().toISOString().split("T")[0];
   const tomorrowDate = new Date();
@@ -1429,6 +1429,10 @@ export default function DailyTasksPage() {
         matchTab = isScheduledToday || isUnfinishedPastTask;
       } else if (activeTab === "tomorrow") {
         matchTab = taskExpDate > todayStr;
+      } else if (activeTab === "assigned_to_me") {
+        const isAssignedToMe = String(t.assigned_to) === String(currentUserId) ||
+          (Array.isArray(t.assignees) && t.assignees.some((a: any) => String(a.id) === String(currentUserId)));
+        matchTab = isAssignedToMe;
       } else if (activeTab === "assigned_pm") {
         matchTab = t.assigned_by_type === "PM" || t.creator_role === "PM" || t.project_creator_role === "PM";
       } else if (activeTab === "assigned_ceo") {
@@ -1461,9 +1465,13 @@ export default function DailyTasksPage() {
         return false;
       }
 
-      // 4. Employee / Developer Advance filter (for PM/CEO/Admin)
-      if (filterEmployee !== "ALL" && String(t.assigned_to) !== String(filterEmployee)) {
-        return false;
+      // 4. Employee / Developer Advance filter (for PM/CEO/Admin) - supports both primary and multi-assignees
+      if (filterEmployee !== "ALL") {
+        const matchesDirect = String(t.assigned_to) === String(filterEmployee);
+        const matchesAssignees = Array.isArray(t.assignees) && t.assignees.some((a: any) => String(a.id) === String(filterEmployee));
+        if (!matchesDirect && !matchesAssignees) {
+          return false;
+        }
       }
 
       // 5. Date filter (checks both expected date and start date, plus unfinished carryovers)
@@ -1584,6 +1592,10 @@ export default function DailyTasksPage() {
   const countTomorrow = tasks.filter((t) => {
     const taskExpDate = t.expected_date ? t.expected_date.split("T")[0] : (t.target_date ? t.target_date.split("T")[0] : todayStr);
     return taskExpDate > todayStr;
+  }).length;
+  const countAssignedToMe = tasks.filter((t) => {
+    return String(t.assigned_to) === String(currentUserId) ||
+      (Array.isArray(t.assignees) && t.assignees.some((a: any) => String(a.id) === String(currentUserId)));
   }).length;
   const countPM = tasks.filter((t) => t.assigned_by_type === "PM" || t.creator_role === "PM" || t.project_creator_role === "PM").length;
   const countCEO = tasks.filter((t) => t.assigned_by_type === "CEO" || t.creator_role === "CEO" || t.project_creator_role === "CEO").length;
@@ -2160,9 +2172,16 @@ export default function DailyTasksPage() {
                 <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="All Developers" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="ALL">All Team Members</SelectItem>
-                  {employees.map((e) => (
-                    <SelectItem key={e.id} value={e.id.toString()}>{e.name} ({e.role})</SelectItem>
-                  ))}
+                  {currentUserId && (
+                    <SelectItem value={currentUserId.toString()} className="font-bold text-sky-700">
+                      ⭐ My Tasks (Assigned to Me)
+                    </SelectItem>
+                  )}
+                  {employees
+                    .filter((e) => e.id.toString() !== currentUserId?.toString())
+                    .map((e) => (
+                      <SelectItem key={e.id} value={e.id.toString()}>{e.name} ({e.role})</SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>
@@ -2264,6 +2283,19 @@ export default function DailyTasksPage() {
         >
           <Flame className="h-3.5 w-3.5 text-amber-500" />
           Today's Tasks ({countToday})
+        </button>
+
+        {/* Dedicated My Allocated Tasks Tab */}
+        <button
+          onClick={() => setActiveTab("assigned_to_me")}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
+            activeTab === "assigned_to_me"
+              ? "bg-sky-600 text-white shadow-xs border border-sky-700"
+              : "text-sky-800 bg-sky-50 hover:bg-sky-100 border border-sky-200"
+          }`}
+        >
+          <User className="h-3.5 w-3.5" />
+          My Allocated Tasks ({countAssignedToMe})
         </button>
 
         <button
@@ -3518,6 +3550,10 @@ export default function DailyTasksPage() {
 
                 const isTimerActivelyRunning = Boolean(task.running_timer) || (activeUserTimer && activeUserTimer.task_id === task.id);
                 const runnerName = task.running_timer?.runner_name || (activeUserTimer && activeUserTimer.task_id === task.id ? "You" : null);
+                const isAllocatedToMe = Boolean(
+                  String(task.assigned_to) === String(currentUserId) ||
+                  (Array.isArray(task.assignees) && task.assignees.some((a: any) => String(a.id) === String(currentUserId)))
+                );
 
                 return (
                   <TableRow 
@@ -3528,6 +3564,8 @@ export default function DailyTasksPage() {
                         ? "ring-4 ring-emerald-500/90 bg-emerald-50/90 shadow-2xl relative z-20 scale-[1.002]"
                         : isTimerActivelyRunning
                         ? "bg-emerald-50/30 hover:bg-emerald-50/60"
+                        : isAllocatedToMe
+                        ? "bg-sky-50/40 hover:bg-sky-50/70 border-l-4 border-l-sky-500"
                         : "hover:bg-slate-50/80"
                     }`}
                   >
@@ -3843,6 +3881,13 @@ export default function DailyTasksPage() {
                       </div>
                       <div className="text-[11px] text-slate-500 space-y-0.5">
                         <span className="font-semibold text-slate-700 block">Assigned Team:</span>
+                        {isAllocatedToMe && (
+                          <div className="mb-1">
+                            <Badge className="bg-sky-600 text-white border-sky-700 text-[10px] font-extrabold flex items-center gap-1 shadow-2xs w-fit">
+                              ⭐ Allocated to You
+                            </Badge>
+                          </div>
+                        )}
                         {task.assignees && task.assignees.length > 0 ? (
                           <div className="flex flex-wrap gap-1 mt-0.5">
                             {task.assignees.map((a: any) => (
