@@ -75,8 +75,8 @@ export async function GET(req: Request) {
     const params: any[] = [];
 
     if (!isManagement) {
-      // Regular employees can only access their own letters
-      query += ` AND el.user_id = ?`;
+      // Regular employees can ONLY access letters that have been officially sent to them ('Issued')
+      query += ` AND el.user_id = ? AND el.status = 'Issued'`;
       params.push(currentUserId);
     } else {
       if (filterUserId && filterUserId !== "ALL") {
@@ -142,7 +142,8 @@ export async function POST(req: Request) {
       title, 
       issue_date, 
       metadata = {}, 
-      custom_remarks 
+      custom_remarks,
+      send_to_employee = true
     } = body;
 
     if (!user_id) {
@@ -171,6 +172,8 @@ export async function POST(req: Request) {
     const reference_no = `USPL/${refPrefix}/${year}/${refPad}`;
 
     const finalTitle = title || `${letter_type} - ${emp.name}`;
+    const finalStatus = send_to_employee ? "Issued" : "Draft";
+    metadata.is_sent_to_employee = Boolean(send_to_employee);
 
     const metadataJson = JSON.stringify(metadata);
 
@@ -185,7 +188,7 @@ export async function POST(req: Request) {
         custom_remarks, 
         status, 
         issued_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'Issued', ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         user_id,
         letter_type,
@@ -194,29 +197,34 @@ export async function POST(req: Request) {
         finalIssueDate,
         metadataJson,
         custom_remarks || null,
+        finalStatus,
         currentUserId
       ]
     );
 
     const letterId = result.insertId;
 
-    // Send in-app notification to the employee
-    try {
-      await pool.query(
-        "INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'info')",
-        [
-          user_id,
-          `📜 New Official Letter Issued`,
-          `Your official ${letter_type} (${reference_no}) has been issued by ${session.user.name || "Management"}. You can view and download it from the Letters & Certificates portal.`
-        ]
-      );
-    } catch (notifErr) {
-      console.error("Failed to create notification for issued letter:", notifErr);
+    // If sent to employee, notify them immediately
+    if (send_to_employee) {
+      try {
+        await pool.query(
+          "INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'info')",
+          [
+            user_id,
+            `📜 Official Letter Issued: ${letter_type}`,
+            `Your official ${letter_type} (${reference_no}) has been issued by ${session.user.name || "Management"}. You can view and download it from the Letters & Certificates portal.`
+          ]
+        );
+      } catch (notifErr) {
+        console.error("Failed to create notification for issued letter:", notifErr);
+      }
     }
 
     return NextResponse.json({
       success: true,
-      message: `${letter_type} successfully issued!`,
+      message: send_to_employee 
+        ? `${letter_type} issued and sent to employee's login successfully!` 
+        : `${letter_type} saved as management draft.`,
       letter: {
         id: letterId,
         user_id,
@@ -225,12 +233,85 @@ export async function POST(req: Request) {
         title: finalTitle,
         reference_no,
         issue_date: finalIssueDate,
+        status: finalStatus,
         metadata,
       },
     });
   } catch (error: any) {
     console.error("Error creating letter:", error);
     return NextResponse.json({ error: error.message || "Failed to create letter" }, { status: 500 });
+  }
+}
+
+// PATCH /api/letters - Send draft letter to employee or update letter status (PM, Admin, CEO)
+export async function PATCH(req: Request) {
+  const session = await getServerSession(authOptions);
+  if (!session || !session.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const currentRole = (session.user as any).role;
+  const isManagement = ["Admin", "CEO", "PM"].includes(currentRole);
+
+  if (!isManagement) {
+    return NextResponse.json({ error: "Forbidden: Only PM, CEO, and Admin can update letters." }, { status: 403 });
+  }
+
+  try {
+    const body = await req.json();
+    const { id, action } = body;
+
+    if (!id) {
+      return NextResponse.json({ error: "Letter ID is required." }, { status: 400 });
+    }
+
+    const [rows]: any = await pool.query(
+      "SELECT el.*, u.name as employee_name FROM employee_letters el JOIN users u ON el.user_id = u.id WHERE el.id = ?",
+      [id]
+    );
+
+    if (!rows || rows.length === 0) {
+      return NextResponse.json({ error: "Letter not found." }, { status: 404 });
+    }
+
+    const letter = rows[0];
+
+    if (action === "send_to_employee") {
+      let meta = letter.metadata_json;
+      if (typeof meta === "string") {
+        try { meta = JSON.parse(meta); } catch { meta = {}; }
+      }
+      meta.is_sent_to_employee = true;
+
+      await pool.query(
+        "UPDATE employee_letters SET status = 'Issued', metadata_json = ? WHERE id = ?",
+        [JSON.stringify(meta), id]
+      );
+
+      // Send notification to employee
+      try {
+        await pool.query(
+          "INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, 'info')",
+          [
+            letter.user_id,
+            `📜 Official Letter Delivered: ${letter.letter_type}`,
+            `Your official ${letter.letter_type} (${letter.reference_no}) is now available in your personal Letters & Certificates vault.`
+          ]
+        );
+      } catch (notifErr) {
+        console.error("Failed to notify employee:", notifErr);
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: `Letter ${letter.reference_no} sent to ${letter.employee_name}'s login successfully!`,
+      });
+    }
+
+    return NextResponse.json({ error: "Unknown action." }, { status: 400 });
+  } catch (error: any) {
+    console.error("Error updating letter:", error);
+    return NextResponse.json({ error: error.message || "Failed to update letter" }, { status: 500 });
   }
 }
 

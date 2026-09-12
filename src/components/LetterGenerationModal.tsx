@@ -30,7 +30,8 @@ import {
   MapPin, 
   User,
   Layers,
-  ChevronRight
+  ChevronRight,
+  Send
 } from "lucide-react";
 
 interface Employee {
@@ -83,6 +84,7 @@ export default function LetterGenerationModal({
   const [customRemarks, setCustomRemarks] = useState<string>("");
   const [companyPolicies, setCompanyPolicies] = useState<string>(DEFAULT_LETTER_POLICIES);
   const [defaultCompanyPolicies, setDefaultCompanyPolicies] = useState<string>(DEFAULT_LETTER_POLICIES);
+  const [sendToEmployee, setSendToEmployee] = useState<boolean>(true);
 
   // List of available reporting managers derived strictly from actual company database members
   const managerOptions = useMemo(() => {
@@ -258,6 +260,7 @@ export default function LetterGenerationModal({
         reference_no: referenceNo,
         issue_date: issueDate,
         custom_remarks: customRemarks,
+        send_to_employee: sendToEmployee,
         metadata: {
           designation,
           department,
@@ -275,6 +278,7 @@ export default function LetterGenerationModal({
           employee_email: selectedEmployee?.email,
           employee_phone: selectedEmployee?.phone,
           company_policies: companyPolicies,
+          is_sent_to_employee: sendToEmployee,
         },
       };
 
@@ -295,8 +299,10 @@ export default function LetterGenerationModal({
       generateLetterPDF(pdfData, true);
 
       showSuccess(
-        "Letter Issued Successfully!",
-        `${letterType} for ${selectedEmployee?.name} has been issued, saved to registry, and downloaded.`
+        sendToEmployee ? "Letter Issued & Sent to Employee!" : "Letter Saved as Draft",
+        sendToEmployee
+          ? `${letterType} for ${selectedEmployee?.name} has been issued, sent directly to their employee portal, and downloaded.`
+          : `${letterType} has been saved as a management draft. It will not be visible to ${selectedEmployee?.name} until sent.`
       );
 
       onClose();
@@ -763,6 +769,64 @@ export default function LetterGenerationModal({
                   placeholder="Enter company policies and regulations..."
                 />
               </div>
+
+              {/* SEND TO EMPLOYEE PORTAL TOGGLE */}
+              <div
+                onClick={() => setSendToEmployee(!sendToEmployee)}
+                className={`p-4 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-4 select-none ${
+                  sendToEmployee
+                    ? "bg-emerald-50/70 border-emerald-300 ring-1 ring-emerald-200/80 shadow-xs"
+                    : "bg-slate-50 border-slate-200 hover:border-slate-300"
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <div
+                    className={`p-2.5 rounded-xl shrink-0 transition-colors ${
+                      sendToEmployee
+                        ? "bg-emerald-600 text-white shadow-xs"
+                        : "bg-slate-200 text-slate-500"
+                    }`}
+                  >
+                    <Send className="w-4 h-4" />
+                  </div>
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-900">
+                        Send to Employee Login Portal
+                      </span>
+                      {sendToEmployee ? (
+                        <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px] py-0 px-2 font-semibold">
+                          Visible in Employee Account
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-amber-700 bg-amber-50 border-amber-200 text-[10px] py-0 px-2 font-semibold">
+                          Management Draft Only
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      {sendToEmployee
+                        ? "The employee will immediately see this document in their personal dashboard under Letters & Certificates, and receive an instant notification."
+                        : "Saved privately for management review. The employee will not see or be notified of this letter until you click 'Send to Employee'."}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Animated Pill Toggle */}
+                <div className="shrink-0 flex items-center pr-1">
+                  <div
+                    className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors duration-200 ease-in-out ${
+                      sendToEmployee ? "bg-emerald-600" : "bg-slate-300"
+                    }`}
+                  >
+                    <div
+                      className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-200 ease-in-out ${
+                        sendToEmployee ? "translate-x-5" : "translate-x-0"
+                      }`}
+                    />
+                  </div>
+                </div>
+              </div>
             </form>
           ) : (
             /* ===================================================================== */
@@ -1061,10 +1125,18 @@ export default function LetterGenerationModal({
               type="submit"
               form="letter-issue-form"
               disabled={submitting}
-              className="text-xs bg-slate-900 hover:bg-slate-800 text-white font-bold flex items-center gap-2 rounded-xl h-9 px-4 shadow-md cursor-pointer transition-all"
+              className={`text-xs text-white font-bold flex items-center gap-2 rounded-xl h-9 px-4 shadow-md cursor-pointer transition-all ${
+                sendToEmployee
+                  ? "bg-slate-900 hover:bg-slate-800"
+                  : "bg-amber-600 hover:bg-amber-700"
+              }`}
             >
-              <Stamp className="w-3.5 h-3.5" />
-              {submitting ? "Processing..." : "Issue & Download Official PDF"}
+              {sendToEmployee ? <Stamp className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />}
+              {submitting
+                ? "Processing..."
+                : sendToEmployee
+                ? "Issue & Send to Employee"
+                : "Save as Management Draft"}
             </Button>
           </div>
         </DialogFooter>

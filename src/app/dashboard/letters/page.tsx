@@ -33,7 +33,8 @@ import {
   Check,
   Building2,
   Clock,
-  Stamp
+  Stamp,
+  Send
 } from "lucide-react";
 
 interface LetterItem {
@@ -124,10 +125,36 @@ export default function LettersPage() {
       signatory_name: meta.signatory_name || "Anmol Gadhave",
       signatory_title: meta.signatory_title || "Project Manager / Authorized Signatory",
       custom_remarks: letter.custom_remarks,
+      company_policies: meta.company_policies,
     };
 
     generateLetterPDF(pdfData, true);
     showSuccess("Document Downloaded", `Official PDF for ${letter.reference_no} has been downloaded.`);
+  };
+
+  // Handle Send to Employee
+  const handleSendToEmployee = async (id: number, refNo: string, empName: string) => {
+    const confirmed = await showConfirm(
+      "Send Letter to Employee?",
+      `Are you sure you want to officially publish and send "${refNo}" to ${empName}? It will immediately appear in their personal login under Letters & Certificates and trigger an in-app notification.`
+    );
+    if (!confirmed) return;
+
+    try {
+      const res = await fetch("/api/letters", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, action: "send_to_employee" }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to send letter to employee.");
+      }
+      showSuccess("Letter Sent to Employee!", data.message || `Letter ${refNo} has been delivered to ${empName}'s account.`);
+      fetchLetters();
+    } catch (err: any) {
+      showError("Dispatch Failed", err.message || "Failed to dispatch letter to employee.");
+    }
   };
 
   // Handle Delete / Revoke
@@ -640,10 +667,17 @@ export default function LettersPage() {
                       </span>
                     </div>
 
-                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                      <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
-                      Seal Verified
-                    </span>
+                    {letter.status === "Draft" ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                        <Clock className="w-2.5 h-2.5 text-amber-600" />
+                        Management Draft
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                        <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
+                        Sent to Employee
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -656,6 +690,17 @@ export default function LettersPage() {
                     <Download className="w-3.5 h-3.5" />
                     Download Official PDF
                   </Button>
+
+                  {isManagement && letter.status === "Draft" && (
+                    <Button
+                      onClick={() => handleSendToEmployee(letter.id, letter.reference_no, letter.user_name)}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold gap-1.5 h-9 px-3 rounded-xl shadow-xs cursor-pointer transition-all shrink-0"
+                      title="Send directly to employee login portal"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      Send
+                    </Button>
+                  )}
 
                   {isManagement && (
                     <Button
@@ -687,6 +732,7 @@ export default function LettersPage() {
                 )}
                 <TableHead className="text-xs font-bold text-slate-700 py-3.5">Certificate Type</TableHead>
                 <TableHead className="text-xs font-bold text-slate-700 py-3.5">Date of Issue</TableHead>
+                <TableHead className="text-xs font-bold text-slate-700 py-3.5">Status</TableHead>
                 {isManagement && (
                   <TableHead className="text-xs font-bold text-slate-700 py-3.5">Authorized Signatory</TableHead>
                 )}
@@ -756,6 +802,19 @@ export default function LettersPage() {
                       </div>
                     </TableCell>
 
+                    {/* Status Badge */}
+                    <TableCell className="py-3.5">
+                      {letter.status === "Draft" ? (
+                        <Badge variant="outline" className="text-[10px] border-amber-300 text-amber-700 bg-amber-50 font-bold flex items-center gap-1 w-fit">
+                          <Clock className="w-2.5 h-2.5 text-amber-600" /> Draft
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px] border-emerald-300 text-emerald-700 bg-emerald-50 font-bold flex items-center gap-1 w-fit">
+                          <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" /> Sent
+                        </Badge>
+                      )}
+                    </TableCell>
+
                     {/* Signatory */}
                     {isManagement && (
                       <TableCell className="py-3.5">
@@ -769,6 +828,18 @@ export default function LettersPage() {
                     {/* Action Buttons */}
                     <TableCell className="py-3.5 text-right">
                       <div className="flex items-center justify-end gap-2">
+                        {isManagement && letter.status === "Draft" && (
+                          <Button
+                            size="sm"
+                            onClick={() => handleSendToEmployee(letter.id, letter.reference_no, letter.user_name)}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold gap-1 h-8 px-2.5 rounded-lg shadow-xs cursor-pointer"
+                            title="Send to employee login portal"
+                          >
+                            <Send className="w-3 h-3" />
+                            Send
+                          </Button>
+                        )}
+
                         <Button
                           size="sm"
                           onClick={() => handleDownloadPDF(letter)}
