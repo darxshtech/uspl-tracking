@@ -17,8 +17,8 @@ export async function GET(req: Request) {
     const month = searchParams.get("month"); // '01' to '12'
     const year = searchParams.get("year") || new Date().getFullYear().toString();
 
-    // Auto-mark missing check-ins as Absent for working days since system start (1 Aug 2026)
-    const SYSTEM_START_DATE = "2026-08-01";
+    // Auto-mark missing check-ins as Absent for working days since system start (17 Aug 2026)
+    const SYSTEM_START_DATE = "2026-08-17";
     const todayIST = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Kolkata' });
 
     // Fast path: Only run cleanup/sync if not recently synchronized
@@ -28,6 +28,12 @@ export async function GET(req: Request) {
       try {
         await pool.query(
           "DELETE FROM attendance WHERE user_id IN (SELECT id FROM users WHERE role IN ('CEO', 'Admin')) AND (status = 'Absent' OR notes LIKE 'Auto-marked%')"
+        );
+
+        // Clean up any auto-marked absences before system launch date (pre-launch before Aug 17, 2026)
+        await pool.query(
+          "DELETE FROM attendance WHERE date < ? AND (status = 'Absent' OR notes LIKE 'Auto-marked%')",
+          [SYSTEM_START_DATE]
         );
 
         const [employees]: any = await pool.query("SELECT id FROM users WHERE role NOT IN ('CEO', 'Admin') AND is_active = 1");

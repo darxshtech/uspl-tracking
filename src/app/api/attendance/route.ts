@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth";
 import pool from "@/lib/db";
 import { getCurrentISTDate, getCurrentISTTime12 } from "@/lib/timeUtils";
 
-const SYSTEM_START_DATE = "2026-08-01";
+const SYSTEM_START_DATE = "2026-08-17";
 
 let lastAutoAbsentSync = 0;
 const SYNC_INTERVAL_MS = 30 * 60 * 1000; // Throttle to run at most once every 30 minutes
@@ -20,6 +20,12 @@ async function syncAutoAbsentRecords(todayIST: string) {
     // 1. Clean up auto-marked absent records for exempt executive management roles (CEO, Admin)
     await pool.query(
       "DELETE FROM attendance WHERE user_id IN (SELECT id FROM users WHERE role IN ('CEO', 'Admin')) AND (status = 'Absent' OR notes LIKE 'Auto-marked%')"
+    );
+
+    // 1b. Clean up auto-marked absent records before system launch date (pre-launch before Aug 17, 2026)
+    await pool.query(
+      "DELETE FROM attendance WHERE date < ? AND (status = 'Absent' OR notes LIKE 'Auto-marked%')",
+      [SYSTEM_START_DATE]
     );
 
     // 2. Fetch active staff users
