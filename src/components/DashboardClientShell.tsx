@@ -29,7 +29,8 @@ import {
   Mail,
   Banknote,
   TrendingUp,
-  PlugZap
+  PlugZap,
+  Award
 } from "lucide-react";
 import { getRoleDisplayName, getRoleIconEmoji } from "@/lib/roleUtils";
 
@@ -131,6 +132,7 @@ export default function DashboardClientShell({ children, user }: DashboardClient
     { name: "Credentials", href: "/dashboard/credentials", icon: KeyRound, roles: ["Admin", "CEO", "PM", "Developer", "Tester"] },
     { name: "3rd-Party Credentials", href: "/dashboard/third-party-credentials", icon: PlugZap, roles: ["Admin", "CEO", "PM", "Developer", "Tester"] },
     { name: "Document Vault", href: "/dashboard/documents", icon: FolderArchive, roles: ["Admin", "CEO", "PM", "Developer", "Tester"] },
+    { name: "Letters & Certificates", href: "/dashboard/letters", icon: Award, roles: ["Admin", "CEO", "PM", "Developer", "Tester"] },
     { name: "Company Policies", href: "/dashboard/policies", icon: BookOpen, roles: ["Admin", "CEO", "PM"] },
     { name: "Email & Cron Logs", href: "/dashboard/cron-logs", icon: Mail, roles: ["Admin", "CEO", "PM"] },
   ];
