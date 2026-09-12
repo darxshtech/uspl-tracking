@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { showSuccess, showError, showWarning } from "@/lib/swal";
 import { generateLetterPDF, LetterData, formatDateString } from "@/lib/pdf/letterGenerator";
-import { DEFAULT_LETTER_POLICIES } from "@/lib/constants/policies";
+import { DEFAULT_LETTER_POLICIES, buildLetterPolicies, syncPoliciesWithTerms } from "@/lib/constants/policies";
 import { 
   FileText, 
   Award, 
@@ -149,6 +149,23 @@ export default function LetterGenerationModal({
     const randomSuffix = Math.floor(100 + Math.random() * 900);
     setReferenceNo(`USPL/${prefix}/${year}/${randomSuffix}`);
   }, [letterType]);
+
+  // Synchronize company policies in Annexure A whenever appointment terms & compensation change
+  useEffect(() => {
+    if (letterType !== "Joining Letter") return;
+    setCompanyPolicies((prev) => {
+      return syncPoliciesWithTerms(prev, {
+        working_days: workingDays,
+        work_timing: workTiming,
+        probation_period: probationPeriod,
+        designation: designation || "Software Professional",
+        work_location: workLocation,
+        reporting_manager: reportingManager,
+        annual_ctc: annualCTC,
+        monthly_salary: monthlySalary,
+      });
+    });
+  }, [workingDays, workTiming, probationPeriod, designation, workLocation, reportingManager, annualCTC, monthlySalary, letterType]);
 
   // Handle employee selection
   const handleSelectEmployee = (userIdStr: string) => {
@@ -705,10 +722,33 @@ export default function LetterGenerationModal({
                       type="button"
                       variant="ghost"
                       size="sm"
-                      onClick={() => setCompanyPolicies(defaultCompanyPolicies)}
-                      className="h-6 px-2 text-[10px] text-indigo-700 hover:text-indigo-900 hover:bg-indigo-100/60 font-semibold cursor-pointer"
+                      onClick={() =>
+                        setCompanyPolicies(
+                          buildLetterPolicies({
+                            working_days: workingDays,
+                            work_timing: workTiming,
+                            probation_period: probationPeriod,
+                            designation: designation || "Software Professional",
+                            work_location: workLocation,
+                            reporting_manager: reportingManager,
+                            annual_ctc: annualCTC,
+                            monthly_salary: monthlySalary,
+                          })
+                        )
+                      }
+                      className="h-6 px-2 text-[10px] text-indigo-700 hover:text-indigo-900 hover:bg-indigo-100/60 font-semibold cursor-pointer flex items-center gap-1"
                     >
-                      Reset to Defaults
+                      <Sparkles className="w-3 h-3 text-indigo-600" />
+                      Re-sync Terms
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setCompanyPolicies(defaultCompanyPolicies)}
+                      className="h-6 px-2 text-[10px] text-slate-500 hover:text-slate-800 hover:bg-slate-200/60 font-semibold cursor-pointer"
+                    >
+                      Default
                     </Button>
                   </div>
                 </div>

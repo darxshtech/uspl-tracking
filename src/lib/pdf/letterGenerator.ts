@@ -1,6 +1,6 @@
 import jsPDF from "jspdf";
 import { UNITGLO_LOGO_BASE64 } from "./logoBase64";
-import { DEFAULT_LETTER_POLICIES } from "@/lib/constants/policies";
+import { DEFAULT_LETTER_POLICIES, syncPoliciesWithTerms } from "@/lib/constants/policies";
 
 export interface LetterData {
   reference_no: string;
@@ -570,10 +570,20 @@ export function generateLetterPDF(data: LetterData, autoDownload: boolean = true
 
     annexureY += 9.5;
 
-    // Render policies
+    // Render policies synchronized with appointment terms & compensation
     const rawPolicies = data.company_policies || DEFAULT_LETTER_POLICIES;
     const policyString = Array.isArray(rawPolicies) ? rawPolicies.join("\n\n") : rawPolicies;
-    const policyItems = policyString.split(/\n{2,}|\r\n\r\n/).map(p => p.trim()).filter(Boolean);
+    const synchronizedPolicyString = syncPoliciesWithTerms(policyString, {
+      working_days: data.working_days,
+      work_timing: data.work_timing,
+      probation_period: data.probation_period,
+      designation: data.designation,
+      work_location: data.work_location,
+      reporting_manager: data.reporting_manager,
+      annual_ctc: data.annual_ctc,
+      monthly_salary: data.monthly_salary,
+    });
+    const policyItems = synchronizedPolicyString.split(/\n{2,}|\r\n\r\n/).map(p => p.trim()).filter(Boolean);
 
     policyItems.forEach((item) => {
       // Split into title and description if format is "N. Title: Description"
