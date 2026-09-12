@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useSession } from "next-auth/react";
 import { 
   Sparkles, 
@@ -59,12 +60,80 @@ export default function EmployeeProductivityTag({
   const isAuthorized = ["Admin", "CEO", "PM"].includes(role);
 
   const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [mounted, setMounted] = useState(false);
+  const [coords, setCoords] = useState<{
+    top?: number;
+    bottom?: number;
+    left: number;
+    placeBelow: boolean;
+    arrowLeft: number;
+  } | null>(null);
 
-  // Close tooltip when clicking outside
+  const containerRef = useRef<HTMLDivElement>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
+  const closeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const updatePosition = () => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const popupWidth = 288; // w-72 = 18rem = 288px
+    const popupHeight = 350; // estimated max height with all 5 metrics
+
+    // Place below if there isn't enough room above (e.g. top rows of table)
+    const placeBelow = rect.top < popupHeight;
+
+    let left = rect.left + rect.width / 2 - popupWidth / 2;
+    const maxLeft = (typeof window !== "undefined" ? window.innerWidth : 1200) - popupWidth - 12;
+    left = Math.max(12, Math.min(maxLeft, left));
+
+    const triggerCenter = rect.left + rect.width / 2;
+    const arrowLeft = Math.max(16, Math.min(popupWidth - 16, triggerCenter - left));
+
+    if (placeBelow) {
+      setCoords({
+        top: rect.bottom + 8,
+        left,
+        placeBelow: true,
+        arrowLeft,
+      });
+    } else {
+      setCoords({
+        bottom: window.innerHeight - rect.top + 8,
+        left,
+        placeBelow: false,
+        arrowLeft,
+      });
+    }
+  };
+
+  const handleMouseEnter = () => {
+    if (closeTimeoutRef.current) {
+      clearTimeout(closeTimeoutRef.current);
+      closeTimeoutRef.current = null;
+    }
+    if (metrics) {
+      updatePosition();
+      setIsOpen(true);
+    }
+  };
+
+  const handleMouseLeave = () => {
+    closeTimeoutRef.current = setTimeout(() => {
+      setIsOpen(false);
+    }, 150);
+  };
+
+  // Close when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+      if (
+        containerRef.current && !containerRef.current.contains(event.target as Node) &&
+        popupRef.current && !popupRef.current.contains(event.target as Node)
+      ) {
         setIsOpen(false);
       }
     }
@@ -76,7 +145,20 @@ export default function EmployeeProductivityTag({
     };
   }, [isOpen]);
 
-  // If not executive leadership, do not render anything
+  // Reposition on scroll or resize
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleScrollOrResize = () => {
+      updatePosition();
+    };
+    window.addEventListener("scroll", handleScrollOrResize, true);
+    window.addEventListener("resize", handleScrollOrResize);
+    return () => {
+      window.removeEventListener("scroll", handleScrollOrResize, true);
+      window.removeEventListener("resize", handleScrollOrResize);
+    };
+  }, [isOpen]);
+
   // If not executive leadership or if tag is none/off, do not render any tag
   if (!isAuthorized || !tag || tag === "none" || tag === "off") {
     return null;
@@ -85,11 +167,6 @@ export default function EmployeeProductivityTag({
   // Normalize legacy tags
   const normalizedTag = tag === "active" || tag === "idle" ? "engaged" : tag;
 
-  // Configuration per tag:
-  // 1. "engaged": when employee's task timer is ON (running right now)
-  // 2. "ideal": when employee's task is active (within due date)
-  // 3. "overdue_work": when employee's active task is overdue
-  // 4. "none" / "off": no tag displayed
   const config = {
     ideal: {
       label: "Ideal",
@@ -141,14 +218,19 @@ export default function EmployeeProductivityTag({
     <div 
       ref={containerRef} 
       className={`relative inline-block text-left ${className}`}
-      onMouseEnter={() => metrics && setIsOpen(true)}
-      onMouseLeave={() => setIsOpen(false)}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
     >
       <button
         type="button"
-        onClick={() => metrics && setIsOpen(!isOpen)}
+        onClick={() => {
+          if (metrics) {
+            if (!isOpen) updatePosition();
+            setIsOpen(!isOpen);
+          }
+        }}
         className={`inline-flex items-center rounded-md border font-semibold tracking-tight transition-all cursor-pointer select-none ${config.badgeClass} ${sizeClass}`}
-        title="Click or hover to inspect 4-pillar productivity breakdown"
+        aria-label={`Inspect productivity breakdown: ${config.label}`}
       >
         {config.icon}
         <span>{config.label}</span>
@@ -159,11 +241,19 @@ export default function EmployeeProductivityTag({
         )}
       </button>
 
-      {/* Floating Detailed Breakdown Tooltip / Popover */}
-      {isOpen && metrics && (
+      {/* Floating Detailed Breakdown Tooltip / Popover Portaled to Body */}
+      {isOpen && metrics && mounted && coords && createPortal(
         <div 
-          className="absolute z-50 bottom-full mb-2 left-1/2 -translate-x-1/2 w-64 sm:w-72 bg-white rounded-xl shadow-xl border border-slate-200 p-3 text-xs animate-in fade-in zoom-in-95 duration-150"
-          style={{ filter: "drop-shadow(0 10px 15px rgba(0,0,0,0.1))" }}
+          ref={popupRef}
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+          className="fixed z-[9999] w-72 bg-white rounded-xl shadow-2xl border border-slate-200 p-3 text-xs animate-in fade-in zoom-in-95 duration-150 select-none"
+          style={{ 
+            top: coords.placeBelow ? `${coords.top}px` : undefined,
+            bottom: !coords.placeBelow ? `${coords.bottom}px` : undefined,
+            left: `${coords.left}px`,
+            filter: "drop-shadow(0 12px 24px rgba(0,0,0,0.18))",
+          }}
         >
           {/* Header */}
           <div className="flex items-center justify-between pb-2 border-b border-slate-100">
@@ -171,19 +261,32 @@ export default function EmployeeProductivityTag({
               <span className={`h-2 w-2 rounded-full ${config.dotClass}`} />
               <span className="font-bold text-slate-800 text-xs">{config.title}</span>
             </div>
-            {score !== undefined && tag !== "off" && (
-              <span className="font-mono font-bold text-[11px] px-1.5 py-0.5 bg-slate-100 text-slate-700 rounded border border-slate-200">
-                Score: {score}/100
-              </span>
-            )}
+            <div className="flex items-center gap-1.5">
+              {score !== undefined && tag !== "off" && (
+                <span className="font-mono font-bold text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-700 rounded border border-slate-200">
+                  Score: {score}/100
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsOpen(false);
+                }}
+                className="text-slate-400 hover:text-slate-600 p-0.5 rounded transition-colors cursor-pointer"
+                aria-label="Close"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </div>
 
-          <p className="text-[10px] text-slate-500 mt-1.5 mb-2.5 leading-tight">
+          <p className="text-[10px] text-slate-500 mt-1.5 mb-2 leading-tight">
             {config.desc}
           </p>
 
           {/* 5-Pillar Metric Grid */}
-          <div className="space-y-2 bg-slate-50/80 p-2 rounded-lg border border-slate-100">
+          <div className="space-y-1.5 bg-slate-50/80 p-2 rounded-lg border border-slate-100">
             {/* 1. Working Time Utilization (Check-in to Check-out) */}
             <div>
               <div className="flex items-center justify-between text-[11px] font-medium text-slate-700">
@@ -272,9 +375,13 @@ export default function EmployeeProductivityTag({
             Visible only to PM, CEO, and Admin
           </div>
 
-          {/* Little arrow at bottom */}
-          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-white" />
-        </div>
+          {/* Little arrow pointing to trigger */}
+          <div 
+            className={`absolute border-4 border-transparent ${coords.placeBelow ? "-top-2 border-b-white" : "-bottom-2 border-t-white"}`} 
+            style={{ left: `${coords.arrowLeft}px`, transform: "translateX(-50%)" }}
+          />
+        </div>,
+        document.body
       )}
     </div>
   );
