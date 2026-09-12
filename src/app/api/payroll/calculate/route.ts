@@ -75,7 +75,7 @@ export async function GET(req: Request) {
       const availableQuota = Number((monthlyQuota + carriedForward).toFixed(2));
 
       let paidLeavesCount = 0;
-      let unpaidLeavesCount = 0;
+      let absentCount = 0;
       let halfDaysCount = 0;
       let presentsCount = 0;
       let holidaysCount = 0;
@@ -85,7 +85,7 @@ export async function GET(req: Request) {
         if (st === "Paid Leave" || st === "Leave") {
           paidLeavesCount += 1;
         } else if (st === "Unpaid Leave" || st === "Leave (Rejected)" || st === "Absent") {
-          unpaidLeavesCount += 1;
+          absentCount += 1;
         } else if (st === "Half Day") {
           halfDaysCount += 1;
         } else if (st === "Present" || st === "Present (Overtime)") {
@@ -98,12 +98,16 @@ export async function GET(req: Request) {
       // Half days deduction (e.g. 3:1)
       const halfDaysDeducted = Math.floor(halfDaysCount / halfDaysRatio);
       const leftoverHalfDays = halfDaysCount % halfDaysRatio;
-      const totalPaidLeavesDeducted = paidLeavesCount + halfDaysDeducted;
-      const remainingPaidBalance = Math.max(0, Number((availableQuota - totalPaidLeavesDeducted).toFixed(2)));
 
-      // Excess paid leaves/half-days beyond available quota converts to LWP
-      const excessLWPFromQuota = Math.max(0, totalPaidLeavesDeducted - availableQuota);
-      const totalLWPDays = Number((unpaidLeavesCount + excessLWPFromQuota).toFixed(1));
+      // Total days requiring leave coverage (approved paid leaves + half-day penalties + absences)
+      const totalDaysToCover = paidLeavesCount + halfDaysDeducted + absentCount;
+
+      // Available quota covers days up to the available balance
+      const paidLeavesCovered = Math.min(availableQuota, totalDaysToCover);
+      const remainingPaidBalance = Math.max(0, Number((availableQuota - paidLeavesCovered).toFixed(2)));
+
+      // Excess days beyond available quota become Unpaid Leave (LWP) requiring salary deduction
+      const totalLWPDays = Number(Math.max(0, totalDaysToCover - availableQuota).toFixed(1));
 
       // Check for waiver
       const waiver = waiverMap.get(user.id);
@@ -144,7 +148,7 @@ export async function GET(req: Request) {
         total_days_in_month: totalDaysInMonth,
         presents_count: presentsCount,
         holidays_count: holidaysCount,
-        paid_leaves_taken: paidLeavesCount,
+        paid_leaves_taken: paidLeavesCovered,
         half_days_taken: halfDaysCount,
         half_days_deducted: halfDaysDeducted,
         leftover_half_days: leftoverHalfDays,
@@ -153,6 +157,7 @@ export async function GET(req: Request) {
         remaining_paid_balance: remainingPaidBalance,
         total_lwp_days: totalLWPDays,
         deduction_days: deductionDays,
+        absent_days_count: absentCount,
         payout_decision: payoutDecision,
         payout_label: payoutLabel,
         is_waived: isWaived,

@@ -68,7 +68,7 @@ export async function GET(req: Request) {
       const availableQuota = Number((monthlyQuota + carriedForward).toFixed(2));
 
       let paidLeavesCount = 0;
-      let unpaidLeavesCount = 0;
+      let absentCount = 0;
       let halfDaysCount = 0;
       let presentsCount = 0;
       let holidaysCount = 0;
@@ -78,7 +78,7 @@ export async function GET(req: Request) {
         if (st === "Paid Leave" || st === "Leave") {
           paidLeavesCount += 1;
         } else if (st === "Unpaid Leave" || st === "Leave (Rejected)" || st === "Absent") {
-          unpaidLeavesCount += 1;
+          absentCount += 1;
         } else if (st === "Half Day") {
           halfDaysCount += 1;
         } else if (st === "Present" || st === "Present (Overtime)") {
@@ -92,12 +92,15 @@ export async function GET(req: Request) {
       const halfDaysDeducted = Math.floor(halfDaysCount / halfDaysRatio);
       const leftoverHalfDays = halfDaysCount % halfDaysRatio;
 
-      const totalPaidLeavesDeducted = paidLeavesCount + halfDaysDeducted;
-      const remainingPaidBalance = Math.max(0, Number((availableQuota - totalPaidLeavesDeducted).toFixed(2)));
+      // Total days requiring leave coverage (approved paid leaves + half-day penalties + absences)
+      const totalDaysToCover = paidLeavesCount + halfDaysDeducted + absentCount;
 
-      // If paid leaves + half-day deductions exceeded available quota, excess is counted as LWP
-      const excessLWPFromQuota = Math.max(0, totalPaidLeavesDeducted - availableQuota);
-      const totalUnpaidLWP = unpaidLeavesCount + excessLWPFromQuota;
+      // Available quota covers days up to the available balance
+      const paidLeavesCovered = Math.min(availableQuota, totalDaysToCover);
+      const remainingPaidBalance = Math.max(0, Number((availableQuota - paidLeavesCovered).toFixed(2)));
+
+      // Excess days beyond available quota become Unpaid Leave (LWP)
+      const totalUnpaidLWP = Number(Math.max(0, totalDaysToCover - availableQuota).toFixed(1));
 
       return {
         id: user.id,
@@ -107,13 +110,14 @@ export async function GET(req: Request) {
         monthly_quota: monthlyQuota,
         carried_forward: carriedForward,
         available_quota: availableQuota,
-        paid_leaves_taken: paidLeavesCount,
+        paid_leaves_taken: paidLeavesCovered,
         half_days_taken: halfDaysCount,
         half_days_deducted: halfDaysDeducted,
         leftover_half_days: leftoverHalfDays,
-        total_paid_leaves_deducted: totalPaidLeavesDeducted,
+        total_paid_leaves_deducted: paidLeavesCovered,
         remaining_paid_balance: remainingPaidBalance,
         unpaid_leaves_taken: totalUnpaidLWP,
+        absent_days_count: absentCount,
         presents_count: presentsCount,
         holidays_count: holidaysCount,
         monthly_salary: parseFloat(user.monthly_salary || "0"),
