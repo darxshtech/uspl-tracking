@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -81,16 +81,29 @@ export default function LetterGenerationModal({
   const [signatoryTitle, setSignatoryTitle] = useState<string>("Project Manager / Authorized Signatory");
   const [customRemarks, setCustomRemarks] = useState<string>("");
 
-  // List of available reporting managers for dropdown
-  const managerOptions = [
-    "Anmol Gadhave (Project Manager)",
-    "Ganesh Nagargoje (Chief Executive Officer)",
-    "Anmol Gadhave (Director)",
-    "Management / Board of Directors",
-    ...employees
-      .map((e) => `${e.name} (${e.role})`)
-      .filter((opt) => !["Anmol Gadhave (Project Manager)", "Ganesh Nagargoje (Chief Executive Officer)", "Anmol Gadhave (Director)", "Management / Board of Directors"].includes(opt))
-  ];
+  // List of available reporting managers derived strictly from actual company database members
+  const managerOptions = useMemo(() => {
+    if (!employees || employees.length === 0) {
+      return ["Anmol Gadhave (Project Manager)", "Akash Kulkarni (Project Manager)"];
+    }
+
+    // List Project Managers and Admins first
+    const leaders = employees.filter((e) => ["PM", "Admin", "CEO"].includes(e.role));
+    const team = employees.filter((e) => !["PM", "Admin", "CEO"].includes(e.role));
+
+    const list: string[] = [];
+
+    leaders.forEach((m) => {
+      const roleLabel = m.role === "PM" ? "Project Manager" : m.role;
+      list.push(`${m.name} (${roleLabel})`);
+    });
+
+    team.forEach((t) => {
+      list.push(`${t.name} (${t.role})`);
+    });
+
+    return Array.from(new Set(list));
+  }, [employees]);
 
   // Load active employees
   useEffect(() => {
