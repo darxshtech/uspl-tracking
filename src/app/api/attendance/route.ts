@@ -223,6 +223,13 @@ export async function POST(req: Request) {
       const minDate = datesToProcess[0];
       const maxDate = datesToProcess[datesToProcess.length - 1];
 
+      if (minDate < SYSTEM_START_DATE) {
+        return NextResponse.json(
+          { error: `The system officially launched on 17th August 2026 (${SYSTEM_START_DATE}). Leaves and shifts cannot be recorded for prior dates.` },
+          { status: 400 }
+        );
+      }
+
       // Fetch scheduled holidays in this range
       const [holidayRows]: any = await pool.query(
         "SELECT DATE_FORMAT(date, '%Y-%m-%d') as hol_date FROM holidays WHERE date BETWEEN ? AND ?",

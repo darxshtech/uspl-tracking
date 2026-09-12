@@ -5,6 +5,8 @@ import pool from "@/lib/db";
 import { calculateHoursDifference, formatHoursAndMinutes, getCurrentISTTime12 } from "@/lib/timeUtils";
 import { getFullDayHours } from "@/lib/settings";
 
+const SYSTEM_START_DATE = "2026-08-17";
+
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session || !["Admin", "CEO", "PM"].includes((session.user as any).role)) {
@@ -18,7 +20,6 @@ export async function GET(req: Request) {
     const year = searchParams.get("year") || new Date().getFullYear().toString();
 
     // Auto-mark missing check-ins as Absent for working days since system start (17 Aug 2026)
-    const SYSTEM_START_DATE = "2026-08-17";
     const todayIST = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Kolkata' });
 
     // Fast path: Only run cleanup/sync if not recently synchronized
@@ -309,6 +310,13 @@ export async function POST(req: Request) {
     datesToProcess.sort();
     const minDate = datesToProcess[0];
     const maxDate = datesToProcess[datesToProcess.length - 1];
+
+    if (minDate < SYSTEM_START_DATE) {
+      return NextResponse.json(
+        { error: `The system officially launched on 17th August 2026 (${SYSTEM_START_DATE}). Attendance cannot be recorded for dates prior to 17th August 2026.` },
+        { status: 400 }
+      );
+    }
 
     // Fetch scheduled holidays in this range
     const [holidayRows]: any = await pool.query(

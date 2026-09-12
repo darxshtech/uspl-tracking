@@ -111,6 +111,7 @@ export default function MultiDateLeavePicker({
 
     const isSelected = selectedDates.includes(dStr);
     const isToday = new Date().toISOString().split("T")[0] === dStr;
+    const isBeforeLaunch = dStr < "2026-08-17";
 
     calendarCells.push({
       isCurrentMonth: true,
@@ -120,7 +121,8 @@ export default function MultiDateLeavePicker({
       holiday,
       isSelected,
       isToday,
-      isExempt: isSunday || Boolean(holiday),
+      isBeforeLaunch,
+      isExempt: isSunday || Boolean(holiday) || isBeforeLaunch,
     });
   }
 
@@ -182,10 +184,12 @@ export default function MultiDateLeavePicker({
             return <div key={idx} className="h-10 rounded-xl bg-transparent" />;
           }
 
-          const { dayNumber, dateStr, isSunday, holiday, isSelected, isToday, isExempt } = cell;
+          const { dayNumber, dateStr, isSunday, holiday, isSelected, isToday, isExempt, isBeforeLaunch } = cell;
 
           let cellStyles = "bg-white text-slate-800 border-slate-200 hover:border-sky-400 hover:bg-sky-50/50";
-          if (isSelected) {
+          if (isBeforeLaunch) {
+            cellStyles = "bg-slate-100/70 text-slate-400 border-slate-200/50 cursor-not-allowed opacity-50";
+          } else if (isSelected) {
             cellStyles = "bg-emerald-600 text-white border-emerald-600 font-black shadow-xs ring-2 ring-emerald-300";
           } else if (holiday) {
             cellStyles = "bg-indigo-50/90 text-indigo-900 border-indigo-200/80 cursor-not-allowed opacity-80";
@@ -200,7 +204,9 @@ export default function MultiDateLeavePicker({
               onClick={() => toggleDate(dateStr, Boolean(isExempt))}
               disabled={isExempt}
               title={
-                holiday
+                isBeforeLaunch
+                  ? "Pre-launch date (System officially started on 17th August 2026)"
+                  : holiday
                   ? `Company Holiday: ${holiday.name} (Exempt)`
                   : isSunday
                   ? "Sunday Weekly Off (Exempt)"
@@ -217,7 +223,11 @@ export default function MultiDateLeavePicker({
                 {isSelected && <Check className="h-3 w-3 text-white font-bold stroke-[3]" />}
               </div>
 
-              {holiday ? (
+              {isBeforeLaunch ? (
+                <div className="text-[7px] font-bold text-slate-400 text-center leading-tight">
+                  Pre-start
+                </div>
+              ) : holiday ? (
                 <div className="text-[8px] font-bold text-indigo-700 truncate w-full text-center leading-tight flex items-center justify-center gap-0.5">
                   <PartyPopper className="h-2.5 w-2.5 shrink-0 text-indigo-600" />
                   <span className="truncate">{holiday.name}</span>

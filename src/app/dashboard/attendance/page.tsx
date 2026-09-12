@@ -75,13 +75,13 @@ export default function AttendancePage() {
   // Log Past Attendance Modal State (for Management: PM, CEO, Admin)
   const [logPastModalOpen, setLogPastModalOpen] = useState(false);
   const [pastEmployeeId, setPastEmployeeId] = useState<string>("ALL");
-  const [pastStartDate, setPastStartDate] = useState("2026-08-01");
-  const [pastEndDate, setPastEndDate] = useState("2026-08-16");
+  const [pastStartDate, setPastStartDate] = useState("2026-08-17");
+  const [pastEndDate, setPastEndDate] = useState(new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Kolkata" }));
   const [pastStatus, setPastStatus] = useState("Present");
   const [pastLoginTime, setPastLoginTime] = useState("09:30:00 AM");
   const [pastLogoutTime, setPastLogoutTime] = useState("05:30:00 PM");
   const [pastHours, setPastHours] = useState("8.00");
-  const [pastRemarks, setPastRemarks] = useState("Historical August attendance");
+  const [pastRemarks, setPastRemarks] = useState("Manual attendance entry");
   const [submittingPastAttendance, setSubmittingPastAttendance] = useState(false);
 
   // Record Leave Modal State (for PM / CEO or self)
@@ -221,6 +221,11 @@ export default function AttendancePage() {
     e.preventDefault();
     if (!pastStartDate || !pastEndDate) {
       showError("Please select start and end dates.");
+      return;
+    }
+
+    if (pastStartDate < "2026-08-17" || pastEndDate < "2026-08-17") {
+      showError("Invalid Date Range", "The system officially started on 17th August 2026. Attendance cannot be recorded for dates prior to 17th August 2026.");
       return;
     }
 
@@ -1775,7 +1780,7 @@ export default function AttendancePage() {
           <DialogHeader>
             <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
               <PlusCircle className="h-5 w-5 text-emerald-600" />
-              Log Past Attendance (From 1st August)
+              Log Past Attendance (From 17th August)
             </DialogTitle>
           </DialogHeader>
 
@@ -1783,7 +1788,7 @@ export default function AttendancePage() {
             <div className="bg-emerald-50/80 border border-emerald-200 rounded-xl p-3 text-xs text-emerald-950 flex items-start gap-2">
               <Sparkles className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
               <div>
-                <strong>Historical Shift Registration:</strong> Add or update attendance shifts starting from <strong>1st August</strong> onwards. Sundays and official holidays are automatically excluded for leaves.
+                <strong>Past Shift Registration:</strong> Add or update attendance shifts starting from the official system start date (<strong>17th August 2026</strong>) onwards. Dates before 17th August are pre-launch and cannot be recorded. Sundays and official holidays are automatically excluded for leaves.
               </div>
             </div>
 
@@ -1812,7 +1817,7 @@ export default function AttendancePage() {
                 <Input
                   id="pastStart"
                   type="date"
-                  min="2026-08-01"
+                  min="2026-08-17"
                   value={pastStartDate}
                   onChange={(e) => setPastStartDate(e.target.value)}
                   className="text-xs"
@@ -1824,7 +1829,7 @@ export default function AttendancePage() {
                 <Input
                   id="pastEnd"
                   type="date"
-                  min="2026-08-01"
+                  min="2026-08-17"
                   value={pastEndDate}
                   onChange={(e) => setPastEndDate(e.target.value)}
                   className="text-xs"
