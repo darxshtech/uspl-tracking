@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { showSuccess, showError, showWarning } from "@/lib/swal";
 import { generateLetterPDF, LetterData, formatDateString } from "@/lib/pdf/letterGenerator";
+import { DEFAULT_LETTER_POLICIES } from "@/lib/constants/policies";
 import { 
   FileText, 
   Award, 
@@ -80,6 +81,8 @@ export default function LetterGenerationModal({
   const [signatoryName, setSignatoryName] = useState<string>("Anmol Gadhave");
   const [signatoryTitle, setSignatoryTitle] = useState<string>("Project Manager / Authorized Signatory");
   const [customRemarks, setCustomRemarks] = useState<string>("");
+  const [companyPolicies, setCompanyPolicies] = useState<string>(DEFAULT_LETTER_POLICIES);
+  const [defaultCompanyPolicies, setDefaultCompanyPolicies] = useState<string>(DEFAULT_LETTER_POLICIES);
 
   // List of available reporting managers derived strictly from actual company database members
   const managerOptions = useMemo(() => {
@@ -105,7 +108,7 @@ export default function LetterGenerationModal({
     return Array.from(new Set(list));
   }, [employees]);
 
-  // Load active employees
+  // Load active employees and default letter policies
   useEffect(() => {
     if (!isOpen) return;
     async function loadEmployees() {
@@ -124,6 +127,17 @@ export default function LetterGenerationModal({
       }
     }
     loadEmployees();
+
+    // Fetch official configured letter policies from system settings
+    fetch("/api/settings")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.letter_policies_text) {
+          setCompanyPolicies(data.letter_policies_text);
+          setDefaultCompanyPolicies(data.letter_policies_text);
+        }
+      })
+      .catch((err) => console.error("Failed to load letter policies:", err));
   }, [isOpen]);
 
   // Update default reference prefix when type changes
@@ -194,6 +208,7 @@ export default function LetterGenerationModal({
       signatory_name: signatoryName,
       signatory_title: signatoryTitle,
       custom_remarks: customRemarks,
+      company_policies: companyPolicies,
     };
   };
 
@@ -242,6 +257,7 @@ export default function LetterGenerationModal({
           signatory_title: signatoryTitle,
           employee_email: selectedEmployee?.email,
           employee_phone: selectedEmployee?.phone,
+          company_policies: companyPolicies,
         },
       };
 
@@ -671,6 +687,42 @@ export default function LetterGenerationModal({
                   placeholder="e.g. Exhibited commendable leadership, problem-solving skills, and contributed diligently to sprint deliverables..."
                 />
               </div>
+
+              {/* COMPANY POLICIES & ANNEXURE CLAUSES */}
+              <div className="p-4 rounded-2xl bg-indigo-50/50 border border-indigo-200/80 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-indigo-600" />
+                    <h4 className="text-xs font-extrabold text-indigo-950 uppercase tracking-wider">
+                      Company Policies &amp; Regulations (Annexure A)
+                    </h4>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="text-[10px] bg-white border-indigo-200 text-indigo-700 font-bold">
+                      {letterType === "Joining Letter" ? "Page 2 Annexure" : "Enclosed Policies"}
+                    </Badge>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setCompanyPolicies(defaultCompanyPolicies)}
+                      className="h-6 px-2 text-[10px] text-indigo-700 hover:text-indigo-900 hover:bg-indigo-100/60 font-semibold cursor-pointer"
+                    >
+                      Reset to Defaults
+                    </Button>
+                  </div>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  These official clauses will appear on Page 2 (Annexure A) of the appointment letter. Management (PM &amp; Admin) can customize or edit these clauses for this specific recipient.
+                </p>
+                <Textarea
+                  value={companyPolicies}
+                  onChange={(e) => setCompanyPolicies(e.target.value)}
+                  rows={6}
+                  className="text-xs rounded-xl bg-white border-indigo-200 focus:border-indigo-500 font-sans"
+                  placeholder="Enter company policies and regulations..."
+                />
+              </div>
             </form>
           ) : (
             /* ===================================================================== */
@@ -779,7 +831,7 @@ export default function LetterGenerationModal({
                       </div>
 
                       <p className="text-[10px] text-slate-500">
-                        * Standard company guidelines, code of conduct, intellectual property clauses, and notice period policies apply.
+                        * This appointment is subject to the comprehensive Company Policies, Attendance Guidelines, and Code of Conduct set forth in Annexure A attached hereto.
                       </p>
                     </>
                   ) : letterType === "Experience Letter" ? (
@@ -862,10 +914,78 @@ export default function LetterGenerationModal({
                 {letterType === "Joining Letter" && (
                   <div className="mt-4 p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-[10px] space-y-1">
                     <p className="font-bold text-slate-800">CANDIDATE ACCEPTANCE:</p>
-                    <p className="text-slate-600">I confirm that I have read, understood, and accept the terms and conditions outlined in this Appointment Letter.</p>
+                    <p className="text-slate-600">I confirm that I have read, understood, and accept the terms and conditions outlined in this Appointment Letter and Annexure A.</p>
                     <p className="font-semibold text-slate-800 pt-1">
                       Candidate Signature: _______________________ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Date: _________________
                     </p>
+                  </div>
+                )}
+
+                {/* Page 2 Sheet for Joining Letter */}
+                {letterType === "Joining Letter" && (
+                  <div className="mt-8 pt-8 border-t-4 border-dashed border-slate-300 space-y-5">
+                    <div className="flex items-center justify-between text-slate-400 text-[10px] font-mono">
+                      <span>--- PAGE 2 OF 2 ---</span>
+                      <span>ANNEXURE A ENCLOSURE</span>
+                    </div>
+
+                    {/* Letterhead on Page 2 */}
+                    <div className="border-b-2 border-slate-900 pb-4 flex items-start justify-between gap-4">
+                      <div className="space-y-1">
+                        <img
+                          src="/unitglo.jpeg"
+                          alt="Unitglo Solutions"
+                          className="h-11 w-auto object-contain"
+                        />
+                      </div>
+                      <div className="text-right text-[10px]">
+                        <h2 className="text-xs font-black text-slate-900">UNITGLO SOLUTIONS PRIVATE LIMITED</h2>
+                        <p className="text-[9px] text-slate-500">CIN: U72900PN2016PTC165210 | GSTIN: 27AABCU9538R1ZD</p>
+                        <p className="text-[9px] text-slate-500">Flat No 9, Shri Sai Samarth Heights, A wing, Mohan Nagar,</p>
+                        <p className="text-[9px] text-slate-500">MIDC, Chinchwad, Pimpri-Chinchwad, Maharashtra 411019</p>
+                        <p className="text-[9px] text-slate-400">info@unitglo.com | www.unitglo.com | +91 73875 11539</p>
+                      </div>
+                    </div>
+
+                    {/* Reference & Annexure Header */}
+                    <div className="flex items-center justify-between text-[11px] font-semibold border-b border-slate-100 pb-2">
+                      <span className="font-mono text-slate-800 font-bold">Ref. No: {previewData.reference_no} | Annexure A</span>
+                      <span className="text-slate-600">Candidate: {previewData.user_name}</span>
+                    </div>
+
+                    <div className="p-2 rounded-lg bg-slate-900 text-white font-bold text-center text-xs tracking-wide">
+                      ANNEXURE A — OFFICIAL COMPANY POLICIES, REGULATIONS &amp; CODE OF CONDUCT
+                    </div>
+
+                    {/* Formatted Policy Items */}
+                    <div className="space-y-2.5 text-[10.5px] text-slate-700 leading-relaxed bg-slate-50/70 p-4 rounded-xl border border-slate-200">
+                      {companyPolicies.split(/\n{2,}|\r\n\r\n/).map((item, idx) => {
+                        const colonIdx = item.indexOf(":");
+                        if (colonIdx > 0 && colonIdx < 60) {
+                          const title = item.substring(0, colonIdx + 1);
+                          const desc = item.substring(colonIdx + 1);
+                          return (
+                            <div key={idx} className="space-y-0.5">
+                              <p className="font-bold text-slate-900">{title}</p>
+                              <p className="text-slate-600 text-[10px] pl-2">{desc}</p>
+                            </div>
+                          );
+                        }
+                        return <p key={idx}>{item}</p>;
+                      })}
+                    </div>
+
+                    {/* Employee Undertaking Signature Block */}
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2 text-[10px]">
+                      <p className="font-extrabold text-slate-900 uppercase">EMPLOYEE ACKNOWLEDGEMENT &amp; COMPLIANCE UNDERTAKING:</p>
+                      <p className="text-slate-600 leading-snug">
+                        I hereby confirm that I have received, thoroughly reviewed, and agree to strictly comply with all the company policies, attendance guidelines, code of conduct, and confidentiality obligations stated in this Annexure.
+                      </p>
+                      <div className="pt-2 flex justify-between text-slate-700 font-semibold border-t border-slate-200">
+                        <span>Employee Signature: ___________________________</span>
+                        <span>Date: ________________________</span>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>

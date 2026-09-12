@@ -1,5 +1,6 @@
 import jsPDF from "jspdf";
 import { UNITGLO_LOGO_BASE64 } from "./logoBase64";
+import { DEFAULT_LETTER_POLICIES } from "@/lib/constants/policies";
 
 export interface LetterData {
   reference_no: string;
@@ -23,6 +24,7 @@ export interface LetterData {
   signatory_name?: string;
   signatory_title?: string;
   custom_remarks?: string;
+  company_policies?: string[] | string;
 }
 
 export function formatDateString(dateStr?: string): string {
@@ -40,6 +42,53 @@ export function formatDateString(dateStr?: string): string {
   }
 }
 
+/**
+ * Reusable official Unitglo letterhead with logo, registered corporate credentials, and styling
+ */
+function renderCorporateHeader(doc: jsPDF, pageWidth: number, marginX: number, startY: number = 16): number {
+  const primaryNavy = [15, 23, 42];
+  const accentBlue = [37, 99, 235];
+  const textMuted = [100, 116, 139];
+
+  try {
+    // Official Unitglo Logo (Aspect ratio ~2.8:1)
+    doc.addImage(UNITGLO_LOGO_BASE64, "JPEG", marginX, startY - 2, 45, 16.1);
+  } catch (err) {
+    console.warn("Could not render logo in PDF, rendering fallback text:", err);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.setTextColor(primaryNavy[0], primaryNavy[1], primaryNavy[2]);
+    doc.text("UNITGLO SOLUTIONS", marginX, startY + 8);
+  }
+
+  // Company Address & Registration info on right side
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(primaryNavy[0], primaryNavy[1], primaryNavy[2]);
+  doc.text("UNITGLO SOLUTIONS PRIVATE LIMITED", pageWidth - marginX, startY + 2, { align: "right" });
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7.2);
+  doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+  doc.text("CIN: U72900PN2016PTC165210 | GSTIN: 27AABCU9538R1ZD", pageWidth - marginX, startY + 6, { align: "right" });
+  doc.text("Regd. Office: Flat No 9, Shri Sai Samarth Heights, A wing, Mohan Nagar,", pageWidth - marginX, startY + 9.5, { align: "right" });
+  doc.text("MIDC, Chinchwad, Pimpri-Chinchwad, Maharashtra - 411019", pageWidth - marginX, startY + 13, { align: "right" });
+  doc.text("Email: info@unitglo.com | Web: www.unitglo.com | Tel: +91 73875 11539", pageWidth - marginX, startY + 16.5, { align: "right" });
+
+  const lineY = startY + 23;
+
+  // Double Decorative Rule
+  doc.setDrawColor(primaryNavy[0], primaryNavy[1], primaryNavy[2]);
+  doc.setLineWidth(0.8);
+  doc.line(marginX, lineY, pageWidth - marginX, lineY);
+
+  doc.setDrawColor(accentBlue[0], accentBlue[1], accentBlue[2]);
+  doc.setLineWidth(1.4);
+  doc.line(marginX, lineY + 1.2, marginX + 45, lineY + 1.2);
+
+  return lineY + 8;
+}
+
 export function generateLetterPDF(data: LetterData, autoDownload: boolean = true): jsPDF {
   const doc = new jsPDF({
     orientation: "portrait",
@@ -51,7 +100,6 @@ export function generateLetterPDF(data: LetterData, autoDownload: boolean = true
   const pageHeight = 297;
   const marginX = 18;
   const printableWidth = pageWidth - 2 * marginX; // 174mm
-  let currentY = 16;
 
   // Colors
   const primaryNavy = [15, 23, 42]; // #0f172a
@@ -62,45 +110,9 @@ export function generateLetterPDF(data: LetterData, autoDownload: boolean = true
   const bgTable = [248, 250, 252]; // #f8fafc
 
   // =========================================================================
-  // 1. TOP HEADER - Official Unitglo Logo & Corporate Letterhead
+  // 1. TOP HEADER - Official Unitglo Logo & Corporate Letterhead (Page 1)
   // =========================================================================
-  try {
-    // Official Unitglo Logo (Aspect ratio ~2.8:1)
-    doc.addImage(UNITGLO_LOGO_BASE64, "JPEG", marginX, currentY - 2, 45, 16.1);
-  } catch (err) {
-    console.warn("Could not render logo in PDF, rendering fallback text:", err);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(16);
-    doc.setTextColor(primaryNavy[0], primaryNavy[1], primaryNavy[2]);
-    doc.text("UNITGLO SOLUTIONS", marginX, currentY + 8);
-  }
-
-  // Company Address & Registration info on right side
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.setTextColor(primaryNavy[0], primaryNavy[1], primaryNavy[2]);
-  doc.text("UNITGLO SOLUTIONS PRIVATE LIMITED", pageWidth - marginX, currentY + 2, { align: "right" });
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(7.2);
-  doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
-  doc.text("CIN: U72900PN2016PTC165210 | GSTIN: 27AABCU9538R1ZD", pageWidth - marginX, currentY + 6, { align: "right" });
-  doc.text("Regd. Office: Flat No 9, Shri Sai Samarth Heights, A wing, Mohan Nagar,", pageWidth - marginX, currentY + 9.5, { align: "right" });
-  doc.text("MIDC, Chinchwad, Pimpri-Chinchwad, Maharashtra - 411019", pageWidth - marginX, currentY + 13, { align: "right" });
-  doc.text("Email: info@unitglo.com | Web: www.unitglo.com | Tel: +91 73875 11539", pageWidth - marginX, currentY + 16.5, { align: "right" });
-
-  currentY += 23;
-
-  // Double Decorative Rule
-  doc.setDrawColor(primaryNavy[0], primaryNavy[1], primaryNavy[2]);
-  doc.setLineWidth(0.8);
-  doc.line(marginX, currentY, pageWidth - marginX, currentY);
-
-  doc.setDrawColor(accentBlue[0], accentBlue[1], accentBlue[2]);
-  doc.setLineWidth(1.4);
-  doc.line(marginX, currentY + 1.2, marginX + 45, currentY + 1.2);
-
-  currentY += 8;
+  let currentY = renderCorporateHeader(doc, pageWidth, marginX, 16);
 
   // =========================================================================
   // 2. REFERENCE NO & DATE BAR
@@ -250,39 +262,35 @@ export function generateLetterPDF(data: LetterData, autoDownload: boolean = true
 
     currentY += 4;
 
-    // Numbered Terms & Conditions
+    // Employment Terms & Company Policies Enclosure
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
+    doc.setFontSize(8.5);
     doc.setTextColor(primaryNavy[0], primaryNavy[1], primaryNavy[2]);
-    doc.text("Key Employment Policies & Conditions:", marginX, currentY);
+    doc.text("Employment Terms & Policy Enclosure Undertaking:", marginX, currentY);
     currentY += 4.5;
 
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(8.5);
+    doc.setFontSize(7.8);
     doc.setTextColor(textDark[0], textDark[1], textDark[2]);
 
-    const clauses = [
-      `1. Probation & Confirmation: Your performance will be appraised during the ${probationStr}. Confirmation will be communicated in writing upon satisfactory completion of evaluations.`,
-      `2. Working Schedule & Attendance: You are expected to adhere to standard company operating hours (${hoursStr}, ${daysStr}) and record attendance through our tracking portal.`,
-      `3. Confidentiality & IP Rights: All source codes, documentation, customer deliverables, and proprietary materials created during employment remain exclusive assets of Unitglo Solutions.`,
-      `4. Resignation & Notice Period: During probation, either party may terminate employment by providing 15 days written notice. Post-confirmation, a 30-day notice period shall apply.`,
-    ];
+    const introClause = "This appointment is subject to the comprehensive Company Policies, Attendance Guidelines, Confidentiality Undertakings, Leave Rules, and Code of Conduct set forth in Annexure A attached hereto. Your acceptance of this appointment signifies your explicit agreement to strictly comply with all terms stipulated in this Letter of Appointment and Annexure A.";
+    const splitIntro = doc.splitTextToSize(introClause, printableWidth);
+    doc.text(splitIntro, marginX, currentY);
+    currentY += splitIntro.length * (lineHeight - 0.9) + 2.5;
 
     if (data.custom_remarks) {
-      clauses.push(`5. Special Terms: ${data.custom_remarks}`);
+      const remarksText = `Special Remarks: ${data.custom_remarks}`;
+      const splitRemarks = doc.splitTextToSize(remarksText, printableWidth);
+      doc.setFont("helvetica", "italic");
+      doc.text(splitRemarks, marginX, currentY);
+      doc.setFont("helvetica", "normal");
+      currentY += splitRemarks.length * (lineHeight - 0.9) + 2.5;
     }
 
-    clauses.forEach((clause) => {
-      const splitClause = doc.splitTextToSize(clause, printableWidth);
-      doc.text(splitClause, marginX, currentY);
-      currentY += splitClause.length * (lineHeight - 0.4) + 1.2;
-    });
-
-    currentY += 2;
-    const closingP = "Please sign and return the duplicate copy of this letter as acceptance of this appointment. We warmly welcome you to Unitglo Solutions and look forward to an enriching journey together.";
+    const closingP = "Please sign and return the duplicate copy of this letter along with Annexure A as formal confirmation of your acceptance. We warmly welcome you to Unitglo Solutions Private Limited and look forward to an enriching career together.";
     const splitClosing = doc.splitTextToSize(closingP, printableWidth);
     doc.text(splitClosing, marginX, currentY);
-    currentY += splitClosing.length * lineHeight + 4;
+    currentY += splitClosing.length * (lineHeight - 0.9) + 4;
 
   } else if (data.letter_type === "Experience Letter") {
     // SALUTATION
@@ -526,29 +534,136 @@ export function generateLetterPDF(data: LetterData, autoDownload: boolean = true
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7.5);
     doc.setTextColor(textDark[0], textDark[1], textDark[2]);
-    doc.text("I confirm that I have read, understood, and accept the terms and conditions outlined in this Appointment Letter.", marginX + 3, currentY + 8.5);
+    doc.text("I confirm that I have read, understood, and accept the terms and conditions outlined in this Appointment Letter and Annexure A.", marginX + 3, currentY + 8.5);
 
     doc.setFont("helvetica", "bold");
     doc.text("Candidate Signature: ___________________________       Date: ________________________", marginX + 3, currentY + 12.5);
   }
 
   // =========================================================================
-  // 8. FOOTER
+  // PAGE 2+: ANNEXURE A - OFFICIAL COMPANY POLICIES & CODE OF CONDUCT
+  // (Included for Joining Letters or when policies are explicitly provided)
   // =========================================================================
-  const footerY = pageHeight - 11;
-  doc.setDrawColor(lineLight[0], lineLight[1], lineLight[2]);
-  doc.setLineWidth(0.5);
-  doc.line(marginX, footerY - 3, pageWidth - marginX, footerY - 3);
+  if (data.letter_type === "Joining Letter" || data.company_policies) {
+    doc.addPage("a4", "portrait");
+    let annexureY = renderCorporateHeader(doc, pageWidth, marginX, 16);
 
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(7);
-  doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
-  doc.text(
-    "Unitglo Solutions Private Limited • Confidential Corporate Document • Valid with Authorized Seal Stamp • Page 1 of 1",
-    pageWidth / 2,
-    footerY,
-    { align: "center" }
-  );
+    // Reference Bar
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8.5);
+    doc.setTextColor(primaryNavy[0], primaryNavy[1], primaryNavy[2]);
+    doc.text(`Ref. No: ${data.reference_no} | Enclosure: Annexure A`, marginX, annexureY);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(textDark[0], textDark[1], textDark[2]);
+    doc.text(`Candidate: ${data.user_name}`, pageWidth - marginX, annexureY, { align: "right" });
+    annexureY += 5.5;
+
+    // Annexure Subject Banner
+    doc.setFillColor(primaryNavy[0], primaryNavy[1], primaryNavy[2]);
+    doc.roundedRect(marginX, annexureY, printableWidth, 7, 1.2, 1.2, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8.5);
+    doc.setTextColor(255, 255, 255);
+    doc.text("ANNEXURE A — OFFICIAL COMPANY POLICIES, REGULATIONS & CODE OF CONDUCT", pageWidth / 2, annexureY + 4.8, { align: "center" });
+
+    annexureY += 9.5;
+
+    // Render policies
+    const rawPolicies = data.company_policies || DEFAULT_LETTER_POLICIES;
+    const policyString = Array.isArray(rawPolicies) ? rawPolicies.join("\n\n") : rawPolicies;
+    const policyItems = policyString.split(/\n{2,}|\r\n\r\n/).map(p => p.trim()).filter(Boolean);
+
+    policyItems.forEach((item) => {
+      // Split into title and description if format is "N. Title: Description"
+      const colonIdx = item.indexOf(":");
+      let titlePart = "";
+      let descPart = item;
+
+      if (colonIdx > 0 && colonIdx < 60) {
+        titlePart = item.substring(0, colonIdx + 1).trim();
+        descPart = item.substring(colonIdx + 1).trim();
+      }
+
+      // Check if space is running low on the page (reserve ~26mm for bottom undertaking + footer)
+      if (annexureY > pageHeight - 38) {
+        doc.addPage("a4", "portrait");
+        annexureY = renderCorporateHeader(doc, pageWidth, marginX, 16);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8.5);
+        doc.setTextColor(primaryNavy[0], primaryNavy[1], primaryNavy[2]);
+        doc.text(`Ref. No: ${data.reference_no} | Annexure A (Continued)`, marginX, annexureY);
+        annexureY += 8;
+      }
+
+      if (titlePart) {
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8);
+        doc.setTextColor(primaryNavy[0], primaryNavy[1], primaryNavy[2]);
+        doc.text(titlePart, marginX, annexureY);
+        annexureY += 3.5;
+      }
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.3);
+      doc.setTextColor(textDark[0], textDark[1], textDark[2]);
+      const splitDesc = doc.splitTextToSize(descPart, printableWidth);
+      doc.text(splitDesc, marginX, annexureY);
+      annexureY += splitDesc.length * 3.3 + 2.8;
+    });
+
+    // Employee Undertaking Box on Annexure
+    if (annexureY > pageHeight - 32) {
+      doc.addPage("a4", "portrait");
+      annexureY = renderCorporateHeader(doc, pageWidth, marginX, 16);
+    }
+
+    annexureY += 2;
+    doc.setFillColor(bgTable[0], bgTable[1], bgTable[2]);
+    doc.roundedRect(marginX, annexureY, printableWidth, 14, 1.5, 1.5, "F");
+    doc.setDrawColor(lineLight[0], lineLight[1], lineLight[2]);
+    doc.roundedRect(marginX, annexureY, printableWidth, 14, 1.5, 1.5, "D");
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(primaryNavy[0], primaryNavy[1], primaryNavy[2]);
+    doc.text("EMPLOYEE ACKNOWLEDGEMENT & COMPLIANCE UNDERTAKING:", marginX + 3, annexureY + 4.5);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.2);
+    doc.setTextColor(textDark[0], textDark[1], textDark[2]);
+    doc.text(
+      "I hereby confirm that I have received, thoroughly reviewed, and agree to strictly comply with all the company policies, attendance guidelines, code of conduct, and confidentiality obligations stated in this Annexure.",
+      marginX + 3,
+      annexureY + 8.5
+    );
+
+    doc.setFont("helvetica", "bold");
+    doc.text("Employee Signature: ___________________________       Date: ________________________", marginX + 3, annexureY + 12.5);
+  }
+
+  // =========================================================================
+  // 8. DYNAMIC FOOTER (ACROSS ALL PAGES)
+  // =========================================================================
+  const totalPages = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    const footerY = pageHeight - 11;
+    doc.setDrawColor(lineLight[0], lineLight[1], lineLight[2]);
+    doc.setLineWidth(0.5);
+    doc.line(marginX, footerY - 3, pageWidth - marginX, footerY - 3);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+    doc.text(
+      `Unitglo Solutions Private Limited • Confidential Corporate Document • Valid with Authorized Seal Stamp • Page ${i} of ${totalPages}`,
+      pageWidth / 2,
+      footerY,
+      { align: "center" }
+    );
+  }
 
   if (autoDownload) {
     const filenameSafe = (data.reference_no || "Unitglo_Official_Document").replace(/[\/\\?%*:|"<>]/g, "_");

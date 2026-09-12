@@ -52,6 +52,7 @@ export default function CompanyPoliciesPage() {
   const [halfDaysForOneLeave, setHalfDaysForOneLeave] = useState<number>(2);
   const [carryForwardLeaves, setCarryForwardLeaves] = useState<boolean>(true);
   const [policyRulesText, setPolicyRulesText] = useState<string>("");
+  const [letterPoliciesText, setLetterPoliciesText] = useState<string>("");
 
   useEffect(() => {
     fetchPolicies();
@@ -69,6 +70,7 @@ export default function CompanyPoliciesPage() {
         setHalfDaysForOneLeave(data.half_days_for_one_leave !== undefined ? data.half_days_for_one_leave : 2);
         setCarryForwardLeaves(data.carry_forward_leaves !== undefined ? data.carry_forward_leaves : true);
         setPolicyRulesText(data.policy_rules_text || "");
+        setLetterPoliciesText(data.letter_policies_text || "");
       }
     } catch (err) {
       console.error(err);
@@ -110,6 +112,7 @@ export default function CompanyPoliciesPage() {
           half_days_for_one_leave: halfDaysForOneLeave,
           carry_forward_leaves: carryForwardLeaves,
           policy_rules_text: policyRulesText,
+          letter_policies_text: letterPoliciesText,
         }),
       });
 
@@ -337,6 +340,31 @@ export default function CompanyPoliciesPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* Letter Policies Preview Card */}
+          {letterPoliciesText && (
+            <Card className="border-indigo-100 shadow-xs bg-white">
+              <CardHeader className="bg-indigo-50/50 border-b border-indigo-100/80 pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <BookOpen className="h-4 w-4 text-indigo-600" />
+                    Appointment Letter Policies & Clauses (Annexure A)
+                  </CardTitle>
+                  <Badge className="bg-indigo-600 text-white text-[10px] font-bold">
+                    Included in Letter Page 2
+                  </Badge>
+                </div>
+                <CardDescription className="text-xs text-slate-500">
+                  These official clauses are automatically embedded into Page 2 (Annexure A) of all generated Joining and Appointment Letters.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-5">
+                <pre className="text-xs text-slate-700 whitespace-pre-wrap font-sans leading-relaxed bg-slate-50 p-4 rounded-xl border border-slate-200/80 max-h-96 overflow-y-auto">
+                  {letterPoliciesText}
+                </pre>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         {/* Right Column (5 cols): Management Configuration Form (PM, CEO, Admin) */}
@@ -483,11 +511,35 @@ export default function CompanyPoliciesPage() {
                     </Label>
                     <Textarea
                       id="policyText"
-                      rows={5}
+                      rows={4}
                       value={policyRulesText}
                       onChange={(e) => setPolicyRulesText(e.target.value)}
                       placeholder="Write company-specific rules, attendance guidelines, and notes..."
                       className="text-xs"
+                    />
+                  </div>
+
+                  {/* Appointment Letter Policies (Annexure A) */}
+                  <div className="space-y-1.5 p-3.5 rounded-xl bg-indigo-50/60 border border-indigo-200/80">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="letterPoliciesText" className="text-xs font-bold text-indigo-950 uppercase flex items-center gap-1.5">
+                        <FileText className="h-4 w-4 text-indigo-600" />
+                        Appointment Letter Policies (Annexure A)
+                      </Label>
+                      <Badge variant="outline" className="bg-white text-[10px] text-indigo-700 border-indigo-200">
+                        Template
+                      </Badge>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Clauses embedded into Page 2 of Appointment Letters. PM & Admin can edit here globally or customize per-letter.
+                    </p>
+                    <Textarea
+                      id="letterPoliciesText"
+                      rows={8}
+                      value={letterPoliciesText}
+                      onChange={(e) => setLetterPoliciesText(e.target.value)}
+                      placeholder="1. Working Hours...&#10;2. Attendance...&#10;3. Leave Policy..."
+                      className="text-xs font-sans bg-white border-indigo-200 focus:border-indigo-500"
                     />
                   </div>
 

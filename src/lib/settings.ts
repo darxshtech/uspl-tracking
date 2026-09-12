@@ -112,6 +112,9 @@ export async function getTotalLeavesAllowed(): Promise<number> {
   return 2;
 }
 
+import { DEFAULT_LETTER_POLICIES } from "@/lib/constants/policies";
+export { DEFAULT_LETTER_POLICIES };
+
 export async function getAllPolicies() {
   const defaultPolicies = {
     full_day_hours: 9,
@@ -130,6 +133,7 @@ export async function getAllPolicies() {
 6. Half Days Ratio: Every 3 half days count as 1 full day paid leave deduction. If paid quota is 0, converts to 1 Unpaid Leave (LWP).
 7. Holidays & Weekly Offs: Sundays (weekly offs) and company holidays scheduled by Management are not deducted as paid leaves.
 8. Salary Deduction: Unpaid leaves (LWP) are deducted from monthly salary based on daily rate (Base Salary / Total Month Days).`,
+    letter_policies_text: DEFAULT_LETTER_POLICIES,
   };
 
   try {
@@ -161,6 +165,8 @@ export async function getAllPolicies() {
 7. Holidays & Weekly Offs: Sundays (weekly offs) and company holidays scheduled by Management are not deducted as paid leaves.
 8. Salary Deduction: Unpaid leaves (LWP) are deducted from monthly salary based on daily rate (Base Salary / Total Month Days).`;
 
+    const letterPoliciesText = settingsMap["letter_policies_text"] || DEFAULT_LETTER_POLICIES;
+
     return {
       full_day_hours: isNaN(fullDayHours) ? 9 : fullDayHours,
       half_day_min_hours: isNaN(halfDayMinHours) ? 4.5 : halfDayMinHours,
@@ -171,6 +177,7 @@ export async function getAllPolicies() {
       carry_forward_reset_month: carryForwardResetMonth,
       payroll_calculation_basis: payrollCalculationBasis,
       policy_rules_text: policyRulesText,
+      letter_policies_text: letterPoliciesText,
     };
   } catch (err) {
     console.error("[Settings] Error fetching system policies, using fallback defaults:", err);
@@ -188,6 +195,7 @@ export async function updatePolicies(updates: {
   carry_forward_reset_month?: number;
   payroll_calculation_basis?: string;
   policy_rules_text?: string;
+  letter_policies_text?: string;
 }) {
   await ensureSettingsTable();
 
