@@ -115,18 +115,40 @@ export function SelectValue({
 export function SelectContent({
   className,
   children,
+  side,
 }: {
   className?: string;
   children: React.ReactNode;
+  side?: "top" | "bottom" | "auto";
 }) {
   const context = useContext(SelectContext);
   if (!context) throw new Error("SelectContent must be used within Select");
 
   const { open, setOpen } = context;
   const ref = useRef<HTMLDivElement>(null);
+  const [openUpward, setOpenUpward] = useState(false);
 
   useEffect(() => {
     if (!open) return;
+
+    if (side === "top") {
+      setOpenUpward(true);
+    } else if (side === "bottom") {
+      setOpenUpward(false);
+    } else if (ref.current && ref.current.parentElement) {
+      const parentRect = ref.current.parentElement.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      const spaceBelow = viewportHeight - parentRect.bottom;
+      const spaceAbove = parentRect.top;
+
+      // If space below is limited and there is more space above, open upwards
+      if (spaceBelow < 230 && spaceAbove > spaceBelow) {
+        setOpenUpward(true);
+      } else {
+        setOpenUpward(false);
+      }
+    }
+
     function handleClickOutside(event: MouseEvent) {
       if (ref.current && !ref.current.contains(event.target as Node)) {
         // Only close if click is not inside the trigger button
@@ -137,13 +159,14 @@ export function SelectContent({
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [open, setOpen]);
+  }, [open, setOpen, side]);
 
   return (
     <div
       ref={ref}
       className={cn(
-        "absolute left-0 top-full mt-1.5 z-50 max-h-64 w-full min-w-[8rem] overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl animate-fade-in text-slate-900 ring-1 ring-black/5",
+        "absolute left-0 z-50 max-h-60 w-full min-w-[8rem] overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-2xl animate-fade-in text-slate-900 ring-1 ring-black/5",
+        openUpward ? "bottom-full mb-1.5" : "top-full mt-1.5",
         !open && "hidden",
         className
       )}

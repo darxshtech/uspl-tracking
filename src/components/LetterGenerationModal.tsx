@@ -266,9 +266,9 @@ export default function LetterGenerationModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto p-0 rounded-3xl bg-white border border-slate-200 shadow-2xl overflow-hidden">
+      <DialogContent className="max-w-4xl max-h-[90vh] h-[90vh] flex flex-col p-0 rounded-3xl bg-white border border-slate-200 shadow-2xl overflow-hidden">
         {/* TOP BRANDING STRIP */}
-        <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950 px-6 py-5 text-white flex items-center justify-between border-b border-indigo-950/40">
+        <div className="shrink-0 bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950 px-6 py-4 text-white flex items-center justify-between border-b border-indigo-950/40">
           <div className="flex items-center gap-3">
             <div className="p-2.5 rounded-2xl bg-indigo-500/20 text-indigo-300 border border-indigo-400/20">
               <Stamp className="w-6 h-6" />
@@ -316,7 +316,7 @@ export default function LetterGenerationModal({
         </div>
 
         {/* LETTER TYPE SWITCHER BAR */}
-        <div className="px-6 pt-5 bg-slate-50/60 border-b border-slate-100">
+        <div className="shrink-0 px-6 pt-4 bg-slate-50/60 border-b border-slate-100">
           <div className="grid grid-cols-3 gap-3 pb-4">
             <button
               type="button"
@@ -374,8 +374,8 @@ export default function LetterGenerationModal({
           </div>
         </div>
 
-        {/* MODAL BODY */}
-        <div className="p-6">
+        {/* MODAL BODY (SCROLLABLE WITH AMPLE BOTTOM ROOM) */}
+        <div className="flex-1 overflow-y-auto p-6 pb-28">
           {activeModalTab === "form" ? (
             <form id="letter-issue-form" onSubmit={handleIssueLetter} className="space-y-5">
               {/* EMPLOYEE SELECTION & REFERENCE CARD */}
@@ -743,8 +743,8 @@ export default function LetterGenerationModal({
           )}
         </div>
 
-        {/* DIALOG FOOTER */}
-        <DialogFooter className="px-6 py-4 bg-slate-50 border-t border-slate-200/80 flex items-center justify-between gap-3">
+        {/* DIALOG FOOTER (FIXED PINNED AT BOTTOM) */}
+        <DialogFooter className="shrink-0 px-6 py-3.5 bg-slate-50 border-t border-slate-200/80 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Button
               type="button"
