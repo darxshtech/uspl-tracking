@@ -62,7 +62,6 @@ import LiveTeamActivityMonitor from "@/components/LiveTeamActivityMonitor";
 export default function DailyTasksPage() {
   const { data: session } = useSession();
   const role = (session?.user as any)?.role;
-  const currentUserId = (session?.user as any)?.id;
   const canManageAllTasks = role === "CEO" || role === "PM" || role === "Admin";
 
   const [tasks, setTasks] = useState<any[]>([]);
@@ -71,6 +70,47 @@ export default function DailyTasksPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<"today" | "tomorrow" | "assigned_to_me" | "assigned_pm" | "assigned_ceo" | "from_tester" | "submitted_testing" | "self_created" | "incomplete" | "overdue" | "all">("today");
+  const [pmScope, setPmScope] = useState<"all" | "my_tasks">("all");
+
+  // Robust currentUserId resolution (id, sub, or fallback matching email in employees list)
+  const currentUserId = useMemo(() => {
+    const rawId = (session?.user as any)?.id || (session?.user as any)?.sub;
+    if (rawId && String(rawId) !== "undefined" && String(rawId) !== "null") return String(rawId);
+    const sessionEmail = session?.user?.email?.trim().toLowerCase();
+    if (sessionEmail && Array.isArray(employees) && employees.length > 0) {
+      const match = employees.find((e) => e.email?.trim().toLowerCase() === sessionEmail);
+      if (match && match.id) return String(match.id);
+    }
+    return "";
+  }, [session, employees]);
+
+  // Robust helper to check if a task is allocated to the logged-in user
+  const isTaskAllocatedToMe = useCallback((t: any) => {
+    const userEmail = session?.user?.email?.trim().toLowerCase();
+    const userName = session?.user?.name?.trim().toLowerCase();
+    const uid = currentUserId ? String(currentUserId) : "";
+
+    // 1. Direct assigned_to match by ID
+    if (uid && String(t.assigned_to) === uid) return true;
+
+    // 2. Assignees array match by ID or Email or Name
+    if (Array.isArray(t.assignees) && t.assignees.length > 0) {
+      const found = t.assignees.some((a: any) => {
+        if (uid && String(a.id) === uid) return true;
+        if (userEmail && a.email && a.email.trim().toLowerCase() === userEmail) return true;
+        if (userName && a.name && a.name.trim().toLowerCase() === userName) return true;
+        return false;
+      });
+      if (found) return true;
+    }
+
+    // 3. Fallback: match by assignee_name
+    if (userName && t.assignee_name && t.assignee_name.trim().toLowerCase() === userName) {
+      return true;
+    }
+
+    return false;
+  }, [currentUserId, session]);
 
   // Advanced Filters State
   const [filterProject, setFilterProject] = useState<string>("ALL");
@@ -648,9 +688,9 @@ export default function DailyTasksPage() {
     if (!projectId) return employees;
     const selectedProj = projects.find((p) => p.id.toString() === projectId);
     if (selectedProj && selectedProj.members && Array.isArray(selectedProj.members) && selectedProj.members.length > 0) {
-      const memberIds = new Set(selectedProj.members.map((m: any) => m.id));
-      if (selectedProj.created_by) memberIds.add(selectedProj.created_by);
-      return employees.filter((e) => memberIds.has(e.id) || e.role === "PM" || e.role === "CEO" || e.role === "Admin" || e.id === currentUserId);
+      const memberIds = new Set(selectedProj.members.map((m: any) => String(m.id)));
+      if (selectedProj.created_by) memberIds.add(String(selectedProj.created_by));
+      return employees.filter((e) => memberIds.has(String(e.id)) || e.role === "PM" || e.role === "CEO" || e.role === "Admin" || (currentUserId && String(e.id) === currentUserId));
     }
     return employees;
   }, [projectId, projects, employees, currentUserId]);
@@ -660,9 +700,9 @@ export default function DailyTasksPage() {
     if (!editProjectId) return employees;
     const selectedProj = projects.find((p) => p.id.toString() === editProjectId);
     if (selectedProj && selectedProj.members && Array.isArray(selectedProj.members) && selectedProj.members.length > 0) {
-      const memberIds = new Set(selectedProj.members.map((m: any) => m.id));
-      if (selectedProj.created_by) memberIds.add(selectedProj.created_by);
-      return employees.filter((e) => memberIds.has(e.id) || e.role === "PM" || e.role === "CEO" || e.role === "Admin" || e.id === currentUserId);
+      const memberIds = new Set(selectedProj.members.map((m: any) => String(m.id)));
+      if (selectedProj.created_by) memberIds.add(String(selectedProj.created_by));
+      return employees.filter((e) => memberIds.has(String(e.id)) || e.role === "PM" || e.role === "CEO" || e.role === "Admin" || (currentUserId && String(e.id) === currentUserId));
     }
     return employees;
   }, [editProjectId, projects, employees, currentUserId]);
@@ -825,8 +865,8 @@ export default function DailyTasksPage() {
     setSubmitting(true);
     try {
       const finalAssignees = canManageAllTasks 
-        ? (assignedTo.length > 0 ? assignedTo : [currentUserId.toString()])
-        : [currentUserId.toString()];
+        ? (assignedTo.length > 0 ? assignedTo : (currentUserId ? [currentUserId] : []))
+        : (currentUserId ? [currentUserId] : []);
 
       const finalStartDate = startDate || todayStr;
       const finalExpectedDate = expectedDate || todayStr;
@@ -1419,6 +1459,11 @@ export default function DailyTasksPage() {
       const isFinished = ["Completed", "Ready for Demo", "Tested (PASS)"].includes(t.status);
       const isCompleted = t.status === "Completed" || t.status === "Ready for Demo";
 
+      // 0. PM / Manager Scope Filter
+      if (pmScope === "my_tasks" && !isTaskAllocatedToMe(t)) {
+        return false;
+      }
+
       // 1. Tab filtering
       let matchTab = true;
       if (activeTab === "today") {
@@ -1430,9 +1475,7 @@ export default function DailyTasksPage() {
       } else if (activeTab === "tomorrow") {
         matchTab = taskExpDate > todayStr;
       } else if (activeTab === "assigned_to_me") {
-        const isAssignedToMe = String(t.assigned_to) === String(currentUserId) ||
-          (Array.isArray(t.assignees) && t.assignees.some((a: any) => String(a.id) === String(currentUserId)));
-        matchTab = isAssignedToMe;
+        matchTab = isTaskAllocatedToMe(t);
       } else if (activeTab === "assigned_pm") {
         matchTab = t.assigned_by_type === "PM" || t.creator_role === "PM" || t.project_creator_role === "PM";
       } else if (activeTab === "assigned_ceo") {
@@ -1503,7 +1546,7 @@ export default function DailyTasksPage() {
 
       return true;
     });
-  }, [tasks, activeTab, filterProject, filterEmployee, filterDateMode, filterCustomDate, filterStatus, searchQuery, todayStr, tomorrowStr, currentUserId]);
+  }, [tasks, activeTab, pmScope, filterProject, filterEmployee, filterDateMode, filterCustomDate, filterStatus, searchQuery, todayStr, tomorrowStr, isTaskAllocatedToMe]);
 
   // Priority sorting:
   // 1. Selected Task from Live Monitor (highlightedTaskId) -> HIGHEST Rank 0 (#1 at top)
@@ -1593,10 +1636,7 @@ export default function DailyTasksPage() {
     const taskExpDate = t.expected_date ? t.expected_date.split("T")[0] : (t.target_date ? t.target_date.split("T")[0] : todayStr);
     return taskExpDate > todayStr;
   }).length;
-  const countAssignedToMe = tasks.filter((t) => {
-    return String(t.assigned_to) === String(currentUserId) ||
-      (Array.isArray(t.assignees) && t.assignees.some((a: any) => String(a.id) === String(currentUserId)));
-  }).length;
+  const countAssignedToMe = tasks.filter((t) => isTaskAllocatedToMe(t)).length;
   const countPM = tasks.filter((t) => t.assigned_by_type === "PM" || t.creator_role === "PM" || t.project_creator_role === "PM").length;
   const countCEO = tasks.filter((t) => t.assigned_by_type === "CEO" || t.creator_role === "CEO" || t.project_creator_role === "CEO").length;
   const countTester = tasks.filter((t) => t.assigned_by_type === "Tester" || t.status === "Changes Required" || t.status === "Ready for Testing" || t.status === "Testing" || t.creator_role === "Tester").length;
@@ -1638,7 +1678,39 @@ export default function DailyTasksPage() {
         </div>
 
         {/* Top Right Action Buttons */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {canManageAllTasks && (
+            <div className="flex items-center gap-1 p-1 bg-slate-200/90 rounded-xl border border-slate-300 shadow-2xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setPmScope("my_tasks");
+                  setActiveTab("all");
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  pmScope === "my_tasks"
+                    ? "bg-sky-600 text-white shadow-xs"
+                    : "text-slate-700 hover:text-slate-900"
+                }`}
+              >
+                <User className="h-3.5 w-3.5" />
+                My Allocated Tasks ({countAssignedToMe})
+              </button>
+              <button
+                type="button"
+                onClick={() => setPmScope("all")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  pmScope === "all"
+                    ? "bg-white text-slate-900 shadow-xs border border-slate-200"
+                    : "text-slate-700 hover:text-slate-900"
+                }`}
+              >
+                <Users className="h-3.5 w-3.5 text-slate-500" />
+                All Team Tasks ({tasks.length})
+              </button>
+            </div>
+          )}
+
           <Button
             size="sm"
             variant="outline"
@@ -2123,6 +2195,52 @@ export default function DailyTasksPage() {
               <ArrowDown className="h-3 w-3" />
             </span>
           </div>
+        </div>
+      )}
+
+      {/* PM / Manager Allocated Tasks Notice & Scope Status */}
+      {canManageAllTasks && pmScope === "my_tasks" && (
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 rounded-2xl bg-gradient-to-r from-sky-50 via-indigo-50 to-sky-50 border border-sky-200 text-xs shadow-xs">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-sky-600 text-white shadow-2xs">
+              <User className="h-4 w-4" />
+            </div>
+            <div>
+              <p className="font-extrabold text-sm text-sky-950">Viewing Your Allocated Tasks ({countAssignedToMe})</p>
+              <p className="text-sky-700 text-[11px]">Showing tasks assigned directly to you across all projects. You can start/resume timers, update progress, and check off subtasks.</p>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setPmScope("all")}
+            className="border-sky-300 bg-white text-sky-800 hover:bg-sky-50 font-bold text-xs gap-1 shadow-2xs cursor-pointer"
+          >
+            <Users className="h-3.5 w-3.5 text-sky-600" /> Switch to All Team Tasks
+          </Button>
+        </div>
+      )}
+
+      {canManageAllTasks && pmScope === "all" && countAssignedToMe > 0 && (
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-sky-50/80 border border-sky-200 text-xs shadow-2xs">
+          <div className="flex items-center gap-2.5">
+            <div className="p-1.5 rounded-lg bg-sky-100 text-sky-800">
+              <User className="h-3.5 w-3.5" />
+            </div>
+            <p className="font-bold text-sky-900">
+              You have <span className="underline font-black">{countAssignedToMe} personal task(s)</span> allocated to you in this project.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => {
+              setPmScope("my_tasks");
+              setActiveTab("all");
+            }}
+            className="bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs gap-1 shadow-2xs cursor-pointer h-7"
+          >
+            <Eye className="h-3 w-3" /> Focus on My Tasks ({countAssignedToMe})
+          </Button>
         </div>
       )}
 
@@ -3550,10 +3668,7 @@ export default function DailyTasksPage() {
 
                 const isTimerActivelyRunning = Boolean(task.running_timer) || (activeUserTimer && activeUserTimer.task_id === task.id);
                 const runnerName = task.running_timer?.runner_name || (activeUserTimer && activeUserTimer.task_id === task.id ? "You" : null);
-                const isAllocatedToMe = Boolean(
-                  String(task.assigned_to) === String(currentUserId) ||
-                  (Array.isArray(task.assignees) && task.assignees.some((a: any) => String(a.id) === String(currentUserId)))
-                );
+                const isAllocatedToMe = isTaskAllocatedToMe(task);
 
                 return (
                   <TableRow 

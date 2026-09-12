@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { useSession } from "next-auth/react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -82,6 +83,30 @@ export default function EmployeePersonalProgress() {
     };
   }, [fetchData]);
 
+  const { data: session } = useSession();
+  const currentUserId = (session?.user as any)?.id || (session?.user as any)?.sub;
+  const currentUserEmail = session?.user?.email?.trim().toLowerCase();
+  const currentUserName = session?.user?.name?.trim().toLowerCase();
+
+  // Scope tasks to the current logged-in user (essential when PM or managers fetch all tasks)
+  const userTasks = useMemo(() => {
+    return tasks.filter((t) => {
+      if (!currentUserId && !currentUserEmail && !currentUserName) return true;
+      if (currentUserId && String(t.assigned_to) === String(currentUserId)) return true;
+      if (Array.isArray(t.assignees) && t.assignees.length > 0) {
+        return t.assignees.some((a: any) => 
+          (currentUserId && String(a.id) === String(currentUserId)) ||
+          (currentUserEmail && a.email && a.email.trim().toLowerCase() === currentUserEmail) ||
+          (currentUserName && a.name && a.name.trim().toLowerCase() === currentUserName)
+        );
+      }
+      if (currentUserName && t.assignee_name && t.assignee_name.trim().toLowerCase() === currentUserName) {
+        return true;
+      }
+      return false;
+    });
+  }, [tasks, currentUserId, currentUserEmail, currentUserName]);
+
   // Group tasks by project
   const projectMap: Record<string, any> = {};
   projects.forEach((p) => {
@@ -95,7 +120,7 @@ export default function EmployeePersonalProgress() {
     };
   });
 
-  tasks.forEach((t) => {
+  userTasks.forEach((t) => {
     const pId = String(t.project_id);
     if (projectMap[pId]) {
       projectMap[pId].tasks.push(t);

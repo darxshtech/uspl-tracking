@@ -192,7 +192,18 @@ export default async function DashboardPage() {
       <RemindersWidget role={role} currentUserId={userId} />
 
       {/* Conditional Dashboard Rendering */}
-      {isExecutive ? (
+      {role === "PM" ? (
+        <div className="space-y-8">
+          <EmployeePersonalProgress />
+          <div className="border-t border-slate-200 pt-6">
+            <h2 className="text-xl font-bold text-slate-900 mb-4 flex items-center gap-2">
+              <Briefcase className="h-5 w-5 text-sky-600" />
+              Company Team & Workload Overview
+            </h2>
+            <CEOFilterDashboard />
+          </div>
+        </div>
+      ) : isExecutive ? (
         <CEOFilterDashboard />
       ) : (
         <EmployeePersonalProgress />
