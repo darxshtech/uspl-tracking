@@ -82,13 +82,14 @@ export function generateLetterPDF(data: LetterData, autoDownload: boolean = true
   doc.text("UNITGLO SOLUTIONS PRIVATE LIMITED", pageWidth - marginX, currentY + 2, { align: "right" });
 
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(7.5);
+  doc.setFontSize(7.2);
   doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
-  doc.text("CIN: U72900PN2023PTC220000 | GSTIN: 27AACCU9876F1Z5", pageWidth - marginX, currentY + 6.5, { align: "right" });
-  doc.text("Magarpatta Cybercity, Hadapsar, Pune, Maharashtra - 411028", pageWidth - marginX, currentY + 10.5, { align: "right" });
-  doc.text("Email: contact@unitglo.com | Web: www.unitglo.com | Tel: +91 84848 11111", pageWidth - marginX, currentY + 14.5, { align: "right" });
+  doc.text("CIN: U72900PN2016PTC165210 | GSTIN: 27AABCU9538R1ZD", pageWidth - marginX, currentY + 6, { align: "right" });
+  doc.text("Regd. Office: Flat No 9, Shri Sai Samarth Heights, A wing, Mohan Nagar,", pageWidth - marginX, currentY + 9.5, { align: "right" });
+  doc.text("MIDC, Chinchwad, Pimpri-Chinchwad, Maharashtra - 411019", pageWidth - marginX, currentY + 13, { align: "right" });
+  doc.text("Email: info@unitglo.com | Web: www.unitglo.com | Tel: +91 73875 11539", pageWidth - marginX, currentY + 16.5, { align: "right" });
 
-  currentY += 21;
+  currentY += 23;
 
   // Double Decorative Rule
   doc.setDrawColor(primaryNavy[0], primaryNavy[1], primaryNavy[2]);

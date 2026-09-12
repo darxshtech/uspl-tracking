@@ -689,9 +689,10 @@ export default function LetterGenerationModal({
                   </div>
                   <div className="text-right text-[10px]">
                     <h2 className="text-xs font-black text-slate-900">UNITGLO SOLUTIONS PRIVATE LIMITED</h2>
-                    <p className="text-[9px] text-slate-500">CIN: U72900PN2023PTC220000 | GSTIN: 27AACCU9876F1Z5</p>
-                    <p className="text-[9px] text-slate-500">Magarpatta Cybercity, Hadapsar, Pune, MH - 411028</p>
-                    <p className="text-[9px] text-slate-400">contact@unitglo.com | www.unitglo.com</p>
+                    <p className="text-[9px] text-slate-500">CIN: U72900PN2016PTC165210 | GSTIN: 27AABCU9538R1ZD</p>
+                    <p className="text-[9px] text-slate-500">Flat No 9, Shri Sai Samarth Heights, A wing, Mohan Nagar,</p>
+                    <p className="text-[9px] text-slate-500">MIDC, Chinchwad, Pimpri-Chinchwad, Maharashtra 411019</p>
+                    <p className="text-[9px] text-slate-400">info@unitglo.com | www.unitglo.com | +91 73875 11539</p>
                   </div>
                 </div>
 
