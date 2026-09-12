@@ -542,6 +542,12 @@ export async function PATCH(req: Request) {
            WHERE task_id = ? AND is_active = 1`,
           [id]
         );
+
+        // Auto-complete all subtasks/checklists when task is marked Completed
+        await pool.query(
+          "UPDATE task_checklists SET is_completed = 1 WHERE task_id = ?",
+          [id]
+        );
       }
 
       if (editStatus === "Ready for Testing") {
@@ -608,6 +614,13 @@ export async function PATCH(req: Request) {
               [id, item.item_text.trim(), item.is_completed ? 1 : 0, itemAtts]
             );
           }
+        }
+
+        if (editStatus === "Completed") {
+          await pool.query(
+            "UPDATE task_checklists SET is_completed = 1 WHERE task_id = ?",
+            [id]
+          );
         }
       }
 
@@ -893,6 +906,14 @@ export async function PATCH(req: Request) {
         id
       ]
     );
+
+    // Auto-complete all subtasks/checklists when task is marked Completed
+    if (newStatus === "Completed" || is100Percent) {
+      await pool.query(
+        "UPDATE task_checklists SET is_completed = 1 WHERE task_id = ?",
+        [id]
+      );
+    }
 
     // Notify Admin, CEO, and PM when task is 100% completed or progress is recorded
     const currentUserName = session.user?.name || "User";

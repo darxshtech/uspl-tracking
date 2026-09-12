@@ -660,6 +660,14 @@ export async function POST(req: Request) {
         [finalStatus, session_summary || "Task completed via timer stop", blockers || null, ...linkParams, targetTaskId]
       );
 
+      // Auto-complete all subtasks/checklists when task is marked Completed
+      if (finalStatus === "Completed") {
+        await pool.query(
+          "UPDATE task_checklists SET is_completed = 1 WHERE task_id = ?",
+          [targetTaskId]
+        );
+      }
+
       // Alert QA testers if submitted for testing
       if (finalStatus === "Ready for Testing") {
         try {
@@ -858,6 +866,12 @@ export async function POST(req: Request) {
                blockers = IFNULL(?, blockers)
            WHERE id = ?`,
           [session_summary ? session_summary.trim() : "Completed at 100%", blockers || null, task_id]
+        );
+
+        // Auto-complete all subtasks/checklists when task is marked Completed
+        await pool.query(
+          "UPDATE task_checklists SET is_completed = 1 WHERE task_id = ?",
+          [task_id]
         );
 
         // Deactivate active running timer for this task
